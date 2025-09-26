@@ -1,0 +1,34 @@
+/*NOTE: Below are for NowcastGauge Component*/
+.layout-nowcast-gauge {
+    display: grid;
+    grid-template-rows: 1fr auto; /* Chart takes available space, legend takes its content's height */
+    grid-template-areas:
+        "chart"
+        "legend";
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.nowcast-gauge-chart-area {
+    grid-area: chart;
+    min-height: 0; /* Crucial for grid children to prevent overflow */
+    position: relative;
+}
+
+.nowcast-gauge-legend-area {
+    grid-area: legend;
+    padding: 0.5rem 0; /* Add some padding for spacing */
+}
+
+.nowcast-gauge-tooltip {
+    position: absolute;
+    pointer-events: none;
+    z-index: 10;
+    background-color: white;
+    color: black;
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 12px;
+}

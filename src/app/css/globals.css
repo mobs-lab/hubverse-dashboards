@@ -1,0 +1,24 @@
+@import "./reset.css";
+@import "./utility/common.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media (min-width: 320px) {
+  :root {
+    --header-height: 3rem; /* Smaller screens */
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --header-height: 4rem; /* Larger screens */
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --header-height: 5rem; /* Larger screens */
+  }
+}
