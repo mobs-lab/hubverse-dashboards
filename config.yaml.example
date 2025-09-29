@@ -154,7 +154,7 @@
 # Targets to include, paired with display names.
 # Dashboard will look for each target in column headers in target-data.
 - targets:
-    - "values": # admission values in Flusight-Forecast-hub's hospitalization target-data.
+    - "value": # admission values in Flusight-Forecast-hub's hospitalization target-data.
         # Dashboard will find `wk inc flu hosp` for "target" column header, and use the values of respective rows
         - corresponding_key_in_model_output_target_column: "wk inc flu hosp"
         # Which seasons to do this modelling task for,
@@ -182,7 +182,25 @@
 #====================================
 
 # Here you can customize the settings to work with your specific target-data data.
-# See
+# See https://docs.hubverse.io/en/latest/user-guide/target-data.html for Hubverse's documentation on target-data
+#
+# Some further conditions must be met for dashboard to work with your target-data:
+# - Your target-data contain:
+#   - A "date" column.
+#   - A "observation" column or equivalent.
+#
+# - If you have multiple locations or multiple targets:
+#   - A "location" column
+#   - A "target" column
+#   * If single-location or single-target are toggled on, these two can be left blank.
+- target_data_header_mapping:
+  - date_col_name: "date"
+  - observation_col_name: "value"
+  - location_col_name: "location"
+  - location_name_col_name: "location_name"   # Optional
+  - target_col_name: null
+
+- target_data_observation_format: "float"
 
 #=====================================
 # Model-output related configurations
