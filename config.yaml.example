@@ -2,14 +2,19 @@
 # This is an example configuration file for customizing what want to see/use on the Dashboard based on your data.
 # Please copy this file into a `config.yaml` inside project root folder before running the setup bash shell script!!
 
+#=============
+# Data Source
+#=============
 # Links/paths to HubVerse data (See README.md)
 - links_to_hubverse_compatible_data:
     - target_data_link: "https://github.com/FluSight-forecast-hub/"
     - model_output_link: "https://github.com/hubverse-org/hubTemplate" # Will look for `/model-output` folder in this path
-
 # To use local only setup, comment out the line above & uncomment the line below.
 # - link_to_hubverse_compatible_data: null
 
+#==============================
+# Forecast Periods Definitions
+#==============================
 # Display names and start/end boundaries for forecast periods.
 # Forecast periods can overlap each other or have gap between them.
 # Each period' start and end date will be used to filter out matching model-output data.
@@ -27,7 +32,7 @@
         - display_string: "(Ongoing) 2024-2025"
 
 # TODO: This is a draft, need to figure out how configurations file should handle dynamic, time-anchor-relative and how to translate to Python for processing. The question is how to let user hook the `time_anchor` to maybe an ongoing season (that causes data updates)?
-# =====
+#
 # Each special period should have a time-anchor (as base of relative time length calculation).
 # Special values for forecast periods (e.g. last 2/4/8 weeks)
 - special_forecast_periods:
@@ -40,10 +45,12 @@
                 - anchor_on: "latest" # This becomes dynamically calculated whenever the above season data change
             - range_calculation: -2 # Input a negative number here, unit is `time_unit` you defined , so for example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
         - first-8-weeks:
-            - special_period_id: "last-2-weeks" # Required, used for indexing and keying
-            - display_string: "Last 2 Weeks" # Required
-            - time_anchor: "2025-05-31T00:00:00" # Must be a valid ISO datetime string representing an actually valid date. The `range_calculation` will use this date as the base.
-            - range_calculation: -2 # Input a negative number here, unit is `time_unit` you defined , so for example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
+            - special_period_id: "first-8-weeks"
+            - display_string: "First 8 Weeks"
+            - time_anchor:
+                - anchor_forecast_period: "season-2021-2022"
+                - anchor_on: "earliest" # Also trigger new calculation when new data comes in, but ONLY if anchor + calculation ends up inside the range, and the range has to be positive instead of negative in this scenario
+            - range_calculation: 8      # Negative numbers will error out
     - static_periods:
         - season-2024-2025-last-2-weeks:
             - special_period_id: "season-24-25-last-2-weeks" # Required, used for indexing and keying
@@ -56,7 +63,7 @@
 - is_single_location_forecast: False
 # If True then specify the location so map visulizations can work properly.
 - single_location_mapping:
-    - "02": "Alaska" # Please still keep to formal US state code
+    - "02": "Alaska"    # Please use standard US state code
 
 # Locations to include. Location data should at minimum be a mapping of "location code" to "location name".
 # There are two ways you can tell the dashboard how that is done:
@@ -131,9 +138,10 @@
       # - "74": "U.S. Minor Outlying Islands"
       # - "78": "Virgin Islands"
 
-#========================================
+
+#=========================================
 # Modelling Tasks, or Targets definitions
-#========================================
+#=========================================
 # Special toggle for single-target forecast scenario.
 # Change this to True and dashboard will not filter target-data's "value" column nor model-output's "target" column at all.
 - is_single_forecast_target: False
@@ -163,6 +171,12 @@
   #   - for_forecast_periods: ["season-2021-2022" ]
   # - "admission_type": ...
 
+# Time Unit in days, or how frequent model-output and target-data are updated.
+# This is also used to cross-reference with `horizon` (forecast horizons).
+# Each predictin target Day Y should be equal to some Day X + `horizon` * `time_unit`.
+- time_unit: 7 # Required
+
+
 #====================================
 # Target-data related configurations
 #====================================
@@ -170,9 +184,17 @@
 # Here you can customize the settings to work with your specific target-data data.
 # See
 
-#====================================
+#=====================================
 # Model-output related configurations
-#====================================
+#=====================================
+# Models to include. The dashboard uses this list to find matching subdirectories inside `model-output/`
+# So please name the folders to be the exact same. Recommended to wrap names inside double quote.
+- available_models:
+    - "MOBS-GLEAM_FLUH": # This name has to match the subdirectory
+        - color_hex: "#9ceb94" # Optional, Assign color here for dashboard to display it whenever applicable.
+    - "MIGHTE-Nsemble":
+        - color_hex: "#111111"
+
 # # TODO: Should we use Hubverse' naming convention or keep our own?
 #       Regardless, we need to force user to specify their mapping if they use something different.
 #
@@ -210,22 +232,12 @@
     - "50":
         - uses_output_type_ids: ["0.25", "0.75"]
 
-# Models to include. The dashboard uses this list to find matching subdirectories inside `model-output/`
-# So please name the folders to be the exact same. Recommended to wrap names inside double quote.
-- available_models:
-    - MOBS-GLEAM_FLUH: # This name has to match the subdirectory
-        - color_hex: "#9ceb94" # Optional, Assign color here for dashboard to display it whenever applicable.
-    - MIGHTE-Nsemble:
-        - color_hex: "#111111"
-
-# Time Unit in days, or how frequent model-output and target-data are updated.
-# This is also used to cross-reference with `horizon` (forecast horizons).
-# Each predictin target Day Y should be equal to some Day X + `horizon` * `time_unit`.
-- time_unit: 7 # Required
-
 # The difference between the target_date and the origin_date in time units specified by the hub (e.g., days, weeks, or months)
 - horizons: [0, 1, 2, 3] # In our example, no -1 horizon forecasts.
 
+#===================================
+# Model Output Evaluation Settings
+#===================================
 # TODO: What kind of representation should we provide configuration on?
 # Prediction intervals to calculate coverage evaluations on.
 
