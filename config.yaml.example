@@ -266,5 +266,6 @@
 # TODO: What kind of representation should we provide configuration on?
 # Prediction intervals to calculate coverage evaluations on.
 
+
 # Model to use as a baseline for relative WIS.
 - baseline_model_for_relative_WIS: "MOBS-GLEAM_FLUH"
