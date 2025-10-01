@@ -331,3 +331,7 @@ cython_debug/
 
 .prettierrc
 package-lock.json
+
+
+# config.yaml should be ignored.
+config.yaml

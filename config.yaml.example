@@ -1,0 +1,271 @@
+---
+# This is an example configuration file for customizing what want to see/use on the Dashboard based on your data.
+# Please copy this file into a `config.yaml` inside project root folder before running the setup bash shell script!!
+
+#=============
+# Data Source
+#=============
+# Links/paths to HubVerse data (See README.md)
+- links_to_hubverse_compatible_data:
+    - target_data_link: "https://github.com/FluSight-forecast-hub/"
+    - model_output_link: "https://github.com/hubverse-org/hubTemplate" # Will look for `/model-output` folder in this path
+# To use local only setup, comment out the line above & uncomment the line below.
+# - link_to_hubverse_compatible_data: null
+
+#==============================
+# Forecast Periods Definitions
+#==============================
+# Display names and start/end boundaries for forecast periods.
+# Forecast periods can overlap each other or have gap between them.
+# Each period' start and end date will be used to filter out matching model-output data.
+- forecast_periods:
+    - season-2021-2022:
+        - forecast_period_id: "season-2021-2022" # Required, for the dashboard to correctly index forecast periods.
+        # All datetime values must be ISO Datetime String or ISO Date String
+        - start_date: "2022-02-05T00:00:00" # Required
+        - end_date: "2022-07-31T00:00:00" # Required
+        - display_string: "Partial 2021-2022" # Required
+    - season-2024-2025:
+        - forecast_period_id: "season-2024-2025"
+        - start_date: "2024-08-01T00:00:00"
+        - end_date: "2025-07-31T00:00:00"
+        - display_string: "(Ongoing) 2024-2025"
+
+# TODO: This is a draft, need to figure out how configurations file should handle dynamic, time-anchor-relative and how to translate to Python for processing. The question is how to let user hook the `time_anchor` to maybe an ongoing season (that causes data updates)?
+#
+# Each special period should have a time-anchor (as base of relative time length calculation).
+# Special values for forecast periods (e.g. last 2/4/8 weeks)
+- special_forecast_periods:
+    - dynamic_periods: # This requires `time_unit` to be defined. If `time_unit` is null, none will be processed.
+        - last-2-weeks:
+            - special_period_id: "last-2-weeks" # Required, used for indexing and keying
+            - display_string: "Last 2 Weeks" # Required
+            - time_anchor:
+                - anchor_forecast_period: "season-2024-2025"
+                - anchor_on: "latest" # This becomes dynamically calculated whenever the above season data change
+            - range_calculation: -2 # Input a negative number here, unit is `time_unit` you defined , so for example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
+        - first-8-weeks:
+            - special_period_id: "first-8-weeks"
+            - display_string: "First 8 Weeks"
+            - time_anchor:
+                - anchor_forecast_period: "season-2021-2022"
+                - anchor_on: "earliest" # Also trigger new calculation when new data comes in, but ONLY if anchor + calculation ends up inside the range, and the range has to be positive instead of negative in this scenario
+            - range_calculation: 8      # Negative numbers will error out
+    - static_periods:
+        - season-2024-2025-last-2-weeks:
+            - special_period_id: "season-24-25-last-2-weeks" # Required, used for indexing and keying
+            - display_string: "Last 2 Weeks" # Required
+            - sub_display_value: "(May 25, 2025 - May 31, 2025)" # Optional, this will be displayed in a smaller font after the `displayString` text in setting panels wherever possible.
+            - start_date: "2025-05-24T00:00:00" # Required
+            - end_date: "2025-05-31T00:00:00" # Required
+
+# Special toggle for single-location modelling task. Remember to turn this on and delete the `location_data` section below!
+- is_single_location_forecast: False
+# If True then specify the location so map visulizations can work properly.
+- single_location_mapping:
+    - "02": "Alaska"    # Please use standard US state code
+
+# Locations to include. Location data should at minimum be a mapping of "location code" to "location name".
+# There are two ways you can tell the dashboard how that is done:
+# 1) Use a CSV file containing the mapping on each line.
+# 2) Enter them all here, a list for each location.
+# Your configuration must include one of these options, even if your location target is only one location.
+- location_data:
+    # Option 1) here: must be relative to your project root, same for local-setup and hubverse repos.
+    - location_data_csv_file_path: "data_processing_dir/locations.csv"
+    # Also must specify which columns contain the mappings.
+    - location_code_col_name: "location"
+    - location_name_col_name: "location_name"
+
+    # Option 2) here: list the location mapping here. Best if double-quoted
+    - location_mapping:
+        - "US": "United States"
+        - "01": "Alabama"
+        - "02": "Alaska"
+        - "04": "Arizona"
+        - "05": "Arkansas"
+        - "06": "California"
+        - "08": "Colorado"
+        - "09": "Connecticut"
+        - "10": "Delaware"
+        - "11": "District of Columbia"
+        - "12": "Florida"
+        - "13": "Georgia"
+        - "15": "Hawaii"
+        - "16": "Idaho"
+        - "17": "Illinois"
+        - "18": "Indiana"
+        - "19": "Iowa"
+        - "20": "Kansas"
+        - "21": "Kentucky"
+        - "22": "Louisiana"
+        - "23": "Maine"
+        - "24": "Maryland"
+        - "25": "Massachusetts"
+        - "26": "Michigan"
+        - "27": "Minnesota"
+        - "28": "Mississippi"
+        - "29": "Missouri"
+        - "30": "Montana"
+        - "31": "Nebraska"
+        - "32": "Nevada"
+        - "33": "New Hampshire"
+        - "34": "New Jersey"
+        - "35": "New Mexico"
+        - "36": "New York"
+        - "37": "North Carolina"
+        - "38": "North Dakota"
+        - "39": "Ohio"
+        - "40": "Oklahoma"
+        - "41": "Oregon"
+        - "42": "Pennsylvania"
+        - "44": "Rhode Island"
+        - "45": "South Carolina"
+        - "46": "South Dakota"
+        - "47": "Tennessee"
+        - "48": "Texas"
+        - "49": "Utah"
+        - "50": "Vermont"
+        - "51": "Virginia"
+        - "53": "Washington"
+        - "54": "West Virginia"
+        - "55": "Wisconsin"
+        - "56": "Wyoming"
+      # - "60": "American Samoa"
+      # - "66": "Guam"
+      # - "69": "Northern Mariana Islands"
+      # - "72": "Puerto Rico"
+      # - "74": "U.S. Minor Outlying Islands"
+      # - "78": "Virgin Islands"
+
+
+#=========================================
+# Modelling Tasks, or Targets definitions
+#=========================================
+# Special toggle for single-target forecast scenario.
+# Change this to True and dashboard will not filter target-data's "value" column nor model-output's "target" column at all.
+- is_single_forecast_target: False
+
+# TODO: How are we going to support multiple targets (if at all)? I can foresee having multiple X-axis each corresponding to a target in i.e. Forecast Chart.
+#       (Also, to implement this, change the script to collect and organize each narrow-format target-data rows according to different targets)
+#
+# THIS MIRRORS "modelling tasks" in HUBVERSE's DEFINITION
+# Defining the actual logic of how to utilize target-data and model-output together to see model performances.
+# Targets to include, paired with display names.
+# Dashboard will look for each target in column headers in target-data.
+- targets:
+    - "value": # admission values in Flusight-Forecast-hub's hospitalization target-data.
+        # Dashboard will find `wk inc flu hosp` for "target" column header, and use the values of respective rows
+        - corresponding_key_in_model_output_target_column: "wk inc flu hosp"
+        # Which seasons to do this modelling task for,
+        # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
+        - for_forecast_periods:
+            [
+              "season-2021-2022",
+              "season-2024-2025",
+              "last-2-weeks",
+              "season-24-25-last-2-weeks",
+            ]
+
+  # - "observations":
+  #   - corresponding_key_in_model_output_target_column: "something something"
+  #   - for_forecast_periods: ["season-2021-2022" ]
+  # - "admission_type": ...
+
+# Time Unit in days, or how frequent model-output and target-data are updated.
+# This is also used to cross-reference with `horizon` (forecast horizons).
+# Each predictin target Day Y should be equal to some Day X + `horizon` * `time_unit`.
+- time_unit: 7 # Required
+
+
+#====================================
+# Target-data related configurations
+#====================================
+
+# Here you can customize the settings to work with your specific target-data data.
+# See https://docs.hubverse.io/en/latest/user-guide/target-data.html for Hubverse's documentation on target-data
+#
+# Some further conditions must be met for dashboard to work with your target-data:
+# - Your target-data contain:
+#   - A "date" column that contain date in string format.
+#   - A "observation" column or equivalent.
+#
+# - If you have multiple locations or multiple targets:
+#   - A "location" column
+#   - A "target" column
+#   * If single-location or single-target are toggled on, these two can be left blank.
+#
+# - If you need to view historical target-data: (See https://docs.hubverse.io/en/latest/user-guide/target-data.html#optional-as-of-column-to-record-data-versions)
+#   - An "as_of" column that contain date in string format.
+- target_data_header_mapping:
+  - date_col_name: "date"
+  - observation_col_name: "value"
+  - location_col_name: "location"
+  - location_name_col_name: "location_name"   # Optional
+  - target_col_name: null
+  - as_of_col_name: null
+
+- target_data_observation_format: "float"
+
+#=====================================
+# Model-output related configurations
+#=====================================
+# Models to include. The dashboard uses this list to find matching subdirectories inside `model-output/`
+# So please name the folders to be the exact same. Recommended to wrap names inside double quote.
+- available_models:
+    - "MOBS-GLEAM_FLUH": # This name has to match the subdirectory
+        - color_hex: "#9ceb94" # Optional, Assign color here for dashboard to display it whenever applicable.
+    - "MIGHTE-Nsemble":
+        - color_hex: "#111111"
+
+
+
+# # TODO: Should we use Hubverse' naming convention or keep our own?
+#       Regardless, we need to force user to specify their mapping if they use something different.
+#
+# Here you can customize the settings to work with your specific model-output data.
+# See https://docs.hubverse.io/en/latest/user-guide/model-output.html#details-about-model-output-column-specifications.
+# Some conditions must be met for this to work,
+# Mostly related to your model-output data representation format, for the purpose of matching `date` column in target-data.
+# CONDITIONS:
+# - Your model-output data contain:
+#   - A "reference_date" column or equivalent
+#   - A "target_end_date" column or equivalent
+#   - A "target" column or equivalent
+#   - A "horizon" column, if you specify `horizons` options, see below
+#   - A "location" column or equivalent, if you have multiple location
+#   - A "output_type" column that has `quantile` as key. Currently the dashboard only supports quantile output type forecasts.
+#   - A "output_type_id" column that has quantile interval values in float values.
+#   - A "value" column that contain the model output predictions
+# Map your data's column header below
+- model_output_data_header_mapping:
+    - reference_date_col_name: "reference_date"
+    - target_end_date_col_name: "target_end_date"
+    - target_col_name: "target"
+    - horizon_col_name: "horizon"
+    - location_col_name: "location"
+    - output_type_col_name: "output_type"
+    - output_type_id_col_name: "output_type_id"
+    - value_col_name: "value"
+
+# Prediction intervals to make available in the Forecast chart.
+# Hubverse's model-output column specs: https://docs.hubverse.io/en/latest/user-guide/model-output.html#details-about-model-output-column-specifications
+# Dashboard will use your specifications for acquiring and calculating CIs accordingly.
+- prediction_intervals:
+    - "25": # Dashboard will postfix this with a "%" and display as selectable options.
+        - uses_output_type_ids: ["0.1", "0.35"] # Specify the output_type_ids keys, order has to be ascending-by-value.
+    - "50":
+        - uses_output_type_ids: ["0.25", "0.75"]
+
+# Required: The difference between the target_date and the origin_date in time units specified by the hub (e.g., days, weeks, or months)
+- horizons: [0, 1, 2, 3] # In our example, no -1 horizon forecasts.
+
+#===================================
+# Model Output Evaluation Settings
+#===================================
+# TODO: What kind of representation should we provide configuration on?
+# Prediction intervals to calculate coverage evaluations on.
+
+
+# Model to use as a baseline for relative WIS.
+- baseline_model_for_relative_WIS: "MOBS-GLEAM_FLUH"
