@@ -146,10 +146,9 @@
 # Change this to True and dashboard will not filter target-data's "value" column nor model-output's "target" column at all.
 - is_single_forecast_target: False
 
-# TODO: How are we going to support multiple targets (if at all)? I can foresee having multiple X-axis each corresponding to a target in i.e. Forecast Chart.
+# TODO: How are we going to support multiple targets? I can foresee having multiple X-axis each corresponding to a target in i.e. Forecast Chart.
 #       (Also, to implement this, change the script to collect and organize each narrow-format target-data rows according to different targets)
 #
-# THIS MIRRORS "modelling tasks" in HUBVERSE's DEFINITION
 # Defining the actual logic of how to utilize target-data and model-output together to see model performances.
 # Targets to include, paired with display names.
 # Dashboard will look for each target in column headers in target-data.
@@ -224,6 +223,11 @@
 #       Regardless, we need to force user to specify their mapping if they use something different.
 #
 # Here you can customize the settings to work with your specific model-output data.
+#
+# Specify your model-output data's naming standard, either using ISO date `round_id` or alphanumeric `round_id`.
+# For examples, see https://docs.hubverse.io/en/latest/user-guide/model-output.html#directory-structure
+- model_output_data_file_naming_standard: "ISODate"   # Or "Alphanumeric"
+
 # See https://docs.hubverse.io/en/latest/user-guide/model-output.html#details-about-model-output-column-specifications.
 # Some conditions must be met for this to work,
 # Mostly related to your model-output data representation format, for the purpose of matching `date` column in target-data.
@@ -265,7 +269,11 @@
 #===================================
 # TODO: What kind of representation should we provide configuration on?
 # Prediction intervals to calculate coverage evaluations on.
-
+- evaluations_prediction_intervals:
+    - "25": # Dashboard will postfix this with a "%" and display as selectable options.
+        - uses_output_type_ids: ["0.1", "0.35"] # Specify the output_type_ids keys, order has to be ascending-by-value.
+    - "50":
+        - uses_output_type_ids: ["0.25", "0.75"]
 
 # Model to use as a baseline for relative WIS.
 - baseline_model_for_relative_WIS: "MOBS-GLEAM_FLUH"
