@@ -6,11 +6,11 @@
 # Data Source
 #=============
 # Links/paths to HubVerse data (See README.md)
-- links_to_hubverse_compatible_data:
-    - target_data_link: "https://github.com/FluSight-forecast-hub/"
-    - model_output_link: "https://github.com/hubverse-org/hubTemplate" # Will look for `/model-output` folder in this path
+# - links_to_hubverse_compatible_data:
+#     - target_data_link: "https://github.com/FluSight-forecast-hub/"
+#     - model_output_link: "https://github.com/hubverse-org/hubTemplate" # Will look for `/model-output` folder in this path
 # To use local only setup, comment out the line above & uncomment the line below.
-# - link_to_hubverse_compatible_data: null
+- link_to_hubverse_compatible_data: null
 
 #==============================
 # Forecast Periods Definitions
@@ -20,11 +20,12 @@
 # Each period' start and end date will be used to filter out matching model-output data.
 - forecast_periods:
     - season-2021-2022:
-        - forecast_period_id: "season-2021-2022" # Required, for the dashboard to correctly index forecast periods.
+        - forecast_period_id: "season-2021-2022"    # Required, for the dashboard to correctly index forecast periods.
         # All datetime values must be ISO Datetime String or ISO Date String
-        - start_date: "2022-02-05T00:00:00" # Required
-        - end_date: "2022-07-31T00:00:00" # Required
-        - display_string: "Partial 2021-2022" # Required
+        - start_date: "2022-02-05T00:00:00"         # Required
+        - end_date: "2022-07-31T00:00:00"           # Required
+        - display_string: "Partial 2021-2022"       # Required
+        - is_default_selected: True                 # Will be default selected in every dashboard page
     - season-2024-2025:
         - forecast_period_id: "season-2024-2025"
         - start_date: "2024-08-01T00:00:00"
@@ -36,34 +37,27 @@
 # Each special period should have a time-anchor (as base of relative time length calculation).
 # Special values for forecast periods (e.g. last 2/4/8 weeks)
 - special_forecast_periods:
-    - dynamic_periods: # This requires `time_unit` to be defined. If `time_unit` is null, none will be processed.
+    - dynamic_periods:      # This requires `time_unit` to be defined. If `time_unit` is null, none will be processed.
         - last-2-weeks:
             - special_period_id: "last-2-weeks" # Required, used for indexing and keying
-            - display_string: "Last 2 Weeks" # Required
+            - display_string: "Last 2 Weeks"    # Required
             - time_anchor:
                 - anchor_forecast_period: "season-2024-2025"
-                - anchor_on: "latest" # This becomes dynamically calculated whenever the above season data change
-            - range_calculation: -2 # Input a negative number here, unit is `time_unit` you defined , so for example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
+                - anchor_on: "latest"           # This becomes dynamically calculated whenever the above season data change
+            - range_calculation: -2             # Input a negative number here, unit is `time_unit` you defined , so for example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
         - first-8-weeks:
             - special_period_id: "first-8-weeks"
             - display_string: "First 8 Weeks"
             - time_anchor:
                 - anchor_forecast_period: "season-2021-2022"
                 - anchor_on: "earliest" # Also trigger new calculation when new data comes in, but ONLY if anchor + calculation ends up inside the range, and the range has to be positive instead of negative in this scenario
-            - range_calculation: 8      # Negative numbers will error out
-    - static_periods:
-        - season-2024-2025-last-2-weeks:
-            - special_period_id: "season-24-25-last-2-weeks" # Required, used for indexing and keying
-            - display_string: "Last 2 Weeks" # Required
-            - sub_display_value: "(May 25, 2025 - May 31, 2025)" # Optional, this will be displayed in a smaller font after the `displayString` text in setting panels wherever possible.
-            - start_date: "2025-05-24T00:00:00" # Required
-            - end_date: "2025-05-31T00:00:00" # Required
+            - range_calculation: 8 # Negative numbers will error out
 
 # Special toggle for single-location modelling task. Remember to turn this on and delete the `location_data` section below!
 - is_single_location_forecast: False
 # If True then specify the location so map visulizations can work properly.
-- single_location_mapping:
-    - "02": "Alaska"    # Please use standard US state code
+# - single_location_mapping:
+# - "02": "Alaska" # Please use standard US state code
 
 # Locations to include. Location data should at minimum be a mapping of "location code" to "location name".
 # There are two ways you can tell the dashboard how that is done:
@@ -138,7 +132,6 @@
       # - "74": "U.S. Minor Outlying Islands"
       # - "78": "Virgin Islands"
 
-
 #=========================================
 # Modelling Tasks, or Targets definitions
 #=========================================
@@ -154,16 +147,16 @@
 # Dashboard will look for each target in column headers in target-data.
 - targets:
     - "value": # admission values in Flusight-Forecast-hub's hospitalization target-data.
-        # Dashboard will find `wk inc flu hosp` for "target" column header, and use the values of respective rows
+        # Dashboard will find `wk inc flu hosp` for "target" column, and use the values of respective rows
         - corresponding_key_in_model_output_target_column: "wk inc flu hosp"
         # Which seasons to do this modelling task for,
         # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
+        # If this option is `null` or deleted, defaults to all seasons.
         - for_forecast_periods:
             [
               "season-2021-2022",
               "season-2024-2025",
               "last-2-weeks",
-              "season-24-25-last-2-weeks",
             ]
 
   # - "observations":
@@ -175,7 +168,6 @@
 # This is also used to cross-reference with `horizon` (forecast horizons).
 # Each predictin target Day Y should be equal to some Day X + `horizon` * `time_unit`.
 - time_unit: 7 # Required
-
 
 #====================================
 # Target-data related configurations
@@ -197,12 +189,12 @@
 # - If you need to view historical target-data: (See https://docs.hubverse.io/en/latest/user-guide/target-data.html#optional-as-of-column-to-record-data-versions)
 #   - An "as_of" column that contain date in string format.
 - target_data_header_mapping:
-  - date_col_name: "date"
-  - observation_col_name: "value"
-  - location_col_name: "location"
-  - location_name_col_name: "location_name"   # Optional
-  - target_col_name: null
-  - as_of_col_name: null
+    - date_col_name: "date"
+    - observation_col_name: "value"
+    - location_col_name: "location"
+    - location_name_col_name: "location_name" # Optional
+    - target_col_name: null
+    - as_of_col_name: null
 
 - target_data_observation_format: "float"
 
@@ -217,8 +209,6 @@
     - "MIGHTE-Nsemble":
         - color_hex: "#111111"
 
-
-
 # # TODO: Should we use Hubverse' naming convention or keep our own?
 #       Regardless, we need to force user to specify their mapping if they use something different.
 #
@@ -226,7 +216,7 @@
 #
 # Specify your model-output data's naming standard, either using ISO date `round_id` or alphanumeric `round_id`.
 # For examples, see https://docs.hubverse.io/en/latest/user-guide/model-output.html#directory-structure
-- model_output_data_file_naming_standard: "ISODate"   # Or "Alphanumeric"
+- model_output_data_file_naming_standard: "ISODate" # Or "Alphanumeric"
 
 # See https://docs.hubverse.io/en/latest/user-guide/model-output.html#details-about-model-output-column-specifications.
 # Some conditions must be met for this to work,

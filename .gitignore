@@ -5,6 +5,7 @@
 # Jetbrain ide settings
 .idea
 
+.vscode
 
 # User-specific stuff
 .idea/**/workspace.xml

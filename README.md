@@ -13,6 +13,7 @@ Template for quickly spinning up Hubverse-standard-compatible dashboard, visuali
 ## How To Use This Dashboard:
 
 1. Install [Node.js (and npm)](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) Version 20+
+
 2. Clone the repository to your local machine:
    `git clone https://github.com/mobs-lab/hubverse-dashboards.git`
 
