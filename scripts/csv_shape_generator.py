@@ -116,7 +116,7 @@ class CSVShapeGenerator:
             # Fallback to example dates if no forecast periods defined
             date1 = datetime(2024, 8, 3)
             date2 = datetime(2024, 8, 10)
-            date3 = datetime(2024, 8, 17)
+
 
         # Sample row 1
         sample_row_1 = {
@@ -567,20 +567,21 @@ class CSVShapeGenerator:
         print(
             f"✓ Single Location Mode: {'Yes' if self.config.is_single_location else 'No'}"
         )
+        if self.config.is_single_location:
+            location_name = self.config.us_state_fips_mapping.get(
+                self.config.single_location_mapping, "Unknown"
+            )
+            print(
+                f"    Location: {self.config.single_location_mapping} ({location_name})"
+            )
+        else:
+            print(
+                f"    Locations will be auto-detected from your data files"
+            )
+        
         print(
             f"✓ Single Target Mode: {'Yes' if self.config.is_single_target else 'No'}"
         )
-
-        if not self.config.is_single_location:
-            if self.config.location_data.get("csv_path"):
-                print(
-                    f"✓ Location Data Source: CSV file ({self.config.location_data['csv_path']})"
-                )
-            elif self.config.location_data.get("manual_mapping"):
-                num_locations = len(self.config.location_data["manual_mapping"])
-                print(
-                    f"✓ Location Data Source: Manual mapping ({num_locations} locations)"
-                )
 
         print("\n" + "=" * 80)
 

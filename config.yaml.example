@@ -19,118 +19,56 @@
 # Forecast periods can overlap each other or have gap between them.
 # Each period' start and end date will be used to filter out matching model-output data.
 - forecast_periods:
-    - season-2021-2022:
-        - forecast_period_id: "season-2021-2022"    # Required, for the dashboard to correctly index forecast periods.
+    # Example of a static (no more data update) forecast_period
+    - season-2021-2022: # Name each forecast_period entry however you like. The `id` below will be used for identifying the forecast period.
+        - forecast_period_id: "season-2023-2024" # Required, must be unique.
+
         # All datetime values must be ISO Datetime String or ISO Date String
-        - start_date: "2022-02-05T00:00:00"         # Required
-        - end_date: "2022-07-31T00:00:00"           # Required
-        - display_string: "Partial 2021-2022"       # Required
-        - is_default_selected: True                 # Will be default selected in every dashboard page
-    - season-2024-2025:
-        - forecast_period_id: "season-2024-2025"
-        - start_date: "2024-08-01T00:00:00"
-        - end_date: "2025-07-31T00:00:00"
-        - display_string: "(Ongoing) 2024-2025"
+        - start_date: "2023-08-01T00:00:00" # Required
+        - end_date: "2024-07-31T00:00:00" # Required for static forecast_period
+        - display_string: "Season 2023-2024 Flu-Forecast" # Required, will be used for displaying
+        - is_default_selected: True # Optional. Only one forecast_period can have "True". If not provided, default to the one with most recent `start_date`.
 
-# TODO: This is a draft, need to figure out how configurations file should handle dynamic, time-anchor-relative and how to translate to Python for processing. The question is how to let user hook the `time_anchor` to maybe an ongoing season (that causes data updates)?
-#
+    # Example of a dynamic (data updates ongoing) forecast_period
+    - dynamic-forecast-period-2025-2026:
+        - forecast_period_id: "season-2025-2026"
+        # start_date and end_date are both required. Both must be ISO datetime string or "null".
+        # Whenever `end_date` is beyond the actual current UTC date, this period is dynamic.
+        # When both are "null",
+        - start_date: "2025-08-01T00:00:00"
+        - end_date: "2026-07-31T00:00:00"
+        - display_string: "(Ongoing) COVID-19 Forecast 2025-2026"
+
+# Special forecast_periods are used to automatically aggregate data that are within a certain date range,
 # Each special period should have a time-anchor (as base of relative time length calculation).
-# Special values for forecast periods (e.g. last 2/4/8 weeks)
+# Only dynamic forecast_periods can be time-anchor. When a dynamic forecast_period becomes static,
 - special_forecast_periods:
-    - dynamic_periods:      # This requires `time_unit` to be defined. If `time_unit` is null, none will be processed.
-        - last-2-weeks:
-            - special_period_id: "last-2-weeks" # Required, used for indexing and keying
-            - display_string: "Last 2 Weeks"    # Required
-            - time_anchor:
-                - anchor_forecast_period: "season-2024-2025"
-                - anchor_on: "latest"           # This becomes dynamically calculated whenever the above season data change
-            - range_calculation: -2             # Input a negative number here, unit is `time_unit` you defined , so for example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
-        - first-8-weeks:
-            - special_period_id: "first-8-weeks"
-            - display_string: "First 8 Weeks"
-            - time_anchor:
-                - anchor_forecast_period: "season-2021-2022"
-                - anchor_on: "earliest" # Also trigger new calculation when new data comes in, but ONLY if anchor + calculation ends up inside the range, and the range has to be positive instead of negative in this scenario
-            - range_calculation: 8 # Negative numbers will error out
+    - last-2-weeks:
+        - special_period_id: "last-2-weeks" # Required, used for indexing and keying
+        - display_string: "Last 2 Weeks" # Required
+        # Configure how aggregation works for special forecast period.
+        - time_anchor:
+            # Specify a dynamic forecast_period's ID.
+            - anchor_on: "season-2025-2026"
+            # Two Options: "target-data" & "model-output".
+            # Respectively, Base date of calculation will either be most-recent-date in target-data or model-output (using reference_date).
+            - anchor_mode: "model-output"
+            # Input a negative number here, unit is `time_unit` you defined
+            # For example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
+            - range_calculation: -2
 
-# Special toggle for single-location modelling task. Remember to turn this on and delete the `location_data` section below!
+#=========================
+#     Location Data
+#=========================
+# Special toggle for single-location modelling task.
+# When False, the dashboard will automatically detect all locations from your target-data and model-output files.
 - is_single_location_forecast: False
-# If True then specify the location so map visulizations can work properly.
-# - single_location_mapping:
-# - "02": "Alaska" # Please use standard US state code
 
-# Locations to include. Location data should at minimum be a mapping of "location code" to "location name".
-# There are two ways you can tell the dashboard how that is done:
-# 1) Use a CSV file containing the mapping on each line.
-# 2) Enter them all here, a list for each location.
-# Your configuration must include one of these options, even if your location target is only one location.
-- location_data:
-    # Option 1) here: must be relative to your project root, same for local-setup and hubverse repos.
-    - location_data_csv_file_path: "data_processing_dir/locations.csv"
-    # Also must specify which columns contain the mappings.
-    - location_code_col_name: "location"
-    - location_name_col_name: "location_name"
 
-    # Option 2) here: list the location mapping here. Best if double-quoted
-    - location_mapping:
-        - "US": "United States"
-        - "01": "Alabama"
-        - "02": "Alaska"
-        - "04": "Arizona"
-        - "05": "Arkansas"
-        - "06": "California"
-        - "08": "Colorado"
-        - "09": "Connecticut"
-        - "10": "Delaware"
-        - "11": "District of Columbia"
-        - "12": "Florida"
-        - "13": "Georgia"
-        - "15": "Hawaii"
-        - "16": "Idaho"
-        - "17": "Illinois"
-        - "18": "Indiana"
-        - "19": "Iowa"
-        - "20": "Kansas"
-        - "21": "Kentucky"
-        - "22": "Louisiana"
-        - "23": "Maine"
-        - "24": "Maryland"
-        - "25": "Massachusetts"
-        - "26": "Michigan"
-        - "27": "Minnesota"
-        - "28": "Mississippi"
-        - "29": "Missouri"
-        - "30": "Montana"
-        - "31": "Nebraska"
-        - "32": "Nevada"
-        - "33": "New Hampshire"
-        - "34": "New Jersey"
-        - "35": "New Mexico"
-        - "36": "New York"
-        - "37": "North Carolina"
-        - "38": "North Dakota"
-        - "39": "Ohio"
-        - "40": "Oklahoma"
-        - "41": "Oregon"
-        - "42": "Pennsylvania"
-        - "44": "Rhode Island"
-        - "45": "South Carolina"
-        - "46": "South Dakota"
-        - "47": "Tennessee"
-        - "48": "Texas"
-        - "49": "Utah"
-        - "50": "Vermont"
-        - "51": "Virginia"
-        - "53": "Washington"
-        - "54": "West Virginia"
-        - "55": "Wisconsin"
-        - "56": "Wyoming"
-      # - "60": "American Samoa"
-      # - "66": "Guam"
-      # - "69": "Northern Mariana Islands"
-      # - "72": "Puerto Rico"
-      # - "74": "U.S. Minor Outlying Islands"
-      # - "78": "Virgin Islands"
+# If True, specify the location code here so map visualizations can work properly.
+# Please input a U.S. State FIPS code (e.g., "01" for Alabama, "06" for California).
+# This field is REQUIRED when is_single_location_forecast is True.
+- single_location_mapping: "02"  # Example: Alaska
 
 #=========================================
 # Modelling Tasks, or Targets definitions
@@ -148,17 +86,15 @@
 - targets:
     - "value": # admission values in Flusight-Forecast-hub's hospitalization target-data.
         # Dashboard will find `wk inc flu hosp` for "target" column, and use the values of respective rows
-        - corresponding_key_in_model_output_target_column: "wk inc flu hosp"
+        - corresponding_key_in_model_output_target_column: "random test output key"
         # Which seasons to do this modelling task for,
         # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
         # If this option is `null` or deleted, defaults to all seasons.
         - for_forecast_periods:
-            [
-              "season-2021-2022",
-              "season-2024-2025",
-              "last-2-weeks",
-            ]
-
+            ["season-2025-2026", "last-2-weeks"]
+    - "Ice Cream":
+        - corresponding_key_in_model_output_target_column: "Supercalifraglisticexpialidocious" # Make sure the string match EXACTLY!
+        - for_forecast_periods: ["season-2025-2026"]
   # - "observations":
   #   - corresponding_key_in_model_output_target_column: "something something"
   #   - for_forecast_periods: ["season-2021-2022" ]
@@ -233,14 +169,14 @@
 #   - A "value" column that contain the model output predictions
 # Map your data's column header below
 - model_output_data_header_mapping:
-    - reference_date_col_name: "reference_date"
-    - target_end_date_col_name: "target_end_date"
-    - target_col_name: "target"
-    - horizon_col_name: "horizon"
-    - location_col_name: "location"
-    - output_type_col_name: "output_type"
-    - output_type_id_col_name: "output_type_id"
-    - value_col_name: "value"
+    - reference_date_col_name: "test_rf_dt"
+    - target_end_date_col_name: "t-e-d"
+    - target_col_name: "TARGETS"
+    - horizon_col_name: "HORIZONs"
+    - location_col_name: "LoCaTiOn"
+    - output_type_col_name: "You know what type?"
+    - output_type_id_col_name: "something something IDs"
+    - value_col_name: "Das Kapital"
 
 # Prediction intervals to make available in the Forecast chart.
 # Hubverse's model-output column specs: https://docs.hubverse.io/en/latest/user-guide/model-output.html#details-about-model-output-column-specifications
@@ -252,7 +188,7 @@
         - uses_output_type_ids: ["0.25", "0.75"]
 
 # Required: The difference between the target_date and the origin_date in time units specified by the hub (e.g., days, weeks, or months)
-- horizons: [0, 1, 2, 3] # In our example, no -1 horizon forecasts.
+- horizons: [0, 1, 2, 3, 4, 5, 6, 7]
 
 #===================================
 # Model Output Evaluation Settings
@@ -265,5 +201,7 @@
     - "50":
         - uses_output_type_ids: ["0.25", "0.75"]
 
-# Model to use as a baseline for relative WIS.
+# REQUIRED: Model to use as a baseline for relative WIS calculations.
+# This must be one of the models listed in available_models above.
+# The baseline model will be used to calculate relative WIS scores for all other models.
 - baseline_model_for_relative_WIS: "MOBS-GLEAM_FLUH"

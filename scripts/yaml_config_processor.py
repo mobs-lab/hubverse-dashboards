@@ -3,15 +3,17 @@ YAML Configuration Processor for Hubverse Dashboard
 Parses, validates, and handles errors in config.yaml with comprehensive error checking.
 """
 
+import json
 import yaml
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union, Tuple
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field
+from datetime import datetime
+from dataclasses import dataclass
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ValidationWarning:
@@ -61,10 +63,10 @@ class ForecastPeriod:
     display_string: str
     start_date: datetime
     end_date: datetime
-    is_dynamic: bool = False
+    is_special_period: bool = False
+    is_default_selected: bool = False
     sub_display_value: Optional[str] = None
     time_anchor: Optional[Dict[str, Any]] = None
-    range_calculation: Optional[int] = None
 
     def __post_init__(self):
         # Ensure dates are datetime objects
@@ -72,14 +74,14 @@ class ForecastPeriod:
             date_str = self.start_date.replace("T", " ").replace("Z", "")
             try:
                 self.start_date = datetime.fromisoformat(date_str)
-            except:
+            except ValueError:
                 self.start_date = datetime.strptime(date_str.split()[0], "%Y-%m-%d")
 
         if isinstance(self.end_date, str):
             date_str = self.end_date.replace("T", " ").replace("Z", "")
             try:
                 self.end_date = datetime.fromisoformat(date_str)
-            except:
+            except ValueError:
                 self.end_date = datetime.strptime(date_str.split()[0], "%Y-%m-%d")
 
 
@@ -101,9 +103,7 @@ class PredictionInterval:
     output_type_ids: List[str]
 
     def __post_init__(self):
-        self.output_type_ids = sorted(
-            [str(x) for x in self.output_type_ids], key=lambda x: float(x)
-        )
+        self.output_type_ids = sorted([str(x) for x in self.output_type_ids], key=lambda x: float(x))
 
 
 @dataclass
@@ -147,9 +147,7 @@ class DashboardConfig:
                 if not config:
                     raise ValueError("Config file is empty")
                 if not isinstance(config, list):
-                    raise ValueError(
-                        "Config file must have a list of dictionaries at root level"
-                    )
+                    raise ValueError("Config file must have a list of dictionaries at root level")
                 return config
         except FileNotFoundError:
             logger.error(f"Config file not found: {self.config_path}")
@@ -171,12 +169,8 @@ class DashboardConfig:
         logger.info("Parsing configuration...")
 
         # Data source links - CHECK FOR CONFLICTS
-        self.target_data_link = self._get_nested_value(
-            "links_to_hubverse_compatible_data", "target_data_link"
-        )
-        self.model_output_link = self._get_nested_value(
-            "links_to_hubverse_compatible_data", "model_output_link"
-        )
+        self.target_data_link = self._get_nested_value("links_to_hubverse_compatible_data", "target_data_link")
+        self.model_output_link = self._get_nested_value("links_to_hubverse_compatible_data", "model_output_link")
 
         # Check if both local and online modes are enabled
         self._validate_data_source_links()
@@ -191,7 +185,9 @@ class DashboardConfig:
         # Location configuration
         self.is_single_location = self._get_value("is_single_location_forecast", False)
         self.single_location_mapping = self._parse_single_location_mapping()
-        self.location_data = self._parse_location_data()
+
+        # Load US state FIPS mapping reference
+        self.us_state_fips_mapping = self._load_us_state_fips_mapping()
 
         # Validate location data
         self._validate_location_data()
@@ -216,9 +212,7 @@ class DashboardConfig:
         self.column_mapping = self._parse_column_mappings()
 
         # Target data observation format - DEFAULT IF MISSING
-        self.target_data_observation_format = self._get_value(
-            "target_data_observation_format"
-        )
+        self.target_data_observation_format = self._get_value("target_data_observation_format")
         if not self.target_data_observation_format:
             self.target_data_observation_format = "float"
             self._add_warning(
@@ -235,15 +229,14 @@ class DashboardConfig:
         self.evaluation_intervals = self._parse_evaluation_intervals()
 
         # Model output naming standard
-        self.model_output_naming_standard = self._get_value(
-            "model_output_data_file_naming_standard", "ISODate"
-        )
+        self.model_output_naming_standard = self._get_value("model_output_data_file_naming_standard", "ISODate")
 
-        # Baseline model for evaluations - VALIDATE
-        self.baseline_model_for_relative_wis = self._get_value(
-            "baseline_model_for_relative_WIS"
-        )
-        self._validate_baseline_model()
+        # Baseline model for evaluations - REQUIRED
+        self.baseline_model_for_relative_wis = self._get_value("baseline_model_for_relative_WIS")
+        if not self.baseline_model_for_relative_wis:
+            self._add_error("baseline_model_for_relative_WIS", "baseline_model_for_relative_WIS is REQUIRED for model evaluation calculations")
+        else:
+            self._validate_baseline_model()
 
         # Final validation
         self._print_validation_results()
@@ -296,92 +289,113 @@ class DashboardConfig:
                 )
             seen_display_strings.add(period.display_string)
 
-            # Check start_date before end_date
-            if not period.is_dynamic and period.start_date > period.end_date:
+            # Check start_date before end_date for non-special periods
+            if not period.is_special_period and period.start_date > period.end_date:
                 self._add_error(
                     "forecast_periods",
                     f"start_date is after end_date for period '{period.period_id}' "
                     + f"({period.start_date.strftime('%Y-%m-%d')} > {period.end_date.strftime('%Y-%m-%d')})",
                 )
 
-            # Check dynamic period anchor/range calculation combo
-            if period.is_dynamic and period.time_anchor:
+            # Check special period anchor/range calculation combo
+            if period.is_special_period:
+                if not period.time_anchor:
+                    self._add_error(
+                        "special_forecast_periods",
+                        f"Special period '{period.period_id}' is missing 'time_anchor'.",
+                    )
+                    continue
+
+                range_calc = period.time_anchor.get("range_calculation")
                 anchor_on = period.time_anchor.get("anchor_on")
-                range_calc = period.range_calculation
+                anchor_mode = period.time_anchor.get("anchor_mode")
 
-                if (
-                    anchor_on == "earliest"
-                    and range_calc is not None
-                    and range_calc < 0
-                ):
+                if range_calc is None:
                     self._add_error(
                         "special_forecast_periods",
-                        f"Dynamic period '{period.period_id}' with anchor_on='earliest' "
-                        + f"cannot have negative range_calculation ({range_calc}). "
-                        + f"For 'earliest', use positive numbers to go forward in time.",
+                        f"Special period '{period.period_id}' is missing 'range_calculation' inside 'time_anchor'.",
                     )
-
-                if anchor_on == "latest" and range_calc is not None and range_calc > 0:
+                elif not isinstance(range_calc, int):
+                     self._add_error(
+                        "special_forecast_periods",
+                        f"Special period '{period.period_id}' 'range_calculation' must be an integer.",
+                    )
+                elif range_calc > 0:
                     self._add_error(
                         "special_forecast_periods",
-                        f"Dynamic period '{period.period_id}' with anchor_on='latest' "
-                        + f"should have negative range_calculation (got {range_calc}). "
-                        + f"For 'latest', use negative numbers to go backward in time.",
+                        f"Special period '{period.period_id}' must have a negative "
+                        + f"'range_calculation' to look backward in time (got {range_calc}).",
                     )
+                
+                if anchor_on is None:
+                    self._add_error(
+                        "special_forecast_periods",
+                        f"Special period '{period.period_id}' is missing 'anchor_on' inside 'time_anchor'.",
+                    )
+                
+                if anchor_mode not in ["target-data", "model-output"]:
+                    self._add_error(
+                        "special_forecast_periods",
+                        f"Special period '{period.period_id}' has invalid 'anchor_mode'. Must be 'target-data' or 'model-output'.",
+                    )
+
+                # Check that anchor_on points to a valid dynamic forecast period
+                if anchor_on:
+                    all_static_periods = {p.period_id: p for p in self.forecast_periods}
+                    if anchor_on not in all_static_periods:
+                        self._add_error(
+                            "special_forecast_periods",
+                            f"Special period '{period.period_id}' anchors on an undefined forecast period '{anchor_on}'.",
+                        )
+                    else:
+                        anchor_period = all_static_periods[anchor_on]
+                        # Check if anchor period is dynamic (end date in future)
+                        if anchor_period.end_date <= datetime.now():
+                            self._add_warning(
+                                "special_forecast_periods",
+                                f"Special period '{period.period_id}' is anchored to a static (non-dynamic) "
+                                + f"forecast period '{anchor_on}'. It will not update.",
+                            )
+        
+        # Check that only one forecast_period has is_default_selected
+        default_periods = [p.period_id for p in self.forecast_periods if p.is_default_selected]
+        if len(default_periods) > 1:
+            self._add_error(
+                "forecast_periods",
+                f"Only one forecast period can be set as default. Found: {', '.join(default_periods)}",
+            )
 
     def _validate_location_data(self):
         """Validate location data configuration"""
         if self.is_single_location:
-            return
-
-        # Check if location_data has either csv_path or manual_mapping
-        has_csv = bool(self.location_data.get("csv_path"))
-        has_mapping = bool(self.location_data.get("manual_mapping"))
-
-        if not has_csv and not has_mapping:
-            self._add_error(
-                "location_data",
-                "Either location_data_csv_file_path or location_mapping must be provided "
-                + "when not in single-location mode.",
-            )
-            return
-
-        # Check for common US state code/name mismatches
-        manual_mapping = self.location_data.get("manual_mapping", {})
-
-        # Sample of correct mappings for validation
-        correct_mappings = {
-            "01": "Alabama",
-            "02": "Alaska",
-            "04": "Arizona",
-            "06": "California",
-            "36": "New York",
-            "48": "Texas",
-            "12": "Florida",
-            "17": "Illinois",
-        }
-
-        for code, name in manual_mapping.items():
-            if code in correct_mappings and name != correct_mappings[code]:
-                self._add_warning(
-                    "location_data",
-                    f"Location code '{code}' mapped to '{name}', "
-                    + f"expected '{correct_mappings[code]}'. "
-                    + f"Assuming code is correct.",
+            # Require single_location_mapping when in single-location mode
+            if not self.single_location_mapping:
+                self._add_error(
+                    "single_location_mapping",
+                    "single_location_mapping is REQUIRED when is_single_location_forecast is True. "
+                    + "Please specify a US state FIPS code (e.g., '01' for Alabama).",
                 )
+            else:
+                # Validate the location code exists in our reference
+                if self.single_location_mapping not in self.us_state_fips_mapping:
+                    self._add_warning(
+                        "single_location_mapping",
+                        f"Location code '{self.single_location_mapping}' is not a standard US state FIPS code. "
+                        + f"Dashboard may not display location name correctly.",
+                    )
+        else:
+            # Multi-location mode: locations will be auto-detected from data
+            logger.info("  ✓ Multi-location mode: will auto-detect locations from data files")
 
     def _validate_time_unit(self):
         """Validate time_unit value"""
         if self.time_unit < 1:
-            self._add_error(
-                "time_unit", f"time_unit must be at least 1 day (got {self.time_unit})"
-            )
+            self._add_error("time_unit", f"time_unit must be at least 1 day (got {self.time_unit})")
 
         if self.time_unit > 14:
             self._add_warning(
                 "time_unit",
-                f"time_unit is {self.time_unit} days, which is unusually large. "
-                + f"Most forecasting hubs use 7 days (weekly) or 1 day (daily).",
+                f"time_unit is {self.time_unit} days, which is unusually large. " + f"Most forecasting hubs use 7 days (weekly) or 1 day (daily).",
             )
 
     def _validate_and_assign_model_colors(self):
@@ -395,44 +409,28 @@ class DashboardConfig:
         if models_without_colors:
             self._add_warning(
                 "available_models",
-                f"{len(models_without_colors)} model(s) missing color_hex, "
-                + f"will use default color palette: {', '.join(models_without_colors)}",
+                f"{len(models_without_colors)} model(s) missing color_hex, " + f"will use default color palette: {', '.join(models_without_colors)}",
             )
 
             # Assign colors from default palette
             color_idx = 0
             for model in self.models:
                 if not model.color_hex:
-                    model.color_hex = self.DEFAULT_COLOR_PALETTE[
-                        color_idx % len(self.DEFAULT_COLOR_PALETTE)
-                    ]
+                    model.color_hex = self.DEFAULT_COLOR_PALETTE[color_idx % len(self.DEFAULT_COLOR_PALETTE)]
                     color_idx += 1
 
     def _validate_baseline_model(self):
         """Validate baseline model for relative WIS"""
-        if not self.baseline_model_for_relative_wis:
-            self._add_warning(
-                "baseline_model_for_relative_WIS",
-                "No baseline model specified for relative WIS calculation. "
-                + "Relative WIS evaluation will be disabled.",
-            )
-            return
-
         # Check if baseline model is in available models
         model_names = [m.model_name for m in self.models]
 
         if self.baseline_model_for_relative_wis not in model_names:
-            self._add_warning(
+            self._add_error(
                 "baseline_model_for_relative_WIS",
                 f"Baseline model '{self.baseline_model_for_relative_wis}' "
-                + f"is not in available_models list. This may cause issues during evaluation.",
+                + f"must be one of the models listed in available_models. "
+                + f"Available models: {', '.join(model_names)}",
             )
-
-        # Check if baseline model is the same as one of the models being evaluated
-        # This is valid but should warn user
-        if self.baseline_model_for_relative_wis in model_names:
-            # This is actually OK - baseline can be one of the models
-            pass
 
     def _print_validation_results(self):
         """Print all validation warnings and errors"""
@@ -496,7 +494,10 @@ class DashboardConfig:
                                 display_string=config_dict["display_string"],
                                 start_date=config_dict["start_date"],
                                 end_date=config_dict["end_date"],
-                                is_dynamic=False,
+                                is_special_period=False,
+                                is_default_selected=config_dict.get(
+                                    "is_default_selected", False
+                                ),
                             )
                             periods.append(period)
                             logger.info(
@@ -516,108 +517,73 @@ class DashboardConfig:
 
         for item in self.raw_config:
             if isinstance(item, dict) and "special_forecast_periods" in item:
-                special_periods = item["special_forecast_periods"]
+                special_periods_list = item["special_forecast_periods"]
 
-                for sp_item in special_periods:
-                    # Parse dynamic periods (with time anchors)
-                    if isinstance(sp_item, dict) and "dynamic_periods" in sp_item:
-                        dyn_list = sp_item["dynamic_periods"]
+                for period_item in special_periods_list:
+                    if not isinstance(period_item, dict):
+                        continue
 
-                        for period_item in dyn_list:
-                            if not isinstance(period_item, dict):
-                                continue
+                    for period_id, period_data in period_item.items():
+                        config_dict = {}
+                        if isinstance(period_data, list):
+                            for prop in period_data:
+                                if isinstance(prop, dict):
+                                    if "time_anchor" in prop:
+                                        anchor_list = prop["time_anchor"]
+                                        anchor_dict = {}
+                                        for anchor_item in anchor_list:
+                                            if isinstance(anchor_item, dict):
+                                                anchor_dict.update(anchor_item)
+                                        config_dict["time_anchor"] = anchor_dict
+                                    else:
+                                        config_dict.update(prop)
 
-                            for period_id, period_data in period_item.items():
-                                config_dict = {}
-                                if isinstance(period_data, list):
-                                    for prop in period_data:
-                                        if isinstance(prop, dict):
-                                            if "time_anchor" in prop:
-                                                anchor_list = prop["time_anchor"]
-                                                anchor_dict = {}
-                                                for anchor_item in anchor_list:
-                                                    if isinstance(anchor_item, dict):
-                                                        anchor_dict.update(anchor_item)
-                                                config_dict["time_anchor"] = anchor_dict
-                                            else:
-                                                config_dict.update(prop)
-
-                                try:
-                                    period = ForecastPeriod(
-                                        period_id=config_dict["special_period_id"],
-                                        display_string=config_dict["display_string"],
-                                        start_date=datetime(2000, 1, 1),
-                                        end_date=datetime(2000, 1, 1),
-                                        is_dynamic=True,
-                                        time_anchor=config_dict.get("time_anchor"),
-                                        range_calculation=config_dict.get(
-                                            "range_calculation"
-                                        ),
-                                    )
-                                    dynamic_periods.append(period)
-                                    logger.info(
-                                        f"  ✓ Parsed dynamic period (runtime calc): {period.period_id}"
-                                    )
-                                except KeyError as e:
-                                    self._add_error(
-                                        "special_forecast_periods",
-                                        f"Missing field in dynamic period: {e}",
-                                    )
+                        try:
+                            period = ForecastPeriod(
+                                period_id=config_dict["special_period_id"],
+                                display_string=config_dict["display_string"],
+                                start_date=datetime(2000, 1, 1),
+                                end_date=datetime(2000, 1, 1),
+                                is_special_period=True,
+                                time_anchor=config_dict.get("time_anchor"),
+                            )
+                            dynamic_periods.append(period)
+                            logger.info(
+                                f"  ✓ Parsed special period (runtime calc): {period.period_id}"
+                            )
+                        except KeyError as e:
+                            self._add_error(
+                                "special_forecast_periods",
+                                f"Missing field in special period '{period_id}': {e}",
+                            )
 
         return dynamic_periods
 
-    def _parse_single_location_mapping(self) -> Optional[Dict[str, str]]:
+    def _parse_single_location_mapping(self) -> Optional[str]:
         """Parse single location mapping if applicable"""
         if not self.is_single_location:
             return None
 
-        for item in self.raw_config:
-            if isinstance(item, dict) and "single_location_mapping" in item:
-                mapping_list = item["single_location_mapping"]
-                if mapping_list:
-                    mapping = {}
-                    for entry in mapping_list:
-                        if isinstance(entry, dict):
-                            mapping.update(entry)
-                    return mapping
-        return None
+        return self._get_value("single_location_mapping")
 
-    def _parse_location_data(self) -> Dict[str, Any]:
-        """Parse location data configuration"""
-        location_config = {}
+    def _load_us_state_fips_mapping(self) -> Dict[str, str]:
+        """Load US state FIPS code to name mapping from reference file"""
+        import json
 
-        for item in self.raw_config:
-            if isinstance(item, dict) and "location_data" in item:
-                data_list = item["location_data"]
+        # Get path to reference file (relative to this script)
+        reference_path = Path(__file__).parent / "references" / "us_state_fips_mapping.json"
 
-                for data_item in data_list:
-                    if not isinstance(data_item, dict):
-                        continue
-
-                    if "location_data_csv_file_path" in data_item:
-                        location_config["csv_path"] = data_item[
-                            "location_data_csv_file_path"
-                        ]
-
-                    if "location_code_col_name" in data_item:
-                        location_config["code_col"] = data_item[
-                            "location_code_col_name"
-                        ]
-
-                    if "location_name_col_name" in data_item:
-                        location_config["name_col"] = data_item[
-                            "location_name_col_name"
-                        ]
-
-                    if "location_mapping" in data_item:
-                        mapping_list = data_item["location_mapping"]
-                        mapping = {}
-                        for entry in mapping_list:
-                            if isinstance(entry, dict):
-                                mapping.update(entry)
-                        location_config["manual_mapping"] = mapping
-
-        return location_config
+        try:
+            with open(reference_path, "r") as f:
+                mapping = json.load(f)
+                logger.info(f"  ✓ Loaded US state FIPS mapping ({len(mapping)} locations)")
+                return mapping
+        except FileNotFoundError:
+            logger.warning(f"  ⚠ US state FIPS mapping file not found at {reference_path}")
+            return {}
+        except json.JSONDecodeError as e:
+            logger.warning(f"  ⚠ Error parsing US state FIPS mapping: {e}")
+            return {}
 
     def _parse_targets(self) -> List[TargetConfig]:
         """Parse target/modelling task configurations"""
@@ -644,34 +610,23 @@ class DashboardConfig:
                             if not forecast_periods:
                                 # Lazy load all period IDs
                                 if all_period_ids is None:
-                                    all_period_ids = [
-                                        p.period_id for p in self.forecast_periods
-                                    ]
-                                    all_period_ids.extend(
-                                        [p.period_id for p in self.dynamic_periods]
-                                    )
+                                    all_period_ids = [p.period_id for p in self.forecast_periods]
+                                    all_period_ids.extend([p.period_id for p in self.dynamic_periods])
 
                                 forecast_periods = all_period_ids
                                 self._add_warning(
                                     "targets",
-                                    f"Target '{target_col}' missing 'for_forecast_periods', "
-                                    + f"defaulting to all available periods",
+                                    f"Target '{target_col}' missing 'for_forecast_periods', " + f"defaulting to all available periods",
                                 )
 
                             target = TargetConfig(
                                 target_column_in_target_data=target_col,
-                                corresponding_key_in_model_output=config_dict[
-                                    "corresponding_key_in_model_output_target_column"
-                                ],
+                                corresponding_key_in_model_output=config_dict["corresponding_key_in_model_output_target_column"],
                                 forecast_periods=forecast_periods,
-                                display_name=config_dict.get(
-                                    "display_name", target_col
-                                ),
+                                display_name=config_dict.get("display_name", target_col),
                             )
                             targets.append(target)
-                            logger.info(
-                                f"  ✓ Parsed target: {target_col} → {target.corresponding_key_in_model_output}"
-                            )
+                            logger.info(f"  ✓ Parsed target: {target_col} → {target.corresponding_key_in_model_output}")
                         except KeyError as e:
                             self._add_error(
                                 "targets",
@@ -705,20 +660,12 @@ class DashboardConfig:
             location_name_col=target_mapping.get("location_name_col_name"),
             target_col=target_mapping.get("target_col_name"),
             as_of_col=target_mapping.get("as_of_col_name"),
-            reference_date_col=model_output_mapping.get(
-                "reference_date_col_name", "reference_date"
-            ),
-            target_end_date_col=model_output_mapping.get(
-                "target_end_date_col_name", "target_end_date"
-            ),
+            reference_date_col=model_output_mapping.get("reference_date_col_name", "reference_date"),
+            target_end_date_col=model_output_mapping.get("target_end_date_col_name", "target_end_date"),
             model_target_col=model_output_mapping.get("target_col_name", "target"),
             horizon_col=model_output_mapping.get("horizon_col_name", "horizon"),
-            output_type_col=model_output_mapping.get(
-                "output_type_col_name", "output_type"
-            ),
-            output_type_id_col=model_output_mapping.get(
-                "output_type_id_col_name", "output_type_id"
-            ),
+            output_type_col=model_output_mapping.get("output_type_col_name", "output_type"),
+            output_type_id_col=model_output_mapping.get("output_type_id_col_name", "output_type_id"),
             value_col=model_output_mapping.get("value_col_name", "value"),
         )
 
@@ -866,25 +813,15 @@ class DashboardConfig:
             error_messages.append("At least one prediction interval must be defined")
 
         # validation for location data
-        if not self.is_single_location:
-            has_csv = bool(self.location_data.get("csv_path"))
-            has_mapping = bool(self.location_data.get("manual_mapping"))
-
-            if not has_csv and not has_mapping:
-                error_messages.append(
-                    "location_data must provide either 'location_data_csv_file_path' "
-                    + "or 'location_mapping' when not in single-location mode"
-                )
+        if self.is_single_location and not self.single_location_mapping:
+            error_messages.append("single_location_mapping is required when is_single_location_forecast is True")
 
         # Validate target forecast period references
         all_period_ids = self.get_all_period_ids()
         for target in self.targets:
             for period_id in target.forecast_periods:
                 if period_id not in all_period_ids:
-                    error_messages.append(
-                        f"Target '{target.target_column_in_target_data}' "
-                        + f"references undefined forecast period: '{period_id}'"
-                    )
+                    error_messages.append(f"Target '{target.target_column_in_target_data}' " + f"references undefined forecast period: '{period_id}'")
 
         return error_messages, warning_messages
 
@@ -919,18 +856,13 @@ def load_config(config_path: Union[str, Path] = "config.yaml") -> DashboardConfi
             error_count = len(config.validation_errors)
             warning_count = len(config.validation_warnings)
 
-            logger.error(
-                f"Configuration validation failed with {error_count} error(s) "
-                + f"and {warning_count} warning(s)"
-            )
+            logger.error(f"Configuration validation failed with {error_count} error(s) " + f"and {warning_count} warning(s)")
             raise ValueError("Invalid configuration - see errors above")
 
         # Log warnings if any
         if config.has_validation_warnings():
             warning_count = len(config.validation_warnings)
-            logger.warning(
-                f"Configuration loaded with {warning_count} warning(s) - see above"
-            )
+            logger.warning(f"Configuration loaded with {warning_count} warning(s) - see above")
 
         return config
 
@@ -960,15 +892,11 @@ def test_config_processor():
 
         # Show location data info
         if config.is_single_location:
-            print(f"✓ Single location mode: {config.single_location_mapping}")
+            location_name = config.us_state_fips_mapping.get(config.single_location_mapping, "Unknown")
+            print(f"✓ Single location mode: {config.single_location_mapping} ({location_name})")
         else:
-            if config.location_data.get("manual_mapping"):
-                num_locs = len(config.location_data["manual_mapping"])
-                print(f"✓ Location data: {num_locs} locations from manual mapping")
-            elif config.location_data.get("csv_path"):
-                print(
-                    f"✓ Location data: from CSV file {config.location_data['csv_path']}"
-                )
+            print(f"✓ Multi-location mode: will auto-detect from data files")
+            print(f"✓ US state FIPS reference loaded: {len(config.us_state_fips_mapping)} locations")
 
         if config.has_validation_warnings():
             print(f"⚠ {len(config.validation_warnings)} warnings (see above)")
