@@ -20,12 +20,6 @@
 """
 Dashboard Builder Workflow
 Main orchestrator for the Hubverse Dashboard data processing pipeline.
-
-TODO: Configuration Validation and CSV Shape Preview
-- Load and validate config.yaml
-- Generate expected CSV structures
-- Display samples for user confirmation
-- Exit or proceed based on user input
 """
 
 import sys
@@ -38,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from yaml_config_processor import load_config, DashboardConfig
 from csv_shape_generator import generate_and_print_samples
+from data_processor import process_data
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -47,10 +43,11 @@ logger = logging.getLogger(__name__)
 class DashboardBuilder:
     """Main dashboard builder orchestrator"""
 
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: str = "config.yaml", dev_mode: bool = False):
         self.config_path = Path(config_path)
         self.config: Optional[DashboardConfig] = None
         self.project_root = self._get_project_root()
+        self.dev_mode = dev_mode
 
     def _get_project_root(self) -> Path:
         """Get the project root directory"""
@@ -72,9 +69,13 @@ class DashboardBuilder:
         if not self._load_configuration():
             return False
 
+        self._prompt_to_continue()
+
         # Step 2: Check configuration completeness
         if not self._check_configuration_requirements():
             return False
+
+        self._prompt_to_continue()
 
         # Step 3: Generate and display CSV samples
         self._display_csv_samples()
@@ -95,21 +96,21 @@ class DashboardBuilder:
         except FileNotFoundError:
             logger.error(f"Configuration file not found: {self.config_path}")
             logger.error("Please create a config.yaml file in the project root.")
-            logger.error(
-                "You can copy config.yaml.example and customize it for your data."
-            )
+            logger.error("You can copy config.yaml.example and customize it for your data.")
             return False
 
         except ValueError as e:
             logger.error(f"Configuration validation failed: {e}")
-            logger.error(
-                "\nPlease fix the errors in your config.yaml file and try again."
-            )
+            logger.error("\nPlease fix the errors in your config.yaml file and try again.")
             return False
 
         except Exception as e:
             logger.error(f"Unexpected error loading configuration: {e}")
             return False
+
+    def _prompt_to_continue(self, message: str = "Press Enter to continue..."):
+        """Pauses execution and waits for user to press Enter."""
+        input(f"\n{message}")
 
     def _check_configuration_requirements(self) -> bool:
         """Check if configuration meets all requirements"""
@@ -120,23 +121,16 @@ class DashboardBuilder:
 
         # Check data source links
         if not self.config.target_data_link and not self.config.model_output_link:
-            warnings.append(
-                "No data source links specified. Assuming local data setup."
-            )
+            warnings.append("No data source links specified. Assuming local data setup.")
 
         # Check forecast periods
         if not self.config.forecast_periods:
-            warnings.append(
-                "No standard forecast periods defined. Only using special periods."
-            )
+            warnings.append("No standard forecast periods defined. Only using special periods.")
 
         # Check if forecast periods are in chronological order
         if len(self.config.forecast_periods) > 1:
             for i in range(len(self.config.forecast_periods) - 1):
-                if (
-                    self.config.forecast_periods[i].start_date
-                    > self.config.forecast_periods[i + 1].start_date
-                ):
+                if self.config.forecast_periods[i].start_date > self.config.forecast_periods[i + 1].start_date:
                     warnings.append("Forecast periods are not in chronological order.")
                     break
 
@@ -153,9 +147,7 @@ class DashboardBuilder:
         for target in self.config.targets:
             for period_id in target.forecast_periods:
                 if period_id not in all_period_ids:
-                    errors.append(
-                        f"Target '{target.target_column_in_target_data}' references undefined period: '{period_id}'"
-                    )
+                    errors.append(f"Target '{target.target_column_in_target_data}' references undefined period: '{period_id}'")
 
         # Display warnings
         if warnings:
@@ -188,21 +180,17 @@ class DashboardBuilder:
         """Ask user to confirm before proceeding"""
         print("\n[Step 4/4] User Confirmation Required")
         print("=" * 80)
-        print("\nPlease review the expected CSV structures above and compare them with")
+        print("\nPlease review the expected CSV structures above and compare with")
         print("your actual data files to ensure they match.\n")
         print("Important checks:")
         print("  1. Column names match exactly (case-sensitive)")
         print("  2. Target identifiers match (e.g., 'wk inc flu hosp')")
         print("  3. Location codes are formatted correctly")
         print("  4. Horizons match your model outputs")
-        print("  5. Quantile levels are available in your model outputs\n")
+        print("  5. Features are present in your model outputs, such as Quantile levels\n")
 
         while True:
-            response = (
-                input("Do you want to proceed with data processing? (Yes/No): ")
-                .strip()
-                .lower()
-            )
+            response = input("Do you want to proceed with data processing? (Yes/No): ").strip().lower()
 
             if response in ["yes", "y"]:
                 print("\n✓ User confirmed. Proceeding to data processing...\n")
@@ -216,29 +204,33 @@ class DashboardBuilder:
 
     def run_data_processing(self):
         """
-        Data Processing (WIP)
+        Phase 2: Data Processing
 
         This part of workflow handles:
-        - Loading raw CSV files
-        - Mapping columns to internal schema
-        - Partitioning by forecast periods
-        - Processing each target
-        - Calculating evaluations
-        - Exporting to frontend JSON format
+        - Loading raw CSV files from `target-data/` and `model-output/`
+        - Applying column mappings and standardizing data formats
+        - Filtering and structuring data based on forecast periods and targets
+        - (TODO) Calculating evaluations
+        - (TODO) Exporting to frontend JSON format
         """
         print("\n" + "=" * 80)
         print("PHASE 2: Data Processing")
         print("=" * 80)
-        print("\n⚠ Phase 2 (Data Processing) is not yet implemented.")
+
+        try:
+            process_data(self.config, dev_mode=self.dev_mode)
+            print("\n✓ Data processing core logic completed successfully.")
+        except Exception as e:
+            logger.error(f"Data processing failed: {e}")
+            # Re-raise the exception to be caught by the main function
+            raise
 
 
 def main():
     """Main entry point"""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Hubverse Dashboard Builder - Configuration-driven data processing"
-    )
+    parser = argparse.ArgumentParser(description="Hubverse Dashboard Builder - Configuration-driven data processing")
     parser.add_argument(
         "--config",
         type=str,
@@ -250,11 +242,16 @@ def main():
         action="store_true",
         help="Skip user confirmation step (for automated workflows)",
     )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="Run in local development mode, using data from 'test-data-input/' directory.",
+    )
 
     args = parser.parse_args()
 
     # Create builder instance
-    builder = DashboardBuilder(config_path=args.config)
+    builder = DashboardBuilder(config_path=args.config, dev_mode=args.dev)
 
     # Run Config Validation and Preview
     if args.skip_confirmation:

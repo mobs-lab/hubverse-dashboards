@@ -336,3 +336,7 @@ package-lock.json
 
 # config.yaml should be ignored.
 config.yaml
+
+
+/test-data-output
+/test-data-input

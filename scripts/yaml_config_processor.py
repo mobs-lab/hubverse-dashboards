@@ -208,6 +208,20 @@ class DashboardConfig:
         if not self.horizons:
             self._add_error("horizons", "horizons list is required in config")
 
+        # Target data file format
+        self.target_data_file_format = self._get_value("target_data_file_format")
+        if not self.target_data_file_format:
+            self.target_data_file_format = "csv"
+            self._add_warning(
+                "target_data_file_format",
+                "target_data_file_format not specified, defaulting to 'csv'",
+            )
+        elif self.target_data_file_format not in ["csv", "parquet"]:
+            self._add_error(
+                "target_data_file_format",
+                f"Invalid target_data_file_format: '{self.target_data_file_format}'. Must be 'csv' or 'parquet'",
+            )
+
         # Column mappings
         self.column_mapping = self._parse_column_mappings()
 
@@ -571,7 +585,7 @@ class DashboardConfig:
         import json
 
         # Get path to reference file (relative to this script)
-        reference_path = Path(__file__).parent / "references" / "us_state_fips_mapping.json"
+        reference_path = Path(__file__).parent / "us_state_fips_mapping.json"
 
         try:
             with open(reference_path, "r") as f:
@@ -653,19 +667,38 @@ class DashboardConfig:
                     if isinstance(mapping, dict):
                         model_output_mapping.update(mapping)
 
+        # Handle as_of_col based on target data file format
+        as_of_col_val = target_mapping.get("as_of_col_name")
+        if self.target_data_file_format == "parquet":
+            if as_of_col_val:
+                self._add_warning(
+                    "target_data_header_mapping",
+                    "'as_of_col_name' is ignored when 'target_data_file_format' is 'parquet'. "
+                    "The dashboard will use directory names for versioning instead.",
+                )
+            as_of_col_val = None
+
         return ColumnMapping(
             date_col=target_mapping.get("date_col_name", "date"),
             observation_col=target_mapping.get("observation_col_name", "value"),
             location_col=target_mapping.get("location_col_name"),
             location_name_col=target_mapping.get("location_name_col_name"),
             target_col=target_mapping.get("target_col_name"),
-            as_of_col=target_mapping.get("as_of_col_name"),
-            reference_date_col=model_output_mapping.get("reference_date_col_name", "reference_date"),
-            target_end_date_col=model_output_mapping.get("target_end_date_col_name", "target_end_date"),
+            as_of_col=as_of_col_val,
+            reference_date_col=model_output_mapping.get(
+                "reference_date_col_name", "reference_date"
+            ),
+            target_end_date_col=model_output_mapping.get(
+                "target_end_date_col_name", "target_end_date"
+            ),
             model_target_col=model_output_mapping.get("target_col_name", "target"),
             horizon_col=model_output_mapping.get("horizon_col_name", "horizon"),
-            output_type_col=model_output_mapping.get("output_type_col_name", "output_type"),
-            output_type_id_col=model_output_mapping.get("output_type_id_col_name", "output_type_id"),
+            output_type_col=model_output_mapping.get(
+                "output_type_col_name", "output_type"
+            ),
+            output_type_id_col=model_output_mapping.get(
+                "output_type_id_col_name", "output_type_id"
+            ),
             value_col=model_output_mapping.get("value_col_name", "value"),
         )
 

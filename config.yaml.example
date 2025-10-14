@@ -64,11 +64,10 @@
 # When False, the dashboard will automatically detect all locations from your target-data and model-output files.
 - is_single_location_forecast: False
 
-
 # If True, specify the location code here so map visualizations can work properly.
 # Please input a U.S. State FIPS code (e.g., "01" for Alabama, "06" for California).
 # This field is REQUIRED when is_single_location_forecast is True.
-- single_location_mapping: "02"  # Example: Alaska
+- single_location_mapping: "02" # Example: Alaska
 
 #=========================================
 # Modelling Tasks, or Targets definitions
@@ -86,12 +85,11 @@
 - targets:
     - "value": # admission values in Flusight-Forecast-hub's hospitalization target-data.
         # Dashboard will find `wk inc flu hosp` for "target" column, and use the values of respective rows
-        - corresponding_key_in_model_output_target_column: "random test output key"
+        - corresponding_key_in_model_output_target_column: "wk inc flu hosp"
         # Which seasons to do this modelling task for,
         # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
         # If this option is `null` or deleted, defaults to all seasons.
-        - for_forecast_periods:
-            ["season-2025-2026", "last-2-weeks"]
+        - for_forecast_periods: ["season-2023-2024", "season-2025-2026", "last-2-weeks"]
     - "Ice Cream":
         - corresponding_key_in_model_output_target_column: "Supercalifraglisticexpialidocious" # Make sure the string match EXACTLY!
         - for_forecast_periods: ["season-2025-2026"]
@@ -108,10 +106,16 @@
 #====================================
 # Target-data related configurations
 #====================================
-
 # Here you can customize the settings to work with your specific target-data data.
 # See https://docs.hubverse.io/en/latest/user-guide/target-data.html for Hubverse's documentation on target-data
 #
+# You can either use a single CSV file or parquet files.
+# Please see the https://docs.hubverse.io/en/latest/user-guide/target-data.html#file-formats
+# to properly structure your files.
+# If "parquet" option is specified,
+
+- target_data_file_format: "csv" # Or "parquet"
+
 # Some further conditions must be met for dashboard to work with your target-data:
 # - Your target-data contain:
 #   - A "date" column that contain date in string format.
@@ -122,7 +126,7 @@
 #   - A "target" column
 #   * If single-location or single-target are toggled on, these two can be left blank.
 #
-# - If you need to view historical target-data: (See https://docs.hubverse.io/en/latest/user-guide/target-data.html#optional-as-of-column-to-record-data-versions)
+# - If you are using single CSV target-data file AND need to view historical target-data: (See https://docs.hubverse.io/en/latest/user-guide/target-data.html#optional-as-of-column-to-record-data-versions)
 #   - An "as_of" column that contain date in string format.
 - target_data_header_mapping:
     - date_col_name: "date"
@@ -130,7 +134,7 @@
     - location_col_name: "location"
     - location_name_col_name: "location_name" # Optional
     - target_col_name: null
-    - as_of_col_name: null
+    - as_of_col_name: null # Optional, will be ignored when "parquet" is target data file format (folder name will be used)
 
 - target_data_observation_format: "float"
 
@@ -144,9 +148,21 @@
         - color_hex: "#9ceb94" # Optional, Assign color here for dashboard to display it whenever applicable.
     - "MIGHTE-Nsemble":
         - color_hex: "#111111"
+    - "NON-EXISTENT-MODEL":
+        - color_hex: "#000000"
+    # - "MIGHTE-Joint":
+    #     - color_hex: "#3fc49e"
+    # - "NU_UCSD-GLEAM_AI_FLUH":
+    #     - color_hex: "#45cded"
+    # - "CEPH-Rtrend_fluH":
+    #     - color_hex: "#0292d1"
+    # - "NEU_ISI-FluBcast":
+    #     - color_hex: "#7bb1ff"
+    # - "NEU_ISI-AdaptiveEnsemble":
+    #     - color_hex: "#5f5fd6"
+    # - "FluSight-ensemble":
+    #     - color_hex: "#d36f54"
 
-# # TODO: Should we use Hubverse' naming convention or keep our own?
-#       Regardless, we need to force user to specify their mapping if they use something different.
 #
 # Here you can customize the settings to work with your specific model-output data.
 #
@@ -169,14 +185,14 @@
 #   - A "value" column that contain the model output predictions
 # Map your data's column header below
 - model_output_data_header_mapping:
-    - reference_date_col_name: "test_rf_dt"
-    - target_end_date_col_name: "t-e-d"
-    - target_col_name: "TARGETS"
-    - horizon_col_name: "HORIZONs"
-    - location_col_name: "LoCaTiOn"
-    - output_type_col_name: "You know what type?"
-    - output_type_id_col_name: "something something IDs"
-    - value_col_name: "Das Kapital"
+    - reference_date_col_name: "reference_date"
+    - target_end_date_col_name: "target_end_date"
+    - target_col_name: "target"
+    - horizon_col_name: "horizon"
+    - location_col_name: "location"
+    - output_type_col_name: "output_type"
+    - output_type_id_col_name: "output_type_id"
+    - value_col_name: "value"
 
 # Prediction intervals to make available in the Forecast chart.
 # Hubverse's model-output column specs: https://docs.hubverse.io/en/latest/user-guide/model-output.html#details-about-model-output-column-specifications

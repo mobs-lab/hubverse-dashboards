@@ -44,20 +44,6 @@ print_header() {
     echo ""
 }
 
-# TODO: Ask if this is needed at all
-# Function to check if Python is installed
-# check_python() {
-#     if ! command -v python3 &> /dev/null; then
-#         print_error "Python 3 is not installed or not in PATH"
-#         echo "Please install Python 3.8 or higher to continue."
-#         exit 1
-#     fi
-
-#     # Check Python version
-#     PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
-#     print_info "Using Python $PYTHON_VERSION"
-# }
-
 # Function to check if config.yaml exists
 check_config() {
     if [ ! -f "config.yaml" ]; then
@@ -79,9 +65,11 @@ show_menu() {
     echo ""
     echo "  1) Build Dashboard (select this if building for the first time)"
     echo ""
-    echo "  2) Check for New Data "
+    echo "  2) Build Dashboard (Dev Mode)"
     echo ""
-    echo "  3) Exit"
+    echo "  3) Check for New Data"
+    echo ""
+    echo "  4) Exit"
     echo ""
 }
 
@@ -95,7 +83,7 @@ main() {
     while true; do
         show_menu
 
-        read -p "Enter your choice (1, 2, or 3): " choice
+        read -p "Enter your choice (1, 2, 3, or 4): " choice
 
         case $choice in
             1)
@@ -115,6 +103,21 @@ main() {
 
             2)
                 echo ""
+                print_info "Starting Dashboard Build Process (Dev Mode)..."
+                echo ""
+
+                # Run the Python workflow with --dev flag
+                if python3 scripts/dashboard_builder_workflow.py --config config.yaml --dev; then
+                    print_success "Dashboard build completed successfully!"
+                    exit 0
+                else
+                    print_error "Dashboard build failed. Please check the errors above."
+                    exit 1
+                fi
+                ;;
+
+            3)
+                echo ""
                 print_info "Data Update Feature"
                 echo ""
                 print_warning "This feature is not yet implemented."
@@ -122,7 +125,7 @@ main() {
                 read -p "Press Enter to return to menu..."
                 ;;
 
-            3)
+            4)
                 echo ""
                 print_info "Exiting..."
                 exit 0
@@ -130,7 +133,7 @@ main() {
 
             *)
                 echo ""
-                print_error "Invalid choice. Please enter 1, 2, or 3."
+                print_error "Invalid choice. Please enter 1, 2, 3, or 4."
                 echo ""
                 read -p "Press Enter to continue..."
                 ;;
