@@ -554,7 +554,7 @@ class CSVShapeGenerator:
         print(f"✓ Targets: {len(self.config.targets)} modelling task(s)")
         for target in self.config.targets:
             print(
-                f"    - {target.target_column_in_target_data} → {target.corresponding_key_in_model_output}"
+                f"    - {target.target_name} ({target.task_display_string}) → {target.target_key_name_for_task}"
             )
         print(f"✓ Models: {len(self.config.models)} model(s) configured")
         for model in self.config.models:

@@ -336,7 +336,10 @@ package-lock.json
 
 # config.yaml should be ignored.
 config.yaml
+config.yaml.*
 
+# Unignore the example file for users.
+!config.yaml.example
 
 /test-data-output
 /test-data-input

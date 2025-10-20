@@ -89,10 +89,10 @@ class ForecastPeriod:
 class TargetConfig:
     """Configuration for a modelling task/target"""
 
-    target_column_in_target_data: str
-    corresponding_key_in_model_output: str
+    target_name: str  # The name/identifier from config (e.g., "COVID19 Admission Value")
+    task_display_string: str  # Display name for frontend (e.g., "admission value")
+    target_key_name_for_task: str  # Key to match in target-data and model-output
     forecast_periods: List[str]
-    display_name: Optional[str] = None
 
 
 @dataclass
@@ -118,7 +118,7 @@ class ModelConfig:
 class DashboardConfig:
     """Main configuration class for the dashboard with comprehensive validation"""
 
-    # Default color palette for models without specified colors
+    # Default color palette for models without specified colors (64 colors)
     DEFAULT_COLOR_PALETTE = [
         "#4CAF50",
         "#2196F3",
@@ -130,6 +130,60 @@ class DashboardConfig:
         "#795548",
         "#607D8B",
         "#E91E63",
+        "#009688",
+        "#FF5722",
+        "#673AB7",
+        "#3F51B5",
+        "#03A9F4",
+        "#00BCD4",
+        "#4DB6AC",
+        "#81C784",
+        "#AED581",
+        "#DCE775",
+        "#FFF176",
+        "#FFD54F",
+        "#FFB74D",
+        "#FF8A65",
+        "#A1887F",
+        "#90A4AE",
+        "#CE93D8",
+        "#BA68C8",
+        "#AB47BC",
+        "#8E24AA",
+        "#7B1FA2",
+        "#6A1B9A",
+        "#EF5350",
+        "#EC407A",
+        "#AB47BC",
+        "#7E57C2",
+        "#5C6BC0",
+        "#42A5F5",
+        "#29B6F6",
+        "#26C6DA",
+        "#26A69A",
+        "#66BB6A",
+        "#9CCC65",
+        "#D4E157",
+        "#FFEE58",
+        "#FFCA28",
+        "#FFA726",
+        "#FF7043",
+        "#8D6E63",
+        "#78909C",
+        "#BDBDBD",
+        "#9E9E9E",
+        "#757575",
+        "#616161",
+        "#424242",
+        "#212121",
+        "#B39DDB",
+        "#9FA8DA",
+        "#90CAF9",
+        "#81D4FA",
+        "#80DEEA",
+        "#80CBC4",
+        "#A5D6A7",
+        "#C5E1A5",
     ]
 
     def __init__(self, config_path: Union[str, Path]):
@@ -298,8 +352,7 @@ class DashboardConfig:
             if period.display_string in seen_display_strings:
                 self._add_warning(
                     "forecast_periods",
-                    f"Duplicate display_string: '{period.display_string}' "
-                    + f"(period: {period.period_id})",
+                    f"Duplicate display_string: '{period.display_string}' " + f"(period: {period.period_id})",
                 )
             seen_display_strings.add(period.display_string)
 
@@ -330,23 +383,22 @@ class DashboardConfig:
                         f"Special period '{period.period_id}' is missing 'range_calculation' inside 'time_anchor'.",
                     )
                 elif not isinstance(range_calc, int):
-                     self._add_error(
+                    self._add_error(
                         "special_forecast_periods",
                         f"Special period '{period.period_id}' 'range_calculation' must be an integer.",
                     )
                 elif range_calc > 0:
                     self._add_error(
                         "special_forecast_periods",
-                        f"Special period '{period.period_id}' must have a negative "
-                        + f"'range_calculation' to look backward in time (got {range_calc}).",
+                        f"Special period '{period.period_id}' must have a negative " + f"'range_calculation' to look backward in time (got {range_calc}).",
                     )
-                
+
                 if anchor_on is None:
                     self._add_error(
                         "special_forecast_periods",
                         f"Special period '{period.period_id}' is missing 'anchor_on' inside 'time_anchor'.",
                     )
-                
+
                 if anchor_mode not in ["target-data", "model-output"]:
                     self._add_error(
                         "special_forecast_periods",
@@ -370,7 +422,7 @@ class DashboardConfig:
                                 f"Special period '{period.period_id}' is anchored to a static (non-dynamic) "
                                 + f"forecast period '{anchor_on}'. It will not update.",
                             )
-        
+
         # Check that only one forecast_period has is_default_selected
         default_periods = [p.period_id for p in self.forecast_periods if p.is_default_selected]
         if len(default_periods) > 1:
@@ -502,21 +554,15 @@ class DashboardConfig:
 
                         try:
                             period = ForecastPeriod(
-                                period_id=config_dict.get(
-                                    "forecast_period_id", period_id
-                                ),
+                                period_id=config_dict.get("forecast_period_id", period_id),
                                 display_string=config_dict["display_string"],
                                 start_date=config_dict["start_date"],
                                 end_date=config_dict["end_date"],
                                 is_special_period=False,
-                                is_default_selected=config_dict.get(
-                                    "is_default_selected", False
-                                ),
+                                is_default_selected=config_dict.get("is_default_selected", False),
                             )
                             periods.append(period)
-                            logger.info(
-                                f"  ✓ Parsed forecast period: {period.period_id}"
-                            )
+                            logger.info(f"  ✓ Parsed forecast period: {period.period_id}")
                         except KeyError as e:
                             self._add_error(
                                 "forecast_periods",
@@ -532,6 +578,11 @@ class DashboardConfig:
         for item in self.raw_config:
             if isinstance(item, dict) and "special_forecast_periods" in item:
                 special_periods_list = item["special_forecast_periods"]
+
+                # Handle case where no special_forecast_periods specified
+                if not special_periods_list:
+                    logger.info("  ✓ No special forecast periods defined")
+                    continue
 
                 for period_item in special_periods_list:
                     if not isinstance(period_item, dict):
@@ -562,9 +613,7 @@ class DashboardConfig:
                                 time_anchor=config_dict.get("time_anchor"),
                             )
                             dynamic_periods.append(period)
-                            logger.info(
-                                f"  ✓ Parsed special period (runtime calc): {period.period_id}"
-                            )
+                            logger.info(f"  ✓ Parsed special period (runtime calc): {period.period_id}")
                         except KeyError as e:
                             self._add_error(
                                 "special_forecast_periods",
@@ -612,7 +661,7 @@ class DashboardConfig:
                     if not isinstance(target_item, dict):
                         continue
 
-                    for target_col, target_data in target_item.items():
+                    for target_name, target_data in target_item.items():
                         config_dict = {}
                         for prop in target_data:
                             if isinstance(prop, dict):
@@ -630,21 +679,21 @@ class DashboardConfig:
                                 forecast_periods = all_period_ids
                                 self._add_warning(
                                     "targets",
-                                    f"Target '{target_col}' missing 'for_forecast_periods', " + f"defaulting to all available periods",
+                                    f"Target '{target_name}' missing 'for_forecast_periods', " + f"defaulting to all available periods",
                                 )
 
                             target = TargetConfig(
-                                target_column_in_target_data=target_col,
-                                corresponding_key_in_model_output=config_dict["corresponding_key_in_model_output_target_column"],
+                                target_name=target_name,
+                                task_display_string=config_dict["task_display_string"],
+                                target_key_name_for_task=config_dict["target_key_name_for_task"],
                                 forecast_periods=forecast_periods,
-                                display_name=config_dict.get("display_name", target_col),
                             )
                             targets.append(target)
-                            logger.info(f"  ✓ Parsed target: {target_col} → {target.corresponding_key_in_model_output}")
+                            logger.info(f"  ✓ Parsed target: {target_name} → {target.target_key_name_for_task}")
                         except KeyError as e:
                             self._add_error(
                                 "targets",
-                                f"Missing required field in target {target_col}: {e}",
+                                f"Missing required field in target {target_name}: {e}",
                             )
 
         return targets
@@ -673,8 +722,7 @@ class DashboardConfig:
             if as_of_col_val:
                 self._add_warning(
                     "target_data_header_mapping",
-                    "'as_of_col_name' is ignored when 'target_data_file_format' is 'parquet'. "
-                    "The dashboard will use directory names for versioning instead.",
+                    "'as_of_col_name' is ignored when 'target_data_file_format' is 'parquet'. The dashboard will use directory names for versioning instead.",
                 )
             as_of_col_val = None
 
@@ -685,20 +733,12 @@ class DashboardConfig:
             location_name_col=target_mapping.get("location_name_col_name"),
             target_col=target_mapping.get("target_col_name"),
             as_of_col=as_of_col_val,
-            reference_date_col=model_output_mapping.get(
-                "reference_date_col_name", "reference_date"
-            ),
-            target_end_date_col=model_output_mapping.get(
-                "target_end_date_col_name", "target_end_date"
-            ),
+            reference_date_col=model_output_mapping.get("reference_date_col_name", "reference_date"),
+            target_end_date_col=model_output_mapping.get("target_end_date_col_name", "target_end_date"),
             model_target_col=model_output_mapping.get("target_col_name", "target"),
             horizon_col=model_output_mapping.get("horizon_col_name", "horizon"),
-            output_type_col=model_output_mapping.get(
-                "output_type_col_name", "output_type"
-            ),
-            output_type_id_col=model_output_mapping.get(
-                "output_type_id_col_name", "output_type_id"
-            ),
+            output_type_col=model_output_mapping.get("output_type_col_name", "output_type"),
+            output_type_id_col=model_output_mapping.get("output_type_id_col_name", "output_type_id"),
             value_col=model_output_mapping.get("value_col_name", "value"),
         )
 
@@ -854,7 +894,7 @@ class DashboardConfig:
         for target in self.targets:
             for period_id in target.forecast_periods:
                 if period_id not in all_period_ids:
-                    error_messages.append(f"Target '{target.target_column_in_target_data}' " + f"references undefined forecast period: '{period_id}'")
+                    error_messages.append(f"Target '{target.target_name}' " + f"references undefined forecast period: '{period_id}'")
 
         return error_messages, warning_messages
 

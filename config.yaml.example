@@ -20,42 +20,42 @@
 # Each period' start and end date will be used to filter out matching model-output data.
 - forecast_periods:
     # Example of a static (no more data update) forecast_period
-    - season-2021-2022: # Name each forecast_period entry however you like. The `id` below will be used for identifying the forecast period.
-        - forecast_period_id: "season-2023-2024" # Required, must be unique.
+    - season-2024-2025: # Name each forecast_period entry however you like. The `id` below will be used for identifying the forecast period.
+        - forecast_period_id: "season-2024-2025" # Required, must be unique.
 
         # All datetime values must be ISO Datetime String or ISO Date String
-        - start_date: "2023-08-01T00:00:00" # Required
-        - end_date: "2024-07-31T00:00:00" # Required for static forecast_period
-        - display_string: "Season 2023-2024 Flu-Forecast" # Required, will be used for displaying
+        - start_date: "2024-11-16T00:00:00" # Required
+        - end_date: "2025-09-27T00:00:00" # Required for static forecast_period
+        - display_string: "COVID-19 2024-2025 Forecast" # Required, will be used for displaying
         - is_default_selected: True # Optional. Only one forecast_period can have "True". If not provided, default to the one with most recent `start_date`.
 
-    # Example of a dynamic (data updates ongoing) forecast_period
-    - dynamic-forecast-period-2025-2026:
-        - forecast_period_id: "season-2025-2026"
-        # start_date and end_date are both required. Both must be ISO datetime string or "null".
-        # Whenever `end_date` is beyond the actual current UTC date, this period is dynamic.
-        # When both are "null",
-        - start_date: "2025-08-01T00:00:00"
-        - end_date: "2026-07-31T00:00:00"
-        - display_string: "(Ongoing) COVID-19 Forecast 2025-2026"
+    # # Example of a dynamic (data updates ongoing) forecast_period
+    # - dynamic-forecast-period-2025-2026:
+    #     - forecast_period_id: "season-2025-2026"
+    #     # start_date and end_date are both required. Both must be ISO datetime string or "null".
+    #     # Whenever `end_date` is beyond the actual current UTC date, this period is dynamic.
+    #     # When both are "null",
+    #     - start_date: "2025-08-01T00:00:00"
+    #     - end_date: "2026-07-31T00:00:00"
+    #     - display_string: "(Ongoing) COVID-19 Forecast 2025-2026"
 
 # Special forecast_periods are used to automatically aggregate data that are within a certain date range,
 # Each special period should have a time-anchor (as base of relative time length calculation).
-# Only dynamic forecast_periods can be time-anchor. When a dynamic forecast_period becomes static,
+# Only dynamic forecast_periods can be time-anchor.
 - special_forecast_periods:
-    - last-2-weeks:
-        - special_period_id: "last-2-weeks" # Required, used for indexing and keying
-        - display_string: "Last 2 Weeks" # Required
-        # Configure how aggregation works for special forecast period.
-        - time_anchor:
-            # Specify a dynamic forecast_period's ID.
-            - anchor_on: "season-2025-2026"
-            # Two Options: "target-data" & "model-output".
-            # Respectively, Base date of calculation will either be most-recent-date in target-data or model-output (using reference_date).
-            - anchor_mode: "model-output"
-            # Input a negative number here, unit is `time_unit` you defined
-            # For example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
-            - range_calculation: -2
+    # - last-2-weeks:
+    #     - special_period_id: "last-2-weeks" # Required, used for indexing and keying
+    #     - display_string: "Last 2 Weeks" # Required
+    #     # Configure how aggregation works for special forecast period.
+    #     - time_anchor:
+    #         # Specify a dynamic forecast_period's ID.
+    #         - anchor_on: "season-2024-2025"
+    #         # Two Options: "target-data" & "model-output".
+    #         # Respectively, Base date of calculation will either be most-recent-date in target-data or model-output (using reference_date).
+    #         - anchor_mode: "model-output"
+    #         # Input a negative number here, unit is `time_unit` you defined
+    #         # For example this one is -1 (going backwards in time) * 2 * `7` (days) = -14 (days)
+    #         - range_calculation: -2
 
 #=========================
 #     Location Data
@@ -76,32 +76,28 @@
 # Change this to True and dashboard will not filter target-data's "value" column nor model-output's "target" column at all.
 - is_single_forecast_target: False
 
-# TODO: How are we going to support multiple targets? I can foresee having multiple X-axis each corresponding to a target in i.e. Forecast Chart.
-#       (Also, to implement this, change the script to collect and organize each narrow-format target-data rows according to different targets)
-#
-# Defining the actual logic of how to utilize target-data and model-output together to see model performances.
-# Targets to include, paired with display names.
-# Dashboard will look for each target in column headers in target-data.
-- targets:
-    - "value": # admission values in Flusight-Forecast-hub's hospitalization target-data.
-        # Dashboard will find `wk inc flu hosp` for "target" column, and use the values of respective rows
-        - corresponding_key_in_model_output_target_column: "wk inc flu hosp"
-        # Which seasons to do this modelling task for,
-        # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
-        # If this option is `null` or deleted, defaults to all seasons.
-        - for_forecast_periods: ["season-2023-2024", "season-2025-2026", "last-2-weeks"]
-    - "Ice Cream":
-        - corresponding_key_in_model_output_target_column: "Supercalifraglisticexpialidocious" # Make sure the string match EXACTLY!
-        - for_forecast_periods: ["season-2025-2026"]
-  # - "observations":
-  #   - corresponding_key_in_model_output_target_column: "something something"
-  #   - for_forecast_periods: ["season-2021-2022" ]
-  # - "admission_type": ...
-
 # Time Unit in days, or how frequent model-output and target-data are updated.
 # This is also used to cross-reference with `horizon` (forecast horizons).
 # Each predictin target Day Y should be equal to some Day X + `horizon` * `time_unit`.
 - time_unit: 7 # Required
+
+# Defining the actual logic of how to utilize target-data and model-output together to see model performances.
+# Targets to include, paired with display names.
+# Dashboard will look for each target in column headers in target-data.
+- targets:
+    - "COVID19 Admission Value":
+        - task_display_string: "admission value" # REQUIRED This will become the name of this target in the frontend.
+
+        # Each modelling task requires using a specific task target to orchestrate together target-data and model-output.
+        # Target-Data: "observation" column values from matching rows containing the key in "target" column are used.
+        # Model-Output: Entries' "value" column data from matching rows containing the key in "target" column are used.
+        # This allows dashboard to know how to process data, process evaluations, and aggregate things.
+        - target_key_name_for_task: "wk inc covid hosp" # REQUIRED
+
+        # Which seasons to do this modelling task for,
+        # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
+        # If this option is `null` or deleted, defaults to all seasons.
+        - for_forecast_periods: ["season-2024-2025"]
 
 #====================================
 # Target-data related configurations
@@ -109,34 +105,38 @@
 # Here you can customize the settings to work with your specific target-data data.
 # See https://docs.hubverse.io/en/latest/user-guide/target-data.html for Hubverse's documentation on target-data
 #
-# You can either use a single CSV file or parquet files.
+# You can either use a single CSV file or Parquet file(s).
 # Please see the https://docs.hubverse.io/en/latest/user-guide/target-data.html#file-formats
 # to properly structure your files.
-# If "parquet" option is specified,
+- target_data_file_format: "parquet" # Or "csv"
 
-- target_data_file_format: "csv" # Or "parquet"
+# If "parquet" option is specified, please indicate whether it is a single parquet file
+# OR partitioned parquet inside multiple folders.
+- parquet_partitioned: False # REQUIRED if "parquet" in above.
+
+# REQUIRED if you are using "csv" OR using "parquet" and "False" for partitioning,
+# You have to specify the name of the target-data file, minus the file extension.
+- single_target_data_file_name: "time-series" # This will become "time-series.parquet" in processing. 
 
 # Some further conditions must be met for dashboard to work with your target-data:
 # - Your target-data contain:
 #   - A "date" column that contain date in string format.
 #   - A "observation" column or equivalent.
-#
 # - If you have multiple locations or multiple targets:
 #   - A "location" column
 #   - A "target" column
 #   * If single-location or single-target are toggled on, these two can be left blank.
-#
-# - If you are using single CSV target-data file AND need to view historical target-data: (See https://docs.hubverse.io/en/latest/user-guide/target-data.html#optional-as-of-column-to-record-data-versions)
+# - If you are using single CSV/parquet target-data file AND want the dashboard to display historical target-data: (See https://docs.hubverse.io/en/latest/user-guide/target-data.html#optional-as-of-column-to-record-data-versions)
 #   - An "as_of" column that contain date in string format.
 - target_data_header_mapping:
-    - date_col_name: "date"
-    - observation_col_name: "value"
-    - location_col_name: "location"
-    - location_name_col_name: "location_name" # Optional
-    - target_col_name: null
-    - as_of_col_name: null # Optional, will be ignored when "parquet" is target data file format (folder name will be used)
+    - date_col_name: "date" # REQUIRED
+    - observation_col_name: "value" # REQUIRED
+    - location_col_name: "location" # REQUIRED
+    - location_name_col_name: "location_name" # REQUIRED
+    - target_col_name: "target" # Cannot be "null" when you have multiple modelling targets.
+    - as_of_col_name: "as_of" # OPTIONAL, will be ignored when using partitioned parquet files.
 
-- target_data_observation_format: "float"
+- target_data_observation_data_type: "integer" # OPTIONAL
 
 #=====================================
 # Model-output related configurations
@@ -144,10 +144,14 @@
 # Models to include. The dashboard uses this list to find matching subdirectories inside `model-output/`
 # So please name the folders to be the exact same. Recommended to wrap names inside double quote.
 - available_models:
-    - "MOBS-GLEAM_FLUH": # This name has to match the subdirectory
-        - color_hex: "#9ceb94" # Optional, Assign color here for dashboard to display it whenever applicable.
-    - "MIGHTE-Nsemble":
-        - color_hex: "#111111"
+    - "MOBS-GLEAM_COVID": # Name has to match the subdirectory
+        - color_hex: "#9ceb94" # OPTIONAL, Assign color here for dashboard to display it whenever applicable.
+    - "CEPH-Rtrend_covid":
+        - color_hex: null # A color from a default palette will be assigned if null.
+    - "CovidHub-baseline":
+        - color_hex: null
+    - "CovidHub-ensemble":
+        - color_hex: null
     - "NON-EXISTENT-MODEL":
         - color_hex: "#000000"
     # - "MIGHTE-Joint":
@@ -202,9 +206,11 @@
         - uses_output_type_ids: ["0.1", "0.35"] # Specify the output_type_ids keys, order has to be ascending-by-value.
     - "50":
         - uses_output_type_ids: ["0.25", "0.75"]
+    - "75":
+        - uses_output_type_ids: ["0.15", "0.9"]
 
 # Required: The difference between the target_date and the origin_date in time units specified by the hub (e.g., days, weeks, or months)
-- horizons: [0, 1, 2, 3, 4, 5, 6, 7]
+- horizons: [-1, 0, 1, 2, 3]
 
 #===================================
 # Model Output Evaluation Settings

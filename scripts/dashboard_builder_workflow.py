@@ -147,7 +147,7 @@ class DashboardBuilder:
         for target in self.config.targets:
             for period_id in target.forecast_periods:
                 if period_id not in all_period_ids:
-                    errors.append(f"Target '{target.target_column_in_target_data}' references undefined period: '{period_id}'")
+                    errors.append(f"Target '{target.target_name}' references undefined period: '{period_id}'")
 
         # Display warnings
         if warnings:
