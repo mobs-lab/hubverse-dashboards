@@ -276,6 +276,20 @@ class DashboardConfig:
                 f"Invalid target_data_file_format: '{self.target_data_file_format}'. Must be 'csv' or 'parquet'",
             )
 
+        # Single target data file name (for non-partitioned formats)
+        self.single_target_data_file_name = self._get_value("single_target_data_file_name")
+        
+        # Check if partitioned parquet is being used
+        is_partitioned = self._get_value("parquet_partitioned_by_as_of", False)
+        
+        # Validate that single_target_data_file_name is provided when needed
+        if self.target_data_file_format in ["csv", "parquet"] and not is_partitioned:
+            if not self.single_target_data_file_name:
+                self._add_error(
+                    "single_target_data_file_name",
+                    "single_target_data_file_name is required when using csv or non-partitioned parquet format",
+                )
+
         # Column mappings
         self.column_mapping = self._parse_column_mappings()
 
@@ -491,10 +505,10 @@ class DashboardConfig:
         model_names = [m.model_name for m in self.models]
 
         if self.baseline_model_for_relative_wis not in model_names:
-            self._add_error(
+            self._add_warning(
                 "baseline_model_for_relative_WIS",
                 f"Baseline model '{self.baseline_model_for_relative_wis}' "
-                + f"must be one of the models listed in available_models. "
+                + f"is not being used for visualization. "
                 + f"Available models: {', '.join(model_names)}",
             )
 
@@ -716,15 +730,22 @@ class DashboardConfig:
                     if isinstance(mapping, dict):
                         model_output_mapping.update(mapping)
 
-        # Handle as_of_col based on target data file format
+        # Handle as_of_col based on target data file format and partitioning mode
         as_of_col_val = target_mapping.get("as_of_col_name")
-        if self.target_data_file_format == "parquet":
-            if as_of_col_val:
-                self._add_warning(
-                    "target_data_header_mapping",
-                    "'as_of_col_name' is ignored when 'target_data_file_format' is 'parquet'. The dashboard will use directory names for versioning instead.",
-                )
-            as_of_col_val = None
+        
+        # Check if using partitioned parquet
+        is_partitioned_parquet = self.target_data_file_format == "parquet" and self._get_value("parquet_partitioned_by_as_of", False)
+        
+        if is_partitioned_parquet:
+            # Partitioned parquet mode: use directory names for versioning
+            logger.info("  ✓ Using partitioned parquet: historical target-data will be loaded from subdirectories")
+            as_of_col_val = None  # Don't use as_of column, use directory-based versioning
+        elif as_of_col_val:
+            # Single file (CSV or parquet) with as_of column: use column-based aggregation
+            logger.info(f"  ✓ Using '{as_of_col_val}' column for historical target-data versioning")
+        else:
+            # No historical data support
+            logger.info("  ✓ No historical target-data versioning configured")
 
         return ColumnMapping(
             date_col=target_mapping.get("date_col_name", "date"),

@@ -57,3 +57,12 @@ Then follow your Git Hosting Service's guide to push your new local repo to the 
 ## Example site running this template, for reference:
 
 <!--TODO: Add a demo site after finishing the configuration reading and changing the frontend code to work accordingly-->
+
+# Dev Mode Quick Start
+
+## How To Use
+
+Maintain the supposed structure of data (`/target-data`, `/model-output`, etc.), and put
+**Input Data In:** `/test-data-input/`
+
+Then use the dashboard builder script and select option 2.

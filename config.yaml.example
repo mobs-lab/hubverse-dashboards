@@ -69,6 +69,23 @@
 # This field is REQUIRED when is_single_location_forecast is True.
 - single_location_mapping: "02" # Example: Alaska
 
+# TODO: Add Support for Custom Level of Spatial Data Modelling
+# For example, user provides a shape file of Boston and want to model all different counties
+# Right now we only support US-State (ShapeFile-SpatialLevel).
+# Need to generalize both. Maybe enforce a mapping of locations?
+# -------
+# If your modelling task require custom Spatial Data, please make sure to provide a:
+# (Please put them inside `/auxiliary-data` directory)
+#   - Shape File containing geo data for locations you are modelling for;
+#   - Location Mapping file (CSV format) for
+- custom_shape_file_name: null # If null, will default to using `states-10m.json` inside `/public` directory
+- custom_location_mapping_file_name: "locations.csv" # Full name of the file containing mapping of {Location Code-Location Name} in csv format, relative to `/auxiliary-data` folder
+
+# Naming convention for headers inside the provided location mapping file
+# In this example, the "location" column contains US FIPS
+- location_code_col_header_name: "location"
+- location_name_col_header_name: "location_name"
+
 #=========================================
 # Modelling Tasks, or Targets definitions
 #=========================================
@@ -112,11 +129,11 @@
 
 # If "parquet" option is specified, please indicate whether it is a single parquet file
 # OR partitioned parquet inside multiple folders.
-- parquet_partitioned: False # REQUIRED if "parquet" in above.
+- parquet_partitioned_by_as_of: False # REQUIRED if "parquet" in above.
 
 # REQUIRED if you are using "csv" OR using "parquet" and "False" for partitioning,
 # You have to specify the name of the target-data file, minus the file extension.
-- single_target_data_file_name: "time-series" # This will become "time-series.parquet" in processing. 
+- single_target_data_file_name: "time-series" # This will become "time-series.parquet" in processing.
 
 # Some further conditions must be met for dashboard to work with your target-data:
 # - Your target-data contain:
@@ -136,7 +153,7 @@
     - target_col_name: "target" # Cannot be "null" when you have multiple modelling targets.
     - as_of_col_name: "as_of" # OPTIONAL, will be ignored when using partitioned parquet files.
 
-- target_data_observation_data_type: "integer" # OPTIONAL
+- target_data_observation_format: "integer" # OPTIONAL, defaults to "float" if not specified
 
 #=====================================
 # Model-output related configurations
@@ -203,11 +220,13 @@
 # Dashboard will use your specifications for acquiring and calculating CIs accordingly.
 - prediction_intervals:
     - "25": # Dashboard will postfix this with a "%" and display as selectable options.
-        - uses_output_type_ids: ["0.1", "0.35"] # Specify the output_type_ids keys, order has to be ascending-by-value.
+        - uses_output_type_ids: ["0.375", "0.625"] # Specify the output_type_ids keys, order has to be ascending-by-value.
     - "50":
         - uses_output_type_ids: ["0.25", "0.75"]
     - "75":
-        - uses_output_type_ids: ["0.15", "0.9"]
+        - uses_output_type_ids: ["0.125", "0.875"]
+    - "90":
+        - uses_output_type_ids: ["0.05", "0.95"]
 
 # Required: The difference between the target_date and the origin_date in time units specified by the hub (e.g., days, weeks, or months)
 - horizons: [-1, 0, 1, 2, 3]
@@ -219,11 +238,15 @@
 # Prediction intervals to calculate coverage evaluations on.
 - evaluations_prediction_intervals:
     - "25": # Dashboard will postfix this with a "%" and display as selectable options.
-        - uses_output_type_ids: ["0.1", "0.35"] # Specify the output_type_ids keys, order has to be ascending-by-value.
+        - uses_output_type_ids: ["0.375", "0.625"] # Specify the output_type_ids keys, order has to be ascending-by-value.
     - "50":
         - uses_output_type_ids: ["0.25", "0.75"]
+    - "75":
+        - uses_output_type_ids: ["0.125", "0.875"]
+    - "90":
+        - uses_output_type_ids: ["0.05", "0.95"]
 
 # REQUIRED: Model to use as a baseline for relative WIS calculations.
-# This must be one of the models listed in available_models above.
+# Even if not a model specified before, this model should also have a dedicated folder inside `/model-output` directory.
 # The baseline model will be used to calculate relative WIS scores for all other models.
-- baseline_model_for_relative_WIS: "MOBS-GLEAM_FLUH"
+- baseline_model_for_relative_WIS: "CovidHub-baseline"

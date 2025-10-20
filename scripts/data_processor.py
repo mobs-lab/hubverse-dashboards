@@ -123,33 +123,49 @@ class DataProcessor:
         # Single CSV file mode for target-data
         if file_format == "csv":
             try:
-                csv_file = next(self.target_data_path.glob("*.csv"))
+                file_name = self.config.single_target_data_file_name
+
+                csv_file = self.target_data_path / f"{file_name}.csv"
+                if not csv_file.exists():
+                    raise FileNotFoundError(
+                        f"Target data file not found: {file_name}.csv in {self.target_data_path}"
+                    )
+
                 df = pd.read_csv(csv_file)
                 logger.info(f"  ✓ Loaded target data from {csv_file.name}")
                 logger.info(f"  ✓ Shape: {df.shape[0]} rows × {df.shape[1]} columns")
-            except StopIteration:
-                raise FileNotFoundError(f"No CSV file found in {self.target_data_path}")
+            except ValueError as e:
+                raise e
+            except FileNotFoundError as e:
+                raise e
+            except Exception as e:
+                raise RuntimeError(f"Error loading CSV file: {e}")
         elif file_format == "parquet":
             # Check if using partitioned parquet format
-            is_partitioned = self.config._get_value("parquet_partitioned", False)
+            is_partitioned = self.config._get_value("parquet_partitioned_by_as_of", False)
 
             if is_partitioned:
                 # Partitioned mode: each subdirectory represents an as_of date
                 logger.info("  → Using partitioned parquet format")
                 df = self._load_partitioned_parquet()
             else:
-                # Single file mode
+                # Single file mode - use the configured file name
                 try:
-                    # Look for parquet files
-                    parquet_files = list(self.target_data_path.glob("*.parquet"))
-                    if not parquet_files:
+                    file_name = self.config.single_target_data_file_name
+                    if not file_name:
+                        raise ValueError("single_target_data_file_name is required in config for non-partitioned parquet")
+
+                    # Try .parquet extension first
+                    parquet_file = self.target_data_path / f"{file_name}.parquet"
+                    if not parquet_file.exists():
                         # Try .pq extension
-                        parquet_files = list(self.target_data_path.glob("*.pq"))
+                        parquet_file = self.target_data_path / f"{file_name}.pq"
 
-                    if not parquet_files:
-                        raise FileNotFoundError(f"No parquet file found in {self.target_data_path}")
+                    if not parquet_file.exists():
+                        raise FileNotFoundError(
+                            f"Target data file not found: {file_name}.parquet or {file_name}.pq in {self.target_data_path}"
+                        )
 
-                    parquet_file = parquet_files[0]  # Use the first parquet file found
                     df = pd.read_parquet(parquet_file)
                     logger.info(f"  ✓ Loaded target data from {parquet_file.name}")
                     logger.info(f"  ✓ Shape: {df.shape[0]} rows × {df.shape[1]} columns")
@@ -160,24 +176,40 @@ class DataProcessor:
 
         # Rename csv file column headers from users' specifications to Hubverse standard
         mapping = self.config.column_mapping
-        rename_dict = {
-            mapping.date_col: "date",
-            mapping.observation_col: "observation",
-        }
-        if mapping.location_col:
+
+        # Log available columns for debugging
+        logger.info(f"  → Available columns in target data: {df.columns.tolist()}")
+
+        # Build rename dict and validate that required columns exist
+        rename_dict = {}
+
+        # Required columns
+        if mapping.date_col not in df.columns:
+            raise ValueError(
+                f"Date column '{mapping.date_col}' not found in target data. "
+                f"Available columns: {df.columns.tolist()}"
+            )
+        rename_dict[mapping.date_col] = "date"
+
+        if mapping.observation_col not in df.columns:
+            raise ValueError(
+                f"Observation column '{mapping.observation_col}' not found in target data. "
+                f"Available columns: {df.columns.tolist()}"
+            )
+        rename_dict[mapping.observation_col] = "observation"
+
+        # Optional columns
+        if mapping.location_col and mapping.location_col in df.columns:
             rename_dict[mapping.location_col] = "location"
-        if mapping.location_name_col:
+        if mapping.location_name_col and mapping.location_name_col in df.columns:
             rename_dict[mapping.location_name_col] = "location_name"
-        if mapping.target_col:
+        if mapping.target_col and mapping.target_col in df.columns:
             rename_dict[mapping.target_col] = "target"
-        if mapping.as_of_col:
+        if mapping.as_of_col and mapping.as_of_col in df.columns:
             rename_dict[mapping.as_of_col] = "as_of"
 
         df.rename(columns=rename_dict, inplace=True)
-
-        # Critical error if no date is present
-        if "date" not in df.columns:
-            raise ValueError(f"Date column '{mapping.date_col}' not found in target data.")
+        logger.info(f"  ✓ Renamed columns: {list(rename_dict.keys())} → {list(rename_dict.values())}")
 
         df["date"] = pd.to_datetime(df["date"])
 
