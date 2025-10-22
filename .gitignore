@@ -330,7 +330,7 @@ cython_debug/
 .demo-env
 *.demo.env
 
-.prettierrc
+
 package-lock.json
 
 

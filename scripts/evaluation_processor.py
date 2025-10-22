@@ -292,7 +292,7 @@ class EvaluationProcessor:
 
                                 observation = obs_data["observation"].iloc[0]
 
-                                # Skip if observation is negative (missing data indicator)
+                                # Skip if observation is negative (missing data)
                                 if observation < 0:
                                     continue
 

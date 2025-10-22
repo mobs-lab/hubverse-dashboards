@@ -4,12 +4,13 @@ Parses, validates, and handles errors in config.yaml with comprehensive error ch
 """
 
 import json
-import yaml
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, Tuple
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import yaml
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -113,6 +114,29 @@ class ModelConfig:
     model_name: str
     color_hex: Optional[str] = None
     display_name: Optional[str] = None
+
+
+@dataclass
+class SpatialDataConfig:
+    """Configuration for spatial data handling"""
+
+    disable_map: bool
+    custom_shape_file_name: Optional[str]
+    custom_location_mapping_file_name: Optional[str]
+    location_code_col_header: str
+    location_name_col_header: str
+
+    # Store implied configs from above options
+    use_default_shape_file: bool = True
+    use_default_location_mapping: bool = True
+
+    shape_file_path: Optional[Path] = None
+    location_mapping_path: Optional[Path] = None
+
+    def __post_init__(self):
+        """Compute derived properties"""
+        self.use_default_shape_file = self.custom_shape_file_name is None
+        self.use_default_location_mapping = self.custom_location_mapping_file_name is None
 
 
 class DashboardConfig:
@@ -240,11 +264,16 @@ class DashboardConfig:
         self.is_single_location = self._get_value("is_single_location_forecast", False)
         self.single_location_mapping = self._parse_single_location_mapping()
 
-        # Load US state FIPS mapping reference
-        self.us_state_fips_mapping = self._load_us_state_fips_mapping()
+        self.spatial_config = self._parse_spatial_data_config()
+        self.location_mapping = self._load_location_mapping(self.spatial_config)
 
-        # Validate location data
-        self._validate_location_data()
+        # Validate single-location mode data
+        self._validate_single_location_data()
+
+        # TODO: Handle three different criteria and combinations:
+        # - Disabling of Map or not
+        # - Using custom shape file or not
+        # - using custom spatial level—custom location mapping—or not
 
         # Target configuration
         self.is_single_target = self._get_value("is_single_forecast_target", False)
@@ -278,12 +307,12 @@ class DashboardConfig:
 
         # Single target data file name (for non-partitioned formats)
         self.single_target_data_file_name = self._get_value("single_target_data_file_name")
-        
+
         # Check if partitioned parquet is being used
-        is_partitioned = self._get_value("parquet_partitioned_by_as_of", False)
-        
+        self.is_partitioned_parquet = self._get_value("parquet_partitioned_by_as_of", False)
+
         # Validate that single_target_data_file_name is provided when needed
-        if self.target_data_file_format in ["csv", "parquet"] and not is_partitioned:
+        if self.target_data_file_format in ["csv", "parquet"] and not self.is_partitioned_parquet:
             if not self.single_target_data_file_name:
                 self._add_error(
                     "single_target_data_file_name",
@@ -445,27 +474,215 @@ class DashboardConfig:
                 f"Only one forecast period can be set as default. Found: {', '.join(default_periods)}",
             )
 
-    def _validate_location_data(self):
+    def _validate_single_location_data(self):
         """Validate location data configuration"""
         if self.is_single_location:
             # Require single_location_mapping when in single-location mode
             if not self.single_location_mapping:
                 self._add_error(
                     "single_location_mapping",
-                    "single_location_mapping is REQUIRED when is_single_location_forecast is True. "
-                    + "Please specify a US state FIPS code (e.g., '01' for Alabama).",
+                    "single_location_mapping is REQUIRED when is_single_location_forecast is True.\n"
+                    "  Please specify a location code that exists in your location mapping.\n"
+                    "  Examples:\n"
+                    "    - For default US FIPS: '01' (Alabama), '06' (California), etc.\n"
+                    "    - For custom mapping: use a code from your custom_location_mapping_file_name CSV",
                 )
-            else:
-                # Validate the location code exists in our reference
-                if self.single_location_mapping not in self.us_state_fips_mapping:
-                    self._add_warning(
-                        "single_location_mapping",
-                        f"Location code '{self.single_location_mapping}' is not a standard US state FIPS code. "
-                        + f"Dashboard may not display location name correctly.",
-                    )
         else:
             # Multi-location mode: locations will be auto-detected from data
             logger.info("  ✓ Multi-location mode: will auto-detect locations from data files")
+
+            # Log which mapping will be used for auto-detected locations
+            if self.spatial_config.use_default_location_mapping:
+                logger.info(f"  ✓ Using default US State FIPS mapping for location names ({len(self.location_mapping)} states)")
+            else:
+                logger.info(f"  ✓ Using custom location mapping for location names ({len(self.location_mapping)} locations)")
+
+    def _parse_spatial_data_config(self) -> SpatialDataConfig:
+        """Parse spatial data configuration with comprehensive validation"""
+
+        # Get configuration values
+        disable_map = self._get_value("disable_map_in_dashboard", False)
+        custom_shape_file = self._get_value("custom_shape_file_name")
+        custom_location_mapping = self._get_value("custom_location_mapping_file_name")
+        location_code_col = self._get_value("location_code_col_header_name", "location")
+        location_name_col = self._get_value("location_name_col_header_name", "location_name")
+
+        # Create config object
+        spatial_config = SpatialDataConfig(
+            disable_map=disable_map,
+            custom_shape_file_name=custom_shape_file,
+            custom_location_mapping_file_name=custom_location_mapping,
+            location_code_col_header=location_code_col,
+            location_name_col_header=location_name_col,
+        )
+
+        # Get paths for validation
+        project_root = self.config_path.parent
+        auxiliary_data_dir = project_root / "auxiliary-data"
+
+        # ===== VALIDATION LOGIC =====
+
+        # Scenario: Map is DISABLED
+        if spatial_config.disable_map:
+            logger.info("  ℹ️  Map visualization is DISABLED")
+
+            # Shape file is ignored when map is disabled
+            if custom_shape_file:
+                logger.info(f"  ℹ️  custom_shape_file_name '{custom_shape_file}' will be ignored (map is disabled)")
+
+            # Validate custom location mapping if provided
+            if custom_location_mapping:
+                mapping_path = auxiliary_data_dir / custom_location_mapping
+                if not mapping_path.exists():
+                    self._add_error(
+                        "custom_location_mapping_file_name",
+                        f"Custom location mapping file not found: {mapping_path}\n  Please place the file in the auxiliary-data/ directory",
+                    )
+                else:
+                    spatial_config.location_mapping_path = mapping_path
+                    logger.info(f"  ✓ Custom location mapping: {custom_location_mapping}")
+            else:
+                logger.info("  ✓ Using default US State FIPS mapping")
+
+        # Scenario: Map is ENABLED
+        else:
+            logger.info("  ✓ Map visualization is ENABLED")
+
+            # Check shape file configuration
+            if custom_shape_file:
+                # Custom shape file provided
+                shape_path = auxiliary_data_dir / custom_shape_file
+
+                if not shape_path.exists():
+                    self._add_error(
+                        "custom_shape_file_name",
+                        f"Custom shape file not found: {shape_path}\n"
+                        f"  Please place the file in the auxiliary-data/ directory\n"
+                        f"  Supported formats: .json (GeoJSON/TopoJSON), .geojson",
+                    )
+                else:
+                    # Validate file extension
+                    valid_extensions = [".json", ".geojson", ".topojson"]
+                    if shape_path.suffix.lower() not in valid_extensions:
+                        self._add_warning(
+                            "custom_shape_file_name", f"Shape file has unexpected extension '{shape_path.suffix}'. Supported: {', '.join(valid_extensions)}"
+                        )
+
+                    spatial_config.shape_file_path = shape_path
+                    spatial_config.use_default_shape_file = False
+                    logger.info(f"  ✓ Custom shape file: {custom_shape_file}")
+
+                    # Warn if custom shape file but no custom location mapping
+                    if not custom_location_mapping:
+                        self._add_error(
+                            "custom_location_mapping_file_name",
+                            "Using custom shape file without custom location mapping. "
+                            "This may cause location code mismatches. "
+                            "Consider providing a custom location mapping CSV that matches "
+                            "your shape file's location codes.",
+                        )
+            else:
+                # Using default US states shape file
+                logger.info("  ✓ Using default US States shape file (states-10m.json)")
+                spatial_config.use_default_shape_file = True
+
+            # Check location mapping configuration
+            if custom_location_mapping:
+                mapping_path = auxiliary_data_dir / custom_location_mapping
+
+                # Error if file not found
+                if not mapping_path.exists():
+                    self._add_error(
+                        "custom_location_mapping_file_name",
+                        f"Custom location mapping file not found: {mapping_path}\n  Please place the file in the auxiliary-data/ directory",
+                    )
+                else:
+                    # Validate CSV format
+                    if not mapping_path.suffix.lower() == ".csv":
+                        self._add_error("custom_location_mapping_file_name", f"Location mapping file must be CSV format (got {mapping_path.suffix})")
+                    else:
+                        # Validate CSV structure
+                        try:
+                            import pandas as pd
+
+                            mapping_df = pd.read_csv(mapping_path)
+
+                            # Check required columns exist
+                            if location_code_col not in mapping_df.columns:
+                                self._add_error(
+                                    "location_code_col_header_name",
+                                    f"Column '{location_code_col}' not found in {custom_location_mapping}. Available columns: {', '.join(mapping_df.columns)}",
+                                )
+
+                            if location_name_col not in mapping_df.columns:
+                                self._add_error(
+                                    "location_name_col_header_name",
+                                    f"Column '{location_name_col}' not found in {custom_location_mapping}. Available columns: {', '.join(mapping_df.columns)}",
+                                )
+
+                            # Check for duplicates
+                            if location_code_col in mapping_df.columns:
+                                duplicates = mapping_df[location_code_col].duplicated()
+                                if duplicates.any():
+                                    dup_codes = mapping_df[location_code_col][duplicates].tolist()
+                                    self._add_warning("custom_location_mapping_file_name", f"Duplicate location codes found in mapping: {dup_codes[:5]}")
+
+                            logger.info(f"  ✓ Custom location mapping validated: {len(mapping_df)} locations")
+
+                        except Exception as e:
+                            self._add_error("custom_location_mapping_file_name", f"Error validating location mapping CSV: {e}")
+
+                    spatial_config.location_mapping_path = mapping_path
+                    spatial_config.use_default_location_mapping = False
+                    logger.info(f"  ✓ Custom location mapping: {custom_location_mapping}")
+            else:
+                # Using default FIPS mapping
+                logger.info("  ✓ Using default US State FIPS mapping")
+                spatial_config.use_default_location_mapping = True
+
+                # Warn if using default mapping with custom shape file
+                if custom_shape_file:
+                    self._add_warning(
+                        "spatial_data_config",
+                        "Using default US FIPS mapping with custom shape file. "
+                        "Location codes in your data must use US state FIPS codes "
+                        "(01=Alabama, 02=Alaska, etc.) to match the default mapping.",
+                    )
+
+        return spatial_config
+
+    def _load_location_mapping(self, spatial_config: SpatialDataConfig) -> Dict[str, str]:
+        """Load location mapping from file or use default"""
+        if not spatial_config.use_default_location_mapping and spatial_config.location_mapping_path:
+            try:
+                import pandas as pd
+                # Read location code as string to avoid issues
+                mapping_df = pd.read_csv(
+                    spatial_config.location_mapping_path,
+                    dtype={spatial_config.location_code_col_header: str}
+                )
+
+                # Check for required columns one last time before loading
+                if spatial_config.location_code_col_header not in mapping_df.columns:
+                    self._add_error("custom_location_mapping_file_name", f"Location code column '{spatial_config.location_code_col_header}' not found.")
+                    return self._load_us_state_fips_mapping()
+
+                if spatial_config.location_name_col_header not in mapping_df.columns:
+                    self._add_error("custom_location_mapping_file_name", f"Location name column '{spatial_config.location_name_col_header}' not found.")
+                    return self._load_us_state_fips_mapping()
+
+                mapping = dict(zip(
+                    mapping_df[spatial_config.location_code_col_header],
+                    mapping_df[spatial_config.location_name_col_header]
+                ))
+
+                logger.info(f"  ✓ Loaded custom location mapping with {len(mapping)} entries")
+                return mapping
+            except Exception as e:
+                self._add_error("custom_location_mapping_file_name", f"Failed to load location mapping CSV: {e}")
+                return self._load_us_state_fips_mapping()  # Fallback
+        else:
+            return self._load_us_state_fips_mapping()
 
     def _validate_time_unit(self):
         """Validate time_unit value"""
@@ -475,7 +692,7 @@ class DashboardConfig:
         if self.time_unit > 14:
             self._add_warning(
                 "time_unit",
-                f"time_unit is {self.time_unit} days, which is unusually large. " + f"Most forecasting hubs use 7 days (weekly) or 1 day (daily).",
+                f"time_unit is {self.time_unit} days, which is unusually large. " + "Most forecasting hubs use 7 days (weekly) or 1 day (daily).",
             )
 
     def _validate_and_assign_model_colors(self):
@@ -508,7 +725,7 @@ class DashboardConfig:
             self._add_warning(
                 "baseline_model_for_relative_WIS",
                 f"Baseline model '{self.baseline_model_for_relative_wis}' "
-                + f"is not being used for visualization. "
+                + "is not being used for visualization. "
                 + f"Available models: {', '.join(model_names)}",
             )
 
@@ -645,7 +862,6 @@ class DashboardConfig:
 
     def _load_us_state_fips_mapping(self) -> Dict[str, str]:
         """Load US state FIPS code to name mapping from reference file"""
-        import json
 
         # Get path to reference file (relative to this script)
         reference_path = Path(__file__).parent / "us_state_fips_mapping.json"
@@ -693,7 +909,7 @@ class DashboardConfig:
                                 forecast_periods = all_period_ids
                                 self._add_warning(
                                     "targets",
-                                    f"Target '{target_name}' missing 'for_forecast_periods', " + f"defaulting to all available periods",
+                                    f"Target '{target_name}' missing 'for_forecast_periods', " + "defaulting to all available periods",
                                 )
 
                             target = TargetConfig(
@@ -732,10 +948,10 @@ class DashboardConfig:
 
         # Handle as_of_col based on target data file format and partitioning mode
         as_of_col_val = target_mapping.get("as_of_col_name")
-        
+
         # Check if using partitioned parquet
-        is_partitioned_parquet = self.target_data_file_format == "parquet" and self._get_value("parquet_partitioned_by_as_of", False)
-        
+        is_partitioned_parquet = self.target_data_file_format == "parquet" and self.is_partitioned_parquet
+
         if is_partitioned_parquet:
             # Partitioned parquet mode: use directory names for versioning
             logger.info("  ✓ Using partitioned parquet: historical target-data will be loaded from subdirectories")
@@ -975,7 +1191,7 @@ def test_config_processor():
         print("Testing YAML Config Processor...")
         config = load_config()
 
-        print(f"✓ Configuration loaded successfully")
+        print("✓ Configuration loaded successfully")
         print(f"✓ Found {len(config.forecast_periods)} forecast periods")
         print(f"✓ Found {len(config.dynamic_periods)} special periods")
         print(f"✓ Found {len(config.targets)} target(s)")
@@ -986,11 +1202,11 @@ def test_config_processor():
 
         # Show location data info
         if config.is_single_location:
-            location_name = config.us_state_fips_mapping.get(config.single_location_mapping, "Unknown")
+            location_name = config.location_mapping.get(config.single_location_mapping, "Unknown")
             print(f"✓ Single location mode: {config.single_location_mapping} ({location_name})")
         else:
-            print(f"✓ Multi-location mode: will auto-detect from data files")
-            print(f"✓ US state FIPS reference loaded: {len(config.us_state_fips_mapping)} locations")
+            print("✓ Multi-location mode: will auto-detect from data files")
+            print(f"✓ Location mapping reference loaded: {len(config.location_mapping)} locations")
 
         if config.has_validation_warnings():
             print(f"⚠ {len(config.validation_warnings)} warnings (see above)")

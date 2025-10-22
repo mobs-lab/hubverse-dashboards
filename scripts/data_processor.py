@@ -106,7 +106,12 @@ class DataProcessor:
         metadata = self._generate_metadata(locations, model_output_df, target_data_df)
 
         # 8: Write output files
-        self._write_output_files(ground_truth_by_period, predictions_by_period, metadata, evaluations_by_period)
+        self._write_output_files(
+            ground_truth_by_period,
+            predictions_by_period,
+            metadata,
+            evaluations_by_period,
+        )
 
         # 8: Print summary
         self._print_processing_summary(target_data_df, model_output_df, metadata)
@@ -127,9 +132,7 @@ class DataProcessor:
 
                 csv_file = self.target_data_path / f"{file_name}.csv"
                 if not csv_file.exists():
-                    raise FileNotFoundError(
-                        f"Target data file not found: {file_name}.csv in {self.target_data_path}"
-                    )
+                    raise FileNotFoundError(f"Target data file not found: {file_name}.csv in {self.target_data_path}")
 
                 df = pd.read_csv(csv_file)
                 logger.info(f"  ✓ Loaded target data from {csv_file.name}")
@@ -142,9 +145,7 @@ class DataProcessor:
                 raise RuntimeError(f"Error loading CSV file: {e}")
         elif file_format == "parquet":
             # Check if using partitioned parquet format
-            is_partitioned = self.config._get_value("parquet_partitioned_by_as_of", False)
-
-            if is_partitioned:
+            if self.config.is_partitioned_parquet:
                 # Partitioned mode: each subdirectory represents an as_of date
                 logger.info("  → Using partitioned parquet format")
                 df = self._load_partitioned_parquet()
@@ -162,9 +163,7 @@ class DataProcessor:
                         parquet_file = self.target_data_path / f"{file_name}.pq"
 
                     if not parquet_file.exists():
-                        raise FileNotFoundError(
-                            f"Target data file not found: {file_name}.parquet or {file_name}.pq in {self.target_data_path}"
-                        )
+                        raise FileNotFoundError(f"Target data file not found: {file_name}.parquet or {file_name}.pq in {self.target_data_path}")
 
                     df = pd.read_parquet(parquet_file)
                     logger.info(f"  ✓ Loaded target data from {parquet_file.name}")
@@ -185,17 +184,11 @@ class DataProcessor:
 
         # Required columns
         if mapping.date_col not in df.columns:
-            raise ValueError(
-                f"Date column '{mapping.date_col}' not found in target data. "
-                f"Available columns: {df.columns.tolist()}"
-            )
+            raise ValueError(f"Date column '{mapping.date_col}' not found in target data. Available columns: {df.columns.tolist()}")
         rename_dict[mapping.date_col] = "date"
 
         if mapping.observation_col not in df.columns:
-            raise ValueError(
-                f"Observation column '{mapping.observation_col}' not found in target data. "
-                f"Available columns: {df.columns.tolist()}"
-            )
+            raise ValueError(f"Observation column '{mapping.observation_col}' not found in target data. Available columns: {df.columns.tolist()}")
         rename_dict[mapping.observation_col] = "observation"
 
         # Optional columns
@@ -259,8 +252,6 @@ class DataProcessor:
 
             # Try different date formats
             # Format 1: "as_of=2024-01-01" (Hive-style partitioning)
-            # Format 2: "2024-01-01" (Simple date format)
-            # Format 3: "as_of_2024-01-01"
 
             as_of_date = None
 
@@ -268,17 +259,6 @@ class DataProcessor:
             match = re.match(r"as_of[=_](\d{4}-\d{2}-\d{2})", dir_name)
             if match:
                 as_of_date = match.group(1)
-            else:
-                # Try simple date format: YYYY-MM-DD
-                match = re.match(r"(\d{4}-\d{2}-\d{2})", dir_name)
-                if match:
-                    as_of_date = match.group(1)
-                else:
-                    # Try alternative formats: YYYYMMDD
-                    match = re.match(r"(\d{8})", dir_name)
-                    if match:
-                        date_str = match.group(1)
-                        as_of_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
 
             if not as_of_date:
                 logger.warning(f"  ⚠ Could not parse as_of date from directory: {dir_name}, skipping")
@@ -410,7 +390,14 @@ class DataProcessor:
             return df
 
         # Define index for pivoting
-        index_cols = ["reference_date", "target_end_date", "location", "target", "horizon", "model"]
+        index_cols = [
+            "reference_date",
+            "target_end_date",
+            "location",
+            "target",
+            "horizon",
+            "model",
+        ]
         # Ensure all index columns exist in the dataframe
         index_cols = [col for col in index_cols if col in quantile_rows.columns]
 
@@ -539,7 +526,7 @@ class DataProcessor:
             # Create a dataframe to merge with target locations
             model_locations_list = []
             for loc_id in model_loc_ids:
-                loc_name = self.config.us_state_fips_mapping.get(str(loc_id).zfill(2), "Unknown")
+                loc_name = self.config.location_mapping.get(str(loc_id), "Unknown")
                 model_locations_list.append({"location": loc_id, "location_name": loc_name})
             model_locations = pd.DataFrame(model_locations_list)
 
@@ -553,7 +540,12 @@ class DataProcessor:
 
         return locations_list
 
-    def _generate_metadata(self, locations: list, model_output_df: pd.DataFrame, target_data_df: pd.DataFrame) -> dict:
+    def _generate_metadata(
+        self,
+        locations: list,
+        model_output_df: pd.DataFrame,
+        target_data_df: pd.DataFrame,
+    ) -> dict:
         """Generates metadata for the frontend."""
         logger.info("Generating metadata...")
 
@@ -623,35 +615,10 @@ class DataProcessor:
         all_periods = self.config.forecast_periods + self.config.dynamic_periods
 
         for period in all_periods:
-            # Determine date range for this period
-            if period.is_special_period:
-                anchor_config = period.time_anchor
-                if not anchor_config:
-                    logger.warning(f"Special period '{period.period_id}' is missing time_anchor config. Skipping.")
-                    continue
-
-                anchor_mode = anchor_config.get("anchor_mode")
-                range_calc = anchor_config.get("range_calculation")
-                time_unit = self.config.time_unit
-
-                if anchor_mode == "model-output":
-                    # Use the latest reference date from all model outputs
-                    anchor_date = model_output_df["reference_date"].max()
-                elif anchor_mode == "target-data":
-                    anchor_date = target_data_df["date"].max()
-                else:
-                    logger.warning(f"Invalid anchor_mode '{anchor_mode}' for special period '{period.period_id}'. Skipping.")
-                    continue
-
-                if pd.isna(anchor_date):
-                    logger.warning(f"Could not determine anchor date for special period '{period.period_id}'. Skipping.")
-                    continue
-
-                end = anchor_date
-                start = end + pd.Timedelta(days=range_calc * time_unit)
-            else:
-                start = period.start_date
-                end = period.end_date
+            date_range = self._get_period_date_range(period, target_data_df, model_output_df)
+            if not date_range:
+                continue
+            start, end = date_range
 
             logger.info(f"Processing ground truth for period: '{period.period_id}' ({start.date()} to {end.date()})")
 
@@ -701,34 +668,10 @@ class DataProcessor:
         all_periods = self.config.forecast_periods + self.config.dynamic_periods
 
         for period in all_periods:
-            # Determine date range for this period
-            if period.is_special_period:
-                anchor_config = period.time_anchor
-                if not anchor_config:
-                    logger.warning(f"Special period '{period.period_id}' is missing time_anchor config. Skipping.")
-                    continue
-
-                anchor_mode = anchor_config.get("anchor_mode")
-                range_calc = anchor_config.get("range_calculation")
-                time_unit = self.config.time_unit
-
-                if anchor_mode == "model-output":
-                    anchor_date = model_output_df["reference_date"].max()
-                elif anchor_mode == "target-data":
-                    anchor_date = target_data_df["date"].max()
-                else:
-                    logger.warning(f"Invalid anchor_mode '{anchor_mode}' for special period '{period.period_id}'. Skipping.")
-                    continue
-
-                if pd.isna(anchor_date):
-                    logger.warning(f"Could not determine anchor date for special period '{period.period_id}'. Skipping.")
-                    continue
-
-                end = anchor_date
-                start = end + pd.Timedelta(days=range_calc * time_unit)
-            else:
-                start = period.start_date
-                end = period.end_date
+            date_range = self._get_period_date_range(period, target_data_df, model_output_df)
+            if not date_range:
+                continue
+            start, end = date_range
 
             logger.info(f"Processing predictions for period: '{period.period_id}' ({start.date()} to {end.date()})")
 
@@ -802,34 +745,10 @@ class DataProcessor:
         all_periods = self.config.forecast_periods + self.config.dynamic_periods
 
         for period in all_periods:
-            # Determine date range for this period
-            if period.is_special_period:
-                anchor_config = period.time_anchor
-                if not anchor_config:
-                    logger.warning(f"Special period '{period.period_id}' is missing time_anchor config. Skipping evaluations.")
-                    continue
-
-                anchor_mode = anchor_config.get("anchor_mode")
-                range_calc = anchor_config.get("range_calculation")
-                time_unit = self.config.time_unit
-
-                if anchor_mode == "model-output":
-                    anchor_date = model_output_df["reference_date"].max()
-                elif anchor_mode == "target-data":
-                    anchor_date = target_data_df["date"].max()
-                else:
-                    logger.warning(f"Invalid anchor_mode '{anchor_mode}' for special period '{period.period_id}'. Skipping evaluations.")
-                    continue
-
-                if pd.isna(anchor_date):
-                    logger.warning(f"Could not determine anchor date for special period '{period.period_id}'. Skipping evaluations.")
-                    continue
-
-                end = anchor_date
-                start = end + pd.Timedelta(days=range_calc * time_unit)
-            else:
-                start = period.start_date
-                end = period.end_date
+            date_range = self._get_period_date_range(period, target_data_df, model_output_df)
+            if not date_range:
+                continue
+            start, end = date_range
 
             logger.info(f"Calculating evaluations for period: '{period.period_id}' ({start.date()} to {end.date()})")
 
@@ -854,7 +773,9 @@ class DataProcessor:
 
             # Calculate evaluation metrics
             evaluation_results = self.evaluation_processor.evaluate_predictions(
-                target_data_df=period_target_data, model_output_df=period_model_output, period_id=period.period_id
+                target_data_df=period_target_data,
+                model_output_df=period_model_output,
+                period_id=period.period_id,
             )
 
             # Calculate WIS ratio if WIS results exist
@@ -873,7 +794,13 @@ class DataProcessor:
         logger.info(f"Total evaluations calculated: {self.processing_stats['evaluations_calculated']}")
         return evaluations_by_period
 
-    def _write_output_files(self, ground_truth_by_period: dict, predictions_by_period: dict, metadata: dict, evaluations_by_period: dict = None):
+    def _write_output_files(
+        self,
+        ground_truth_by_period: dict,
+        predictions_by_period: dict,
+        metadata: dict,
+        evaluations_by_period: dict = None,
+    ):
         """Write all processed data to JSON files."""
         logger.info("Writing output files...")
         logger.info(f"  → Output directory: {self.output_base_path}")
@@ -939,14 +866,24 @@ class DataProcessor:
             if period_id in ground_truth_by_period:
                 gt_file = period_dir / "groundTruthData.json"
                 with open(gt_file, "w") as f:
-                    json.dump(ground_truth_by_period[period_id], f, cls=NpEncoder, separators=(",", ":"))
+                    json.dump(
+                        ground_truth_by_period[period_id],
+                        f,
+                        cls=NpEncoder,
+                        separators=(",", ":"),
+                    )
                 self._track_file_written(gt_file)
 
             # Write predictions data
             if period_id in predictions_by_period:
                 pred_file = period_dir / "predictionsData.json"
                 with open(pred_file, "w") as f:
-                    json.dump(predictions_by_period[period_id], f, cls=NpEncoder, separators=(",", ":"))
+                    json.dump(
+                        predictions_by_period[period_id],
+                        f,
+                        cls=NpEncoder,
+                        separators=(",", ":"),
+                    )
                 self._track_file_written(pred_file)
 
             logger.info(f"  ✓ Written data files for {period_id}")
@@ -1066,7 +1003,12 @@ class DataProcessor:
         self.processing_stats["files_written"] += 1
         self.processing_stats["output_files"].append(str(file_path.relative_to(self.project_root)))
 
-    def _print_processing_summary(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame, metadata: dict):
+    def _print_processing_summary(
+        self,
+        target_data_df: pd.DataFrame,
+        model_output_df: pd.DataFrame,
+        metadata: dict,
+    ):
         """Print a comprehensive summary of the data processing."""
         logger.info("")
         logger.info("=" * 60)
@@ -1154,6 +1096,41 @@ class DataProcessor:
 
         logger.info("")
         logger.info("=" * 60)
+
+    def _get_period_date_range(
+        self,
+        period: "ForecastPeriod",
+        target_data_df: pd.DataFrame,
+        model_output_df: pd.DataFrame,
+    ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+        """Determines the start and end date for a given forecast period."""
+        if period.is_special_period:
+            anchor_config = period.time_anchor
+            if not anchor_config:
+                logger.warning(f"Special period '{period.period_id}' is missing time_anchor config. Skipping.")
+                return None
+
+            anchor_mode = anchor_config.get("anchor_mode")
+            range_calc = anchor_config.get("range_calculation")
+            time_unit = self.config.time_unit
+
+            if anchor_mode == "model-output":
+                anchor_date = model_output_df["reference_date"].max()
+            elif anchor_mode == "target-data":
+                anchor_date = target_data_df["date"].max()
+            else:
+                logger.warning(f"Invalid anchor_mode '{anchor_mode}' for special period '{period.period_id}'. Skipping.")
+                return None
+
+            if pd.isna(anchor_date):
+                logger.warning(f"Could not determine anchor date for special period '{period.period_id}'. Skipping.")
+                return None
+
+            end_date = anchor_date
+            start_date = end_date + pd.Timedelta(days=range_calc * time_unit)
+            return start_date, end_date
+        else:
+            return period.start_date, period.end_date
 
 
 def process_data(config: DashboardConfig, dev_mode: bool = False):

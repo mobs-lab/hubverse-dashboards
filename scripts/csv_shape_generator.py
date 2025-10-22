@@ -568,7 +568,7 @@ class CSVShapeGenerator:
             f"✓ Single Location Mode: {'Yes' if self.config.is_single_location else 'No'}"
         )
         if self.config.is_single_location:
-            location_name = self.config.us_state_fips_mapping.get(
+            location_name = self.config.location_mapping.get(
                 self.config.single_location_mapping, "Unknown"
             )
             print(
@@ -576,7 +576,7 @@ class CSVShapeGenerator:
             )
         else:
             print(
-                f"    Locations will be auto-detected from your data files"
+                "    Locations will be auto-detected from your data files"
             )
         
         print(

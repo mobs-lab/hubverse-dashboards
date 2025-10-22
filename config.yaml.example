@@ -74,11 +74,12 @@
 # Right now we only support US-State (ShapeFile-SpatialLevel).
 # Need to generalize both. Maybe enforce a mapping of locations?
 # -------
-# If your modelling task require custom Spatial Data, please make sure to provide a:
-# (Please put them inside `/auxiliary-data` directory)
-#   - Shape File containing geo data for locations you are modelling for;
-#   - Location Mapping file (CSV format) for
-- custom_shape_file_name: null # If null, will default to using `states-10m.json` inside `/public` directory
+# Below, you can specify options related to Spatial Data:
+# 1) Whether you want to disable the map to display in Settings Panels, or Evaluation Overview Location Aggregate Hotmap. If True, only dropdown list containing location will be provided and displayed.
+# 2) If option 1 is on, then the relative path to the shape file (must be in topojson or geojson format). It must be inside "/auxiliary-data" folder. Ignored when option 1 is 
+# 3) The relative path to the location mapping file (must be csv format).
+- disable_map_in_dashboard: False   # False by default.
+- custom_shape_file_name: null      # When above is False you provide "null", will default to using `states-10m.json` inside `/public` directory. All unavailable locations will be disabled from the shape.
 - custom_location_mapping_file_name: "locations.csv" # Full name of the file containing mapping of {Location Code-Location Name} in csv format, relative to `/auxiliary-data` folder
 
 # Naming convention for headers inside the provided location mapping file
@@ -132,7 +133,7 @@
 - parquet_partitioned_by_as_of: False # REQUIRED if "parquet" in above.
 
 # REQUIRED if you are using "csv" OR using "parquet" and "False" for partitioning,
-# You have to specify the name of the target-data file, minus the file extension.
+# You have to specify the name of the target-data file inside `target-data`, minus the file extension.
 - single_target_data_file_name: "time-series" # This will become "time-series.parquet" in processing.
 
 # Some further conditions must be met for dashboard to work with your target-data:
@@ -147,7 +148,7 @@
 #   - An "as_of" column that contain date in string format.
 - target_data_header_mapping:
     - date_col_name: "date" # REQUIRED
-    - observation_col_name: "value" # REQUIRED
+    - observation_col_name: "observation" # REQUIRED
     - location_col_name: "location" # REQUIRED
     - location_name_col_name: "location_name" # REQUIRED
     - target_col_name: "target" # Cannot be "null" when you have multiple modelling targets.
