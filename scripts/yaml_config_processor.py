@@ -5,10 +5,11 @@ Parses, validates, and handles errors in config.yaml with comprehensive error ch
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
@@ -242,6 +243,29 @@ class DashboardConfig:
         """Add a validation warning"""
         self.validation_warnings.append(ValidationWarning(message=message, field=field))
 
+    def _is_valid_hex_color(self, color: str) -> bool:
+        """Validate hex color format (#RRGGBB or #RGB)"""
+        if not color:
+            return False
+        pattern = r'^#(?:[0-9a-fA-F]{3}){1,2}$'
+        return bool(re.match(pattern, color))
+
+    def _is_valid_url(self, url: str) -> bool:
+        """Validate URL format"""
+        if not url:
+            return False
+        # Basic URL validation
+        pattern = r'^https?://[^\s/$.?#].[^\s]*$'
+        return bool(re.match(pattern, url))
+
+    def _is_valid_quantile(self, value: str) -> bool:
+        """Validate quantile value is between 0 and 1"""
+        try:
+            q = float(value)
+            return 0 <= q <= 1
+        except (ValueError, TypeError):
+            return False
+
     def _parse_and_validate(self):
         """Parse and validate all configuration sections"""
         logger.info("Parsing configuration...")
@@ -290,6 +314,8 @@ class DashboardConfig:
         self.horizons = self._get_value("horizons")
         if not self.horizons:
             self._add_error("horizons", "horizons list is required in config")
+        else:
+            self._validate_horizons()
 
         # Target data file format
         self.target_data_file_format = self._get_value("target_data_file_format")
@@ -362,6 +388,19 @@ class DashboardConfig:
         """Check if both local and online data sources are configured"""
         has_online = bool(self.target_data_link or self.model_output_link)
 
+        # Validate URL formats if online links provided
+        if self.target_data_link and not self._is_valid_url(self.target_data_link):
+            self._add_error(
+                "target_data_link",
+                f"Invalid URL format: '{self.target_data_link}'. Must be a valid HTTP/HTTPS URL.",
+            )
+
+        if self.model_output_link and not self._is_valid_url(self.model_output_link):
+            self._add_error(
+                "model_output_link",
+                f"Invalid URL format: '{self.model_output_link}'. Must be a valid HTTP/HTTPS URL.",
+            )
+
         # Check for local data directories
         project_root = self.config_path.parent
         has_local_target = (project_root / "target-data").exists()
@@ -374,6 +413,13 @@ class DashboardConfig:
                 "Both local and online data sources are configured. "
                 + "Please use either local directories (target-data/, model-output/) "
                 + "OR online links, not both.",
+            )
+        elif not has_online and not has_local:
+            self._add_error(
+                "data_source",
+                "No data source configured. Please either:\n"
+                + "  1. Create local directories: target-data/ and model-output/, OR\n"
+                + "  2. Specify online links in config: target_data_link and model_output_link",
             )
 
     def _validate_forecast_periods(self):
@@ -399,6 +445,22 @@ class DashboardConfig:
                 )
             seen_display_strings.add(period.display_string)
 
+        # Check that static forecast periods are in chronological order
+        if len(self.forecast_periods) > 1:
+            for i in range(len(self.forecast_periods) - 1):
+                current = self.forecast_periods[i]
+                next_period = self.forecast_periods[i + 1]
+                if current.start_date > next_period.start_date:
+                    self._add_warning(
+                        "forecast_periods",
+                        f"Forecast periods are not in chronological order: "
+                        f"'{current.period_id}' ({current.start_date.date()}) comes before "
+                        f"'{next_period.period_id}' ({next_period.start_date.date()})",
+                    )
+                    break
+
+        # Check each period for additional validations
+        for period in self.forecast_periods + self.dynamic_periods:
             # Check start_date before end_date for non-special periods
             if not period.is_special_period and period.start_date > period.end_date:
                 self._add_error(
@@ -656,11 +718,9 @@ class DashboardConfig:
         if not spatial_config.use_default_location_mapping and spatial_config.location_mapping_path:
             try:
                 import pandas as pd
+
                 # Read location code as string to avoid issues
-                mapping_df = pd.read_csv(
-                    spatial_config.location_mapping_path,
-                    dtype={spatial_config.location_code_col_header: str}
-                )
+                mapping_df = pd.read_csv(spatial_config.location_mapping_path, dtype={spatial_config.location_code_col_header: str})
 
                 # Check for required columns one last time before loading
                 if spatial_config.location_code_col_header not in mapping_df.columns:
@@ -671,10 +731,7 @@ class DashboardConfig:
                     self._add_error("custom_location_mapping_file_name", f"Location name column '{spatial_config.location_name_col_header}' not found.")
                     return self._load_us_state_fips_mapping()
 
-                mapping = dict(zip(
-                    mapping_df[spatial_config.location_code_col_header],
-                    mapping_df[spatial_config.location_name_col_header]
-                ))
+                mapping = dict(zip(mapping_df[spatial_config.location_code_col_header], mapping_df[spatial_config.location_name_col_header]))
 
                 logger.info(f"  ✓ Loaded custom location mapping with {len(mapping)} entries")
                 return mapping
@@ -695,18 +752,63 @@ class DashboardConfig:
                 f"time_unit is {self.time_unit} days, which is unusually large. " + "Most forecasting hubs use 7 days (weekly) or 1 day (daily).",
             )
 
+    def _validate_horizons(self):
+        """Validate horizons list"""
+        if not isinstance(self.horizons, list):
+            self._add_error("horizons", f"horizons must be a list (got {type(self.horizons).__name__})")
+            return
+
+        if len(self.horizons) == 0:
+            self._add_error("horizons", "horizons list cannot be empty")
+            return
+
+        # Check that all horizons are integers
+        invalid_horizons = []
+        for h in self.horizons:
+            if not isinstance(h, int):
+                invalid_horizons.append(h)
+
+        if invalid_horizons:
+            self._add_error(
+                "horizons",
+                f"All horizons must be integers. Invalid values: {invalid_horizons}",
+            )
+
+        # Warn about negative horizons (nowcasting)
+        negative_horizons = [h for h in self.horizons if isinstance(h, int) and h < 0]
+        if negative_horizons:
+            self._add_warning(
+                "horizons",
+                f"Negative horizons detected: {negative_horizons}. "
+                + "These represent nowcasting (predictions for dates before reference_date).",
+            )
+
     def _validate_and_assign_model_colors(self):
         """Validate model colors and assign defaults if missing"""
         models_without_colors = []
+        models_with_invalid_colors = []
 
         for model in self.models:
             if not model.color_hex:
                 models_without_colors.append(model.model_name)
+            elif not self._is_valid_hex_color(model.color_hex):
+                models_with_invalid_colors.append((model.model_name, model.color_hex))
+                # Mark for reassignment
+                model.color_hex = None
+                models_without_colors.append(model.model_name)
+
+        if models_with_invalid_colors:
+            invalid_list = [f"{name} ({color})" for name, color in models_with_invalid_colors]
+            self._add_error(
+                "available_models",
+                f"Invalid hex color format for model(s): {', '.join(invalid_list)}. "
+                + "Colors must be in format #RRGGBB or #RGB (e.g., '#FF5733' or '#F53')",
+            )
 
         if models_without_colors:
             self._add_warning(
                 "available_models",
-                f"{len(models_without_colors)} model(s) missing color_hex, " + f"will use default color palette: {', '.join(models_without_colors)}",
+                f"{len(models_without_colors)} model(s) missing or have invalid color_hex, " + f"will use default color palette: {', '.join(models_without_colors)}",
             )
 
             # Assign colors from default palette
@@ -1027,16 +1129,47 @@ class DashboardConfig:
                                 props_dict.update(prop)
 
                         try:
+                            level_int = int(level)
+
+                            # Validate level is between 0 and 100
+                            if not 0 < level_int < 100:
+                                self._add_error(
+                                    "prediction_intervals",
+                                    f"Prediction interval level must be between 1 and 99 (got {level_int})",
+                                )
+                                continue
+
+                            output_type_ids = props_dict["uses_output_type_ids"]
+
+                            # Validate quantile values
+                            invalid_quantiles = [q for q in output_type_ids if not self._is_valid_quantile(q)]
+                            if invalid_quantiles:
+                                self._add_error(
+                                    "prediction_intervals",
+                                    f"Invalid quantile values for {level}% interval: {invalid_quantiles}. "
+                                    + "Quantiles must be between 0 and 1.",
+                                )
+                                continue
+
+                            # Validate that we have exactly 2 quantiles as boundary for lower and upper
+                            if len(output_type_ids) != 2:
+                                self._add_error(
+                                    "prediction_intervals",
+                                    f"Prediction interval {level}% must have exactly 2 quantiles (lower, upper). "
+                                    + f"Got {len(output_type_ids)}: {output_type_ids}",
+                                )
+                                continue
+
                             interval = PredictionInterval(
-                                level=int(level),
-                                output_type_ids=props_dict["uses_output_type_ids"],
+                                level=level_int,
+                                output_type_ids=output_type_ids,
                             )
                             intervals.append(interval)
                             logger.info(f"  ✓ Parsed prediction interval: {level}%")
                         except (KeyError, ValueError) as e:
                             self._add_error(
                                 "prediction_intervals",
-                                f"Invalid prediction interval: {e}",
+                                f"Invalid prediction interval '{level}': {e}",
                             )
 
         return intervals
@@ -1060,15 +1193,44 @@ class DashboardConfig:
                                 props_dict.update(prop)
 
                         try:
+                            level_int = int(level)
+
+                            # Validate level is between 0 and 100
+                            if not 0 < level_int < 100:
+                                self._add_warning(
+                                    "evaluations_prediction_intervals",
+                                    f"Evaluation interval level should be between 1 and 99 (got {level_int})",
+                                )
+
+                            output_type_ids = props_dict["uses_output_type_ids"]
+
+                            # Validate quantile values
+                            invalid_quantiles = [q for q in output_type_ids if not self._is_valid_quantile(q)]
+                            if invalid_quantiles:
+                                self._add_warning(
+                                    "evaluations_prediction_intervals",
+                                    f"Invalid quantile values for {level}% evaluation interval: {invalid_quantiles}. "
+                                    + "Quantiles must be between 0 and 1.",
+                                )
+                                continue
+
+                            # Validate that we have exactly 2 quantiles (lower and upper)
+                            if len(output_type_ids) != 2:
+                                self._add_warning(
+                                    "evaluations_prediction_intervals",
+                                    f"Evaluation interval {level}% should have exactly 2 quantiles (lower, upper). "
+                                    + f"Got {len(output_type_ids)}: {output_type_ids}",
+                                )
+
                             interval = PredictionInterval(
-                                level=int(level),
-                                output_type_ids=props_dict["uses_output_type_ids"],
+                                level=level_int,
+                                output_type_ids=output_type_ids,
                             )
                             intervals.append(interval)
                         except (KeyError, ValueError) as e:
                             self._add_warning(
                                 "evaluations_prediction_intervals",
-                                f"Invalid evaluation interval: {e}",
+                                f"Invalid evaluation interval '{level}': {e}",
                             )
 
         return intervals
@@ -1091,49 +1253,6 @@ class DashboardConfig:
         period_ids = [p.period_id for p in self.forecast_periods]
         period_ids.extend([p.period_id for p in self.dynamic_periods])
         return period_ids
-
-    def validate(self) -> Tuple[List[str], List[str]]:
-        """
-        Validate configuration and return tuple of (errors, warnings)
-
-        Returns:
-            Tuple[List[str], List[str]]: (error_messages, warning_messages)
-        """
-        # Basic required field validation (already done in parsing)
-        error_messages = [error.message for error in self.validation_errors]
-        warning_messages = [warning.message for warning in self.validation_warnings]
-
-        # Additional cross-reference validations
-        if not self.time_unit:
-            error_messages.append("time_unit is required")
-
-        if not self.horizons:
-            error_messages.append("horizons list is required")
-
-        if not self.forecast_periods and not self.dynamic_periods:
-            error_messages.append("At least one forecast period must be defined")
-
-        if not self.targets:
-            error_messages.append("At least one target must be defined")
-
-        if not self.models:
-            error_messages.append("At least one model must be defined")
-
-        if not self.prediction_intervals:
-            error_messages.append("At least one prediction interval must be defined")
-
-        # validation for location data
-        if self.is_single_location and not self.single_location_mapping:
-            error_messages.append("single_location_mapping is required when is_single_location_forecast is True")
-
-        # Validate target forecast period references
-        all_period_ids = self.get_all_period_ids()
-        for target in self.targets:
-            for period_id in target.forecast_periods:
-                if period_id not in all_period_ids:
-                    error_messages.append(f"Target '{target.target_name}' " + f"references undefined forecast period: '{period_id}'")
-
-        return error_messages, warning_messages
 
     def has_validation_errors(self) -> bool:
         """Check if there are any validation errors"""

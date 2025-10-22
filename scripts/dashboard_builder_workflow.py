@@ -51,7 +51,7 @@ class DashboardBuilder:
 
     def _get_project_root(self) -> Path:
         """Get the project root directory"""
-        # Assume script is in project_root/scripts/
+        # Assume script is in project_root/scripts/=]\65
         return Path(__file__).parent.parent
 
     def run_config_validation(self) -> bool:
@@ -88,6 +88,7 @@ class DashboardBuilder:
         print("\n[Step 1/4] Loading configuration file...")
         print(f"Config path: {self.config_path}")
 
+        # Call the YAML config processor's load_config method
         try:
             self.config = load_config(self.config_path)
             print("✓ Configuration loaded and validated successfully\n")
@@ -113,57 +114,33 @@ class DashboardBuilder:
         input(f"\n{message}")
 
     def _check_configuration_requirements(self) -> bool:
-        """Check if configuration meets all requirements"""
-        print("[Step 2/4] Checking configuration requirements...")
-
-        warnings = []
-        errors = []
-
-        # Check data source links
-        if not self.config.target_data_link and not self.config.model_output_link:
-            warnings.append("No data source links specified. Assuming local data setup.")
-
-        # Check forecast periods
-        if not self.config.forecast_periods:
-            warnings.append("No standard forecast periods defined. Only using special periods.")
-
-        # Check if forecast periods are in chronological order
-        if len(self.config.forecast_periods) > 1:
-            for i in range(len(self.config.forecast_periods) - 1):
-                if self.config.forecast_periods[i].start_date > self.config.forecast_periods[i + 1].start_date:
-                    warnings.append("Forecast periods are not in chronological order.")
-                    break
-
-        # Check target configuration
-        if not self.config.targets:
-            errors.append("At least one target (modelling task) must be defined.")
-
-        # Check model configuration
-        if not self.config.models:
-            errors.append("At least one model must be configured.")
-
-        # Check that target forecast periods exist
-        all_period_ids = self.config.get_all_period_ids()
-        for target in self.config.targets:
-            for period_id in target.forecast_periods:
-                if period_id not in all_period_ids:
-                    errors.append(f"Target '{target.target_name}' references undefined period: '{period_id}'")
-
-        # Display warnings
-        if warnings:
-            print("\nWarnings:")
-            for warning in warnings:
-                print(f"  ⚠ {warning}")
-
-        # Display errors
-        if errors:
-            print("\nErrors:")
-            for error in errors:
-                print(f"  ✗ {error}")
-            print("\n✗ Configuration check failed. Please fix the errors above.\n")
-            return False
-
-        print("✓ Configuration requirements check passed\n")
+        """
+        Display configuration summary (validation already done by yaml_config_processor).
+        This step shows the user key configuration details before proceeding.
+        """
+        print("[Step 2/4] Configuration Summary...")
+        print()
+        
+        # Display key configuration information
+        print(f"  ✓ Forecast periods: {len(self.config.forecast_periods)} standard period(s)")
+        if self.config.dynamic_periods:
+            print(f"  ✓ Special periods: {len(self.config.dynamic_periods)} dynamic period(s)")
+        
+        print(f"  ✓ Modelling tasks: {len(self.config.targets)} target(s)")
+        print(f"  ✓ Models configured: {len(self.config.models)}")
+        print(f"  ✓ Time unit: {self.config.time_unit} day(s)")
+        print(f"  ✓ Horizons: {self.config.horizons}")
+        
+        if self.config.is_single_location:
+            location_name = self.config.location_mapping.get(
+                self.config.single_location_mapping, "Unknown"
+            )
+            print(f"  ✓ Single-location mode: {self.config.single_location_mapping} ({location_name})")
+        else:
+            print(f"  ✓ Multi-location mode (auto-detect from data)")
+        
+        print()
+        print("✓ All configuration requirements validated\n")
         return True
 
     def _display_csv_samples(self):
@@ -210,8 +187,8 @@ class DashboardBuilder:
         - Loading raw CSV files from `target-data/` and `model-output/`
         - Applying column mappings and standardizing data formats
         - Filtering and structuring data based on forecast periods and targets
-        - (TODO) Calculating evaluations
-        - (TODO) Exporting to frontend JSON format
+        - (TODO WIP) Calculating evaluations
+        - (TODO WIP) Exporting to frontend JSON format
         """
         print("\n" + "=" * 80)
         print("PHASE 2: Data Processing")
@@ -230,17 +207,12 @@ def main():
     """Main entry point"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Hubverse Dashboard Builder - Configuration-driven data processing")
+    parser = argparse.ArgumentParser(description="Hubverse Dashboard Builder")
     parser.add_argument(
         "--config",
         type=str,
         default="config.yaml",
         help="Path to configuration file (default: config.yaml)",
-    )
-    parser.add_argument(
-        "--skip-confirmation",
-        action="store_true",
-        help="Skip user confirmation step (for automated workflows)",
     )
     parser.add_argument(
         "--dev",
@@ -253,31 +225,17 @@ def main():
     # Create builder instance
     builder = DashboardBuilder(config_path=args.config, dev_mode=args.dev)
 
-    # Run Config Validation and Preview
-    if args.skip_confirmation:
-        # Load config without user confirmation
-        try:
-            builder.config = load_config(args.config)
-            generate_and_print_samples(builder.config)
-            print("\n✓ Configuration validated successfully (--skip-confirmation mode)")
-            print("  Run without --skip-confirmation to proceed to data processing.\n")
-            sys.exit(0)
-        except Exception as e:
-            logger.error(f"Configuration validation failed: {e}")
-            sys.exit(1)
-    else:
-        # Normal interactive mode
-        if not builder.run_config_validation():
-            sys.exit(1)
+    if not builder.run_config_validation():
+        sys.exit(1)
 
-        # Run Phase 2: Data Processing
-        # (Currently just a placeholder)
-        builder.run_data_processing()
+    # Run Phase 2: Data Processing
+    # (Currently just a placeholder)
+    builder.run_data_processing()
 
-        print("=" * 80)
-        print("Dashboard builder completed successfully!")
-        print("=" * 80)
-        sys.exit(0)
+    print("=" * 80)
+    print("Dashboard builder completed successfully!")
+    print("=" * 80)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
