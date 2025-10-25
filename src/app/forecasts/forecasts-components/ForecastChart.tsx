@@ -6,12 +6,12 @@ import { Axis, NumberValue } from "d3";
 import React, { useCallback, useEffect, useRef } from "react";
 
 import { modelColorMap } from "@/types/common";
-import { SurveillanceSingleWeekDataPoint } from "@/types/domains/forecasting";
+import { TargetDataRoundDataPoint } from "@/types/domains/forecasting";
 import { useChartMargins } from "@/utils/chart-margin-utils";
 import { isUTCDateEqual } from "@/utils/date";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 
-import { updateUserSelectedWeek } from "@/store/data-slices/settings/SettingsSliceForecastNowcast";
+import { updateUserSelectedWeek } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   selectExtendedGroundTruthInRange,
@@ -36,14 +36,14 @@ const ForecastChart: React.FC = () => {
   // Get all settings variables from Redux
   const {
     userSelectedWeek,
-    USStateNum,
-    selectedForecastModels: forecastModel,
-    numOfWeeksAhead,
-    dateStart,
-    dateEnd,
+    selectedLocationCode: USStateNum,
+    selectedModels: forecastModel,
+    selectedHorizon: numOfWeeksAhead,
+    timeFilterRangeStart: dateStart,
+    timeFilterRangeEnd: dateEnd,
     yAxisScale,
-    confidenceInterval,
-    historicalDataMode,
+    selectedPredictionInterval: confidenceInterval,
+    historicalTargetDataMode: historicalDataMode,
   } = useAppSelector((state) => state.forecastSettings);
 
   // Get data using new selectors
@@ -126,7 +126,7 @@ const ForecastChart: React.FC = () => {
   );
 
   const createScalesAndAxes = useCallback(
-    (ground: SurveillanceSingleWeekDataPoint[], predictions: any, chartWidth: number, chartHeight: number, yAxisScale: string) => {
+    (ground: TargetDataRoundDataPoint[], predictions: any, chartWidth: number, chartHeight: number, yAxisScale: string) => {
       // Find the maximum date in the ground truth data, but within the `dateStart` and `dateEnd` range, to avoid showing horizon-ahead data
       // const maxGroundTruthDate = d3.max(ground, (d) => d.date) as Date;
       const maxGroundTruthDate = d3.max(ground, (d) => d.date) as Date;
@@ -225,8 +225,8 @@ const ForecastChart: React.FC = () => {
       let yScale: d3.ScaleSymLog<number, number> | d3.ScaleLinear<number, number>;
 
       const maxGroundTruthValue = d3.max(
-        ground.filter((d) => d.admissions !== -1),
-        (d) => d.admissions
+        ground.filter((d) => d.observation !== -1),
+        (d) => d.observation
       ) as number;
 
       let maxPredictionValue = 0;
@@ -246,8 +246,8 @@ const ForecastChart: React.FC = () => {
       let maxValue = Math.max(maxGroundTruthValue || 0, maxPredictionValue);
 
       let minValue = d3.min(
-        ground.filter((d) => d.admissions !== -1),
-        (d) => d.admissions
+        ground.filter((d) => d.observation !== -1),
+        (d) => d.observation
       ) as number;
 
       if (maxValue === minValue) {
@@ -367,7 +367,7 @@ const ForecastChart: React.FC = () => {
 
   function renderGroundTruthData(
     svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
-    surveillanceData: SurveillanceSingleWeekDataPoint[],
+    surveillanceData: TargetDataRoundDataPoint[],
     xScale: d3.ScaleTime<number, number>,
     yScale: d3.ScaleLogarithmic<number, number> | d3.ScaleLinear<number, number>,
     marginLeft: number,
@@ -377,10 +377,10 @@ const ForecastChart: React.FC = () => {
     svg.selectAll(".ground-truth-path, .ground-truth-dot").remove();
 
     const line = d3
-      .line<SurveillanceSingleWeekDataPoint>()
-      .defined((d) => d.admissions !== -1 || d.admissions === null) // Include placeholder points
+      .line<TargetDataRoundDataPoint>()
+      .defined((d) => d.observation !== -1 || d.observation === null) // Include placeholder points
       .x((d) => xScale(d.date))
-      .y((d) => (d.admissions !== -1 ? yScale(d.admissions) : yScale.range()[0])); // Use bottom of chart for placeholders
+      .y((d) => (d.observation !== -1 ? yScale(d.observation) : yScale.range()[0])); // Use bottom of chart for placeholders
 
     svg
       .append("path")
@@ -400,17 +400,17 @@ const ForecastChart: React.FC = () => {
       .append("circle")
       .attr("class", "ground-truth-dot")
       .attr("cx", (d) => xScale(d.date))
-      .attr("cy", (d) => (d.admissions !== -1 ? yScale(d.admissions) : yScale.range()[0]))
+      .attr("cy", (d) => (d.observation !== -1 ? yScale(d.observation) : yScale.range()[0]))
       .attr("r", 3)
-      .attr("fill", (d) => (d.admissions !== -1 ? "white" : "transparent"))
-      .attr("stroke", (d) => (d.admissions !== -1 ? "white" : "transparent"))
+      .attr("fill", (d) => (d.observation !== -1 ? "white" : "transparent"))
+      .attr("stroke", (d) => (d.observation !== -1 ? "white" : "transparent"))
       .attr("transform", `translate(${marginLeft}, ${marginTop})`);
   }
 
   const renderHistoricalData = useCallback(
     (
       svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
-      historicalData: SurveillanceSingleWeekDataPoint[],
+      historicalData: TargetDataRoundDataPoint[],
       xScale: d3.ScaleTime<number, number>,
       yScale: d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>,
       marginLeft: number,
@@ -425,14 +425,14 @@ const ForecastChart: React.FC = () => {
       const historicalDataToDraw = historicalData.filter((d) => d.date >= dateStart);
 
       const historicalLine = d3
-        .line<SurveillanceSingleWeekDataPoint>()
-        .defined((d) => d.admissions !== -1 && !isNaN(d.admissions))
+        .line<TargetDataRoundDataPoint>()
+        .defined((d) => d.observation !== -1 && !isNaN(d.observation))
         .x((d) => xScale(d.date))
-        .y((d) => yScale(d.admissions));
+        .y((d) => yScale(d.observation));
 
       svg
         .append("path")
-        .datum(historicalDataToDraw.filter((d) => d.admissions !== -1 && !isNaN(d.admissions) && d.stateNum === USStateNum))
+        .datum(historicalDataToDraw.filter((d) => d.observation !== -1 && !isNaN(d.observation) && d.locationNum === USStateNum))
         .attr("class", "historical-ground-truth-path")
         .attr("fill", "none")
         .attr("stroke", "#FFA500") // Orange color for historical data-slices
@@ -442,12 +442,12 @@ const ForecastChart: React.FC = () => {
 
       svg
         .selectAll(".historical-ground-truth-dot")
-        .data(historicalDataToDraw.filter((d) => d.admissions !== -1 && !isNaN(d.admissions) && d.stateNum === USStateNum))
+        .data(historicalDataToDraw.filter((d) => d.observation !== -1 && !isNaN(d.observation) && d.locationNum === USStateNum))
         .enter()
         .append("circle")
         .attr("class", "historical-ground-truth-dot")
         .attr("cx", (d) => xScale(d.date))
-        .attr("cy", (d) => yScale(d.admissions))
+        .attr("cy", (d) => yScale(d.observation))
         .attr("r", 6) // Slightly larger than current ground truth dots
         .attr("fill", "#FFA500")
         .attr("transform", `translate(${marginLeft}, ${marginTop})`);
@@ -658,9 +658,9 @@ const ForecastChart: React.FC = () => {
 
   const updateCornerTooltip = useCallback(
     (
-      data: SurveillanceSingleWeekDataPoint,
+      data: TargetDataRoundDataPoint,
       predictionData: any,
-      historicalGroundTruthData: SurveillanceSingleWeekDataPoint[],
+      historicalGroundTruthData: TargetDataRoundDataPoint[],
       xScale: d3.ScaleTime<number, number>,
       chartWidth: number,
       marginLeft: number,
@@ -723,13 +723,13 @@ const ForecastChart: React.FC = () => {
 
       // A. Add Date and Admissions Info
       currentY = addTextLine("Date: ", data.date.toUTCString().slice(5, 16), currentY);
-      currentY = addTextLine("Admissions: ", formatNumber(data.admissions, true), currentY);
+      currentY = addTextLine("Admissions: ", formatNumber(data.observation, true), currentY);
 
       // B. Add Historical Admissions Info (if toggled)
       if (isHistoricalDataMode && historicalGroundTruthData) {
         const historicalValue =
-          historicalGroundTruthData.find((entry) => isUTCDateEqual(entry.date, data.date) && entry.stateNum === data.stateNum)
-            ?.admissions || NaN;
+          historicalGroundTruthData.find((entry) => isUTCDateEqual(entry.date, data.date) && entry.locationNum === data.locationNum)
+            ?.observation || NaN;
         currentY = addTextLine("Historical: ", formatNumber(historicalValue, true), currentY);
       }
 
@@ -991,7 +991,7 @@ const ForecastChart: React.FC = () => {
       .style("font-size", "18px");
   }
 
-  function findNearestDataPoint(data: SurveillanceSingleWeekDataPoint[], targetDate: Date): SurveillanceSingleWeekDataPoint {
+  function findNearestDataPoint(data: TargetDataRoundDataPoint[], targetDate: Date): TargetDataRoundDataPoint {
     return data.reduce((prev, curr) => {
       const prevDiff = Math.abs(prev.date.getTime() - targetDate.getTime());
       const currDiff = Math.abs(curr.date.getTime() - targetDate.getTime());
@@ -1023,9 +1023,9 @@ const ForecastChart: React.FC = () => {
   }
 
   function createCombinedDataset(
-    groundTruthData: SurveillanceSingleWeekDataPoint[],
+    groundTruthData: TargetDataRoundDataPoint[],
     predictionData: any
-  ): SurveillanceSingleWeekDataPoint[] {
+  ): TargetDataRoundDataPoint[] {
     // First deconstruct the whole of ground truth data-slices into a new array
     let combinedData = [...groundTruthData];
 
@@ -1038,9 +1038,9 @@ const ForecastChart: React.FC = () => {
         if (!existingPoint) {
           combinedData.push({
             date: new Date(prediction.targetEndDate),
-            admissions: -1,
-            stateNum: groundTruthData[0].stateNum,
-            stateName: groundTruthData[0].stateName,
+            observation: -1,
+            locationNum: groundTruthData[0].locationNum,
+            locationName: groundTruthData[0].locationName,
             weeklyRate: 0,
           });
         }
@@ -1063,10 +1063,10 @@ const ForecastChart: React.FC = () => {
   const renderChartComponents = useCallback(
     (
       svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
-      filteredGroundTruthData: SurveillanceSingleWeekDataPoint[],
-      extendedGroundTruthDataForTooltip: SurveillanceSingleWeekDataPoint[],
+      filteredGroundTruthData: TargetDataRoundDataPoint[],
+      extendedGroundTruthDataForTooltip: TargetDataRoundDataPoint[],
       processedPredictionData: any,
-      historicalGroundTruthData: SurveillanceSingleWeekDataPoint[],
+      historicalGroundTruthData: TargetDataRoundDataPoint[],
       xScale: d3.ScaleTime<number, number>,
       marginLeft: number,
       marginTop: number,
@@ -1208,7 +1208,7 @@ const ForecastChart: React.FC = () => {
       let marginTop = margins.top;
       let marginBottom = margins.bottom;
 
-      const allPlaceholders = groundTruthData.every((d) => d.admissions === -1);
+      const allPlaceholders = groundTruthData.every((d) => d.observation === -1);
 
       if (allPlaceholders) {
         renderMessage(svg as any, "Not enough data, please extend date range.", chartWidth, chartHeight, marginLeft, marginTop);

@@ -98,8 +98,13 @@ class EvaluationProcessor:
         if observations.empty or predictions_df.empty:
             return np.nan
 
-        # Get sorted quantiles
-        quantiles = sorted(predictions_df[quantile_col].unique())
+        # Ensure quantile_col exists
+        if quantile_col not in predictions_df.columns:
+            logger.debug(f"Column '{quantile_col}' not found in predictions dataframe")
+            return np.nan
+
+        # Get sorted quantiles (convert to float for consistency)
+        quantiles = sorted([float(q) for q in predictions_df[quantile_col].unique()])
 
         # Extract quantile values aligned with observations
         Q = []
@@ -164,13 +169,21 @@ class EvaluationProcessor:
         if observations.empty or predictions_df.empty:
             return np.nan
 
+        # Ensure quantile_col exists
+        if quantile_col not in predictions_df.columns:
+            logger.debug(f"Column '{quantile_col}' not found in predictions dataframe")
+            return np.nan
+
         # Calculate quantile bounds for this interval
         q_low = round(0.5 - interval_level / 200, 3)
         q_upp = round(0.5 + interval_level / 200, 3)
 
-        # Get lower and upper quantile predictions
-        lower_preds = predictions_df[predictions_df[quantile_col] == q_low]["value"].values
-        upper_preds = predictions_df[predictions_df[quantile_col] == q_upp]["value"].values
+        # Get lower and upper quantile predictions (convert quantile values to float for comparison)
+        predictions_df_copy = predictions_df.copy()
+        predictions_df_copy[quantile_col] = predictions_df_copy[quantile_col].astype(float)
+
+        lower_preds = predictions_df_copy[predictions_df_copy[quantile_col] == q_low]["value"].values
+        upper_preds = predictions_df_copy[predictions_df_copy[quantile_col] == q_upp]["value"].values
         obs_vals = observations.values
 
         if len(lower_preds) != len(obs_vals) or len(upper_preds) != len(obs_vals):
@@ -203,8 +216,15 @@ class EvaluationProcessor:
         if observations.empty or predictions_df.empty:
             return np.nan
 
-        # Get median (0.5 quantile) predictions
-        median_preds = predictions_df[predictions_df[quantile_col] == 0.5]["value"].values
+        # Ensure quantile_col exists
+        if quantile_col not in predictions_df.columns:
+            logger.debug(f"Column '{quantile_col}' not found in predictions dataframe")
+            return np.nan
+
+        # Get median (0.5 quantile) predictions (convert to float for comparison)
+        predictions_df_copy = predictions_df.copy()
+        predictions_df_copy[quantile_col] = predictions_df_copy[quantile_col].astype(float)
+        median_preds = predictions_df_copy[predictions_df_copy[quantile_col] == 0.5]["value"].values
         obs_vals = observations.values
 
         if len(median_preds) != len(obs_vals):

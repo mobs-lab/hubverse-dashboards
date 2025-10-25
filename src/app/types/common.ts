@@ -1,7 +1,7 @@
 // src/app/types/common.ts
-export type StateNum = string; // "US" or "01".."56"
+export type locationCode = string; // "US" or "01".."56"
 export type IsoDate = string; // "YYYY-MM-DD"
-export type SeasonId = string; // "season-2023-2024" | "last-2-weeks" etc.
+export type forecastPeriodID = string; // "season-2023-2024" | "last-2-weeks" etc.
 export type ModelName = (typeof modelNames)[number];
 
 // Color Mapping for each model
@@ -27,16 +27,3 @@ export const modelNames: string[] = [
   "NEU_ISI-AdaptiveEnsemble",
   "FluSight-ensemble",
 ];
-
-// Models with nowcast production
-export const nowcastModelNames: string[] = [
-  "MOBS-GLEAM_FLUH",
-  "MIGHTE-Nsemble",
-  "MIGHTE-Joint",
-  "NU_UCSD-GLEAM_AI_FLUH",
-  "CEPH-Rtrend_fluH",
-  "FluSight-ensemble",
-];
-
-export const nowcastRiskLevels = ["No Data", "Low", "Medium", "High"];
-export const nowcastRiskColors = ["#363b43", "#7cd8c9", "#2bafe2", "#435fce"];

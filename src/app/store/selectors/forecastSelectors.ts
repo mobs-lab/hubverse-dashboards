@@ -2,7 +2,7 @@
 
 import { createSelector } from "@reduxjs/toolkit";
 import { RootState } from "../index";
-import { StateThresholds, SurveillanceSingleWeekDataPoint } from "@/types/domains/forecasting";
+import { StateThresholds, TargetDataRoundDataPoint } from "@/types/domains/forecasting";
 
 // Selector for thresholds - handles dictionary format
 // TODO: Get rid of this after changing the component to use Dictionary instead for faster access, less find() operations
@@ -90,21 +90,21 @@ export const selectGroundTruthInRange = createSelector(
     (state: RootState, startDate: Date, endDate: Date, stateNum: string) => stateNum,
   ],
   (groundTruthData, metadata, { startDate, endDate }, stateNum) => {
-    if (!groundTruthData || !metadata?.fullRangeSeasons) {
+    if (!groundTruthData || !metadata?.forecastPeriod) {
       // Changed check
       console.warn("Warning: selectGroundTruthInRange: Missing required data");
       return [];
     }
 
     // Find which season contains our date range
-    const relevantSeasons = findRelevantSeasons(metadata.fullRangeSeasons, startDate, endDate);
+    const relevantSeasons = findRelevantSeasons(metadata.forecastPeriod, startDate, endDate);
 
     if (relevantSeasons.length === 0) {
       console.warn("Warning: selectGroundTruthInRange: No relevant seasons found");
       return [];
     }
 
-    const groundTruthPoints: SurveillanceSingleWeekDataPoint[] = [];
+    const groundTruthPoints: TargetDataRoundDataPoint[] = [];
 
     // For each relevant season, extract ground truth from centralized collection
     for (const seasonId of relevantSeasons) {
@@ -121,9 +121,9 @@ export const selectGroundTruthInRange = createSelector(
           if (stateData) {
             groundTruthPoints.push({
               date,
-              stateNum,
-              stateName: "", // Would need location data for full name, skip for now
-              admissions: stateData.admissions,
+              locationNum: stateNum,
+              locationName: "", // Would need location data for full name, skip for now
+              observation: stateData.observation,
               weeklyRate: stateData.weeklyRate,
             });
           }
@@ -162,14 +162,14 @@ export const selectExtendedGroundTruthInRange = createSelector(
     }
 
     // Find which season contains our extended date range
-    const relevantSeasons = findRelevantSeasons(metadata.fullRangeSeasons || [], startDate, extendedEndDate);
+    const relevantSeasons = findRelevantSeasons(metadata.forecastPeriod || [], startDate, extendedEndDate);
 
     if (relevantSeasons.length === 0) {
       console.warn("Warning: selectExtendedGroundTruthInRange: No relevant seasons found");
       return [];
     }
 
-    const groundTruthPoints: SurveillanceSingleWeekDataPoint[] = [];
+    const groundTruthPoints: TargetDataRoundDataPoint[] = [];
 
     // For each relevant season, extract ground truth from centralized collection
     for (const seasonId of relevantSeasons) {
@@ -186,9 +186,9 @@ export const selectExtendedGroundTruthInRange = createSelector(
           if (stateData) {
             groundTruthPoints.push({
               date,
-              stateNum,
-              stateName: "", // Would need location data for full name, skip for now
-              admissions: stateData.admissions,
+              locationNum: stateNum,
+              locationName: "", // Would need location data for full name, skip for now
+              observation: stateData.admissions,
               weeklyRate: stateData.weeklyRate,
             });
           }
@@ -230,15 +230,15 @@ export const selectHistoricalDataForWeek = createSelector(
     }
 
     // Convert the snapshot data into the SurveillanceSingleWeekDataPoint array format
-    const historicalPoints: SurveillanceSingleWeekDataPoint[] = [];
+    const historicalPoints: TargetDataRoundDataPoint[] = [];
     Object.entries(snapshotData).forEach(([dateISO, statesData]) => {
       const stateData = (statesData as any)[stateNum];
       if (stateData) {
         historicalPoints.push({
           date: new Date(dateISO),
-          stateNum,
-          stateName: "", // location data needed for full name, skip for now
-          admissions: stateData.admissions,
+          locationNum: stateNum,
+          locationName: "", // location data needed for full name, skip for now
+          observation: stateData.admissions,
           weeklyRate: stateData.weeklyRate,
         });
       }
@@ -270,7 +270,7 @@ export const selectPredictionsForMultipleModels = createSelector(
     }
 
     const dateISO = referenceDate.toISOString().split("T")[0];
-    const seasonId = findSeasonForDate(metadata.fullRangeSeasons || [], referenceDate);
+    const seasonId = findSeasonForDate(metadata.forecastPeriod || [], referenceDate);
     if (!seasonId) return {};
     console.debug("selectPredictionsForMultipleModels: Using dateISO key", dateISO, "in season", seasonId);
 
@@ -333,7 +333,7 @@ export const selectPredictionsForModelAndWeek = createSelector(
     const dateISO = referenceDate.toISOString().split("T")[0];
 
     // Find relevant season
-    const seasonId = findSeasonForDate(metadata.fullRangeSeasons || [], referenceDate);
+    const seasonId = findSeasonForDate(metadata.forecastPeriod || [], referenceDate);
     if (!seasonId) {
       console.warn("Warning: selectPredictionsForModelAndWeek: No season found for date", dateISO);
       return null;
@@ -403,7 +403,7 @@ function findSeasonForDate(fullRangeSeasons: any[], date: Date): string | null {
 
 // Selector for date constraints from metadata
 export const selectDateConstraints = createSelector([(state: RootState) => state.auxiliaryData.metadata], (metadata) => {
-  if (!metadata?.fullRangeSeasons || metadata.fullRangeSeasons.length === 0) {
+  if (!metadata?.forecastPeriod || metadata.forecastPeriod.length === 0) {
     // Fallback to hardcoded dates if no metadata
     return {
       earliestDate: new Date("2022-08-23T12:00:00.000Z"),
@@ -412,10 +412,10 @@ export const selectDateConstraints = createSelector([(state: RootState) => state
   }
 
   // Find overall earliest and latest dates across all full range seasons
-  let earliestDate = new Date(metadata.fullRangeSeasons[0].startDate);
-  let latestDate = new Date(metadata.fullRangeSeasons[0].endDate);
+  let earliestDate = new Date(metadata.forecastPeriod[0].startDate);
+  let latestDate = new Date(metadata.forecastPeriod[0].endDate);
 
-  metadata.fullRangeSeasons.forEach((season: any) => {
+  metadata.forecastPeriod.forEach((season: any) => {
     const seasonStart = new Date(season.startDate);
     const seasonEnd = new Date(season.endDate);
 

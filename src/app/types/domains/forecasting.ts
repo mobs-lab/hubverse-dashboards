@@ -1,128 +1,83 @@
-export interface SurveillanceSingleWeekDataPoint {
-  date: Date;
-  stateNum: string;
-  stateName: string;
-  admissions: number;
-  weeklyRate: number;
-}
+// Forecast Periods Interfaces
+// ---------------------------
 
-export interface PredictionSingleWeekDataPoint {
-  referenceDate: Date;
-  targetEndDate: Date;
-  stateNum: string;
-  confidence025: number;
-  confidence050: number;
-  confidence250: number;
-  confidence500: number;
-  confidence750: number;
-  confidence950: number;
-  confidence975: number;
-  confidence_low: number;
-  confidence_high: number;
-}
-
-export interface PredictionDataGroupedByModel {
-  modelName: string;
-  predictionData: PredictionSingleWeekDataPoint[];
-}
-
-export interface SeasonOption {
-  index: number;
-  seasonId: string;
-  displayString: string;
-  timeValue: string;
-  startDate: Date;
-  endDate: Date;
-}
-
-export interface HistoricalDataCollectionByDate {
-  associatedDate: Date;
-  historicalData: SurveillanceSingleWeekDataPoint[];
-}
-
-export interface LocationData {
-  stateNum: string;
-  state: string;
-  stateName: string;
-  population: number;
-}
-
-export interface StateThresholds {
-  location: string;
-  medium: number;
-  high: number;
-  veryHigh: number;
-}
-
-// Dictionary format for thresholds as provided by the backend
-export interface StateThresholdsDict {
-  [stateNum: string]: {
-    medium: number;
-    high: number;
-    veryHigh: number;
+// Coming from user-specified forecast periods, the options available for selecting,
+// Filtering data to be within the time range.
+export interface ForecastPeriodOptions {
+  [forecastPeriodID: string]: {
+    isDefaultSelected?: boolean;
+    displayString: string;
+    timeValue: string;
+    startDate: Date;
+    endDate: Date;
   };
 }
 
-// Following interfaces are for Redux Data Slice to validate fetched JSON data
-export interface GroundTruthData {
-  [seasonId: string]: {
-    [referenceDateISO: string]: {
-      [stateNum: string]: { admissions: number; weeklyRate: number };
-    };
+// Location (Spatial) Data Interfaces
+// ---------------------------------------
+export interface LocationMappingData {
+  [locationCode: string]: {
+    locationNameAlt?: string;
+    locationName: string;
   };
 }
 
-export interface ModelPredictionData {
-  firstPredRefDate?: string;
-  lastPredRefDate?: string;
-  lastPredTargetDate?: string;
-  partitions: {
-    "pre-forecast": TimeSeriesPartition;
-    "full-forecast": TimeSeriesPartition;
-    "forecast-tail": TimeSeriesPartition;
-    "post-forecast": TimeSeriesPartition;
+// Modelling Task Target Interfaces
+// ---------------------------------
+export interface modellingTaskTarget {
+  [targetId: string]: {
+    taskTargetDisplayString: string;
   };
 }
 
-export interface PredictionData {
-  [seasonId: string]: {
-    firstPredRefDate?: string;
-    lastPredRefDate?: string;
-    lastPredTargetDate?: string;
-  } & {
-    [modelName: string]: ModelPredictionData;
-  };
-}
-
-export interface TimeSeriesPartition {
-  [referenceDateISO: string]: {
-    [stateNum: string]: {
-      predictions?: {
-        [targetEndDateISO: string]: {
-          horizon: number;
-          median: number;
-          q25: number;
-          q75: number;
-          q05: number;
-          q95: number;
-        };
+// Target-Data Interfaces
+// ---------------------------
+export interface TargetData {
+  [locationCode: string]: {
+    [date: string]: {
+      [targetId: string]: {
+        observation: number;
       };
     };
   };
 }
 
-export interface NowcastTrendsData {
-  [modelName: string]: {
-    [isoDate: string]: {
-      [stateNum: string]: { decrease: number; increase: number; stable: number };
-    };
-  };
+// Target Data Collection partitioned by forecast period
+export interface TargetDataCollection {
+  [forecastPeriodID: string]: TargetData;
 }
 
-export interface HistoricalDataMap {
-  [isoDateMatchingUserSelected: string]: {
-    [referenceDateHistorical: string]: {
-      [stateNum: string]: { admissions: number; weeklyRate: number };
+// Historical Target-Data: Entire Collection organized by associated Date (as_of date)
+export interface HistoricalTargetDataCollection {
+  [asOfDate: string]: TargetData;
+}
+
+// Model Output Interfaces
+// ---------------------------
+// A single round's model output containing all default value and the user-specified prediction intervals.
+export interface ModelOutputRoundDataPoint {
+  value: number; // The default value to display as dots, usually median
+  predictionIntervalData: ModelOutputPredictionInterval[];
+}
+
+// One prediction interval's info
+export interface ModelOutputPredictionInterval {
+  predictionIntervalName: string;
+  predictionIntervalQuantileLow: number;
+  predictionIntervalQuantileHigh: number;
+}
+
+// Collection of all model output data
+export interface ModelOutputCollection {
+  [forecastPeriodId: string]: {
+    [modelName: string]: {
+      [locationCode: string]: {
+        [referenceDate: string]: {
+          [horizon: number]: {
+            [targetId: string]: ModelOutputRoundDataPoint;
+          };
+        };
+      };
     };
   };
 }

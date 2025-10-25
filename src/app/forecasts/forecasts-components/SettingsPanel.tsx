@@ -12,12 +12,12 @@ import {
   updateNumOfWeeksAhead,
   updateSelectedState,
   updateYScale,
-} from "@/store/data-slices/settings/SettingsSliceForecastNowcast";
+} from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectDateConstraints, selectLocationData } from "@/store/selectors/forecastSelectors";
 import { Radio, Typography } from "@/styles/material-tailwind-wrapper";
 import { modelColorMap, modelNames } from "@/types/common";
-import { SeasonOption } from "@/types/domains/forecasting";
+import { ForecastPeriodOption } from "@/types/domains/forecasting";
 import Image from "next/image";
 import React from "react";
 import { horizonSelectorsInfo } from "types/infobutton-content";
@@ -30,17 +30,17 @@ const SettingsPanel: React.FC = () => {
   const locationData = useAppSelector(selectLocationData);
   const { earliestDate, latestDate } = useAppSelector(selectDateConstraints);
 
-  const { USStateNum, selectedForecastModels: forecastModel, dateStart, dateEnd, dateRange, confidenceInterval, seasonOptions } = useAppSelector(
+  const { selectedLocationCode: USStateNum, selectedModels: forecastModel, timeFilterRangeStart: dateStart, timeFilterRangeEnd: dateEnd, timeFilterRange: dateRange, selectedPredictionInterval: confidenceInterval, forecastPeriodsOptions: seasonOptions } = useAppSelector(
     (state) => state.forecastSettings
   );
 
   const onStateSelectionChange = (stateNum: string) => {
-    const selectedState = locationData.find((state) => state.stateNum === stateNum);
+    const selectedState = locationData.find((state) => state.locationCode === stateNum);
     if (selectedState) {
       dispatch(
         updateSelectedState({
-          stateName: selectedState.stateName,
-          stateNum: selectedState.stateNum,
+          stateName: selectedState.locationName,
+          stateNum: selectedState.locationCode,
         })
       );
     }
@@ -123,8 +123,8 @@ const SettingsPanel: React.FC = () => {
             onChange={(e) => onStateSelectionChange(e.target.value)}
             className={"text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-4 px-2 overflow-ellipsis"}>
             {locationData.map((state) => (
-              <option key={state.state} value={state.stateNum}>
-                {state.stateName}
+              <option key={state.locationNameAlt} value={state.locationCode}>
+                {state.locationName}
                 {/*{state.stateNum} : {state.stateName}*/}
               </option>
             ))}
@@ -173,7 +173,7 @@ const SettingsPanel: React.FC = () => {
               className={
                 "text-white border-[#5d636a] border-2 flex-wrap bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 overflow-ellipsis"
               }>
-              {seasonOptions.map((option: SeasonOption) => (
+              {seasonOptions.map((option: ForecastPeriodOption) => (
                 <option key={option.index} value={option.timeValue}>
                   {option.displayString}
                 </option>

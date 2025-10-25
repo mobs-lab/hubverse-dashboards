@@ -1,13 +1,13 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { GroundTruthData, PredictionData, NowcastTrendsData, SeasonOption } from "@/types/domains/forecasting";
+import { TargetDataCollection, ModelOutputDataCollection, NowcastTrendsData, ForecastPeriodOption } from "@/types/domains/forecasting";
 
 interface CoreDataState {
   isLoaded: boolean;
   loadedSeasons: string[]; // Track which seasons have been loaded
 
   mainData: {
-    groundTruthData: GroundTruthData;
-    predictionData: PredictionData;
+    groundTruthData: TargetDataCollection;
+    predictionData: ModelOutputDataCollection;
     nowcastTrends: NowcastTrendsData;
   };
 }

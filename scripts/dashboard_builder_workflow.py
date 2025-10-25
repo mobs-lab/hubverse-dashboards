@@ -43,11 +43,12 @@ logger = logging.getLogger(__name__)
 class DashboardBuilder:
     """Main dashboard builder orchestrator"""
 
-    def __init__(self, config_path: str = "config.yaml", dev_mode: bool = False):
+    def __init__(self, config_path: str = "config.yaml", dev_mode: bool = False, skip_evaluations: bool = False):
         self.config_path = Path(config_path)
         self.config: Optional[DashboardConfig] = None
         self.project_root = self._get_project_root()
         self.dev_mode = dev_mode
+        self.skip_evaluations = skip_evaluations
 
     def _get_project_root(self) -> Path:
         """Get the project root directory"""
@@ -87,10 +88,12 @@ class DashboardBuilder:
         """Load and validate the configuration file"""
         print("\n[Step 1/4] Loading configuration file...")
         print(f"Config path: {self.config_path}")
+        if self.dev_mode:
+            print("Dev mode: ON - will check for data in test-data-input/")
 
         # Call the YAML config processor's load_config method
         try:
-            self.config = load_config(self.config_path)
+            self.config = load_config(self.config_path, dev_mode=self.dev_mode)
             print("✓ Configuration loaded and validated successfully\n")
             return True
 
@@ -120,17 +123,17 @@ class DashboardBuilder:
         """
         print("[Step 2/4] Configuration Summary...")
         print()
-        
+
         # Display key configuration information
         print(f"  ✓ Forecast periods: {len(self.config.forecast_periods)} standard period(s)")
         if self.config.dynamic_periods:
             print(f"  ✓ Special periods: {len(self.config.dynamic_periods)} dynamic period(s)")
-        
+
         print(f"  ✓ Modelling tasks: {len(self.config.targets)} target(s)")
         print(f"  ✓ Models configured: {len(self.config.models)}")
         print(f"  ✓ Time unit: {self.config.time_unit} day(s)")
         print(f"  ✓ Horizons: {self.config.horizons}")
-        
+
         if self.config.is_single_location:
             location_name = self.config.location_mapping.get(
                 self.config.single_location_mapping, "Unknown"
@@ -138,7 +141,7 @@ class DashboardBuilder:
             print(f"  ✓ Single-location mode: {self.config.single_location_mapping} ({location_name})")
         else:
             print(f"  ✓ Multi-location mode (auto-detect from data)")
-        
+
         print()
         print("✓ All configuration requirements validated\n")
         return True
@@ -187,15 +190,19 @@ class DashboardBuilder:
         - Loading raw CSV files from `target-data/` and `model-output/`
         - Applying column mappings and standardizing data formats
         - Filtering and structuring data based on forecast periods and targets
-        - (TODO WIP) Calculating evaluations
-        - (TODO WIP) Exporting to frontend JSON format
+        - Optionally calculating evaluations (if not skipped)
+        - Exporting to frontend JSON format
         """
         print("\n" + "=" * 80)
         print("PHASE 2: Data Processing")
         print("=" * 80)
 
+        if self.skip_evaluations:
+            print("\n⚠ Evaluations DISABLED - skipping evaluation calculation")
+            print("  The dashboard will not include evaluation metrics (WIS, Coverage, MAPE)")
+
         try:
-            process_data(self.config, dev_mode=self.dev_mode)
+            process_data(self.config, dev_mode=self.dev_mode, skip_evaluations=self.skip_evaluations)
             print("\n✓ Data processing core logic completed successfully.")
         except Exception as e:
             logger.error(f"Data processing failed: {e}")
@@ -219,11 +226,20 @@ def main():
         action="store_true",
         help="Run in local development mode, using data from 'test-data-input/' directory.",
     )
+    parser.add_argument(
+        "--skip-evaluations",
+        action="store_true",
+        help="Skip evaluation metrics calculation (WIS, Coverage, MAPE). Dashboard will disable the Evaluations page.",
+    )
 
     args = parser.parse_args()
 
     # Create builder instance
-    builder = DashboardBuilder(config_path=args.config, dev_mode=args.dev)
+    builder = DashboardBuilder(
+        config_path=args.config,
+        dev_mode=args.dev,
+        skip_evaluations=args.skip_evaluations
+    )
 
     if not builder.run_config_validation():
         sys.exit(1)

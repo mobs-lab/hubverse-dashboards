@@ -35,16 +35,21 @@ class NpEncoder(json.JSONEncoder):
 
 
 class DataProcessor:
-    def __init__(self, config: DashboardConfig, dev_mode: bool = False):
+    def __init__(self, config: DashboardConfig, dev_mode: bool = False, skip_evaluations: bool = False):
         self.config = config
         self.project_root = Path(__file__).parent.parent
         self.dev_mode = dev_mode
+        self.skip_evaluations = skip_evaluations
         self.historical_target_data = None  # Map<as_of_date, Map<date, data>>
         self.current_target_data = None
         self.fixed_target_data = None
+        self.model_output_unpivoted = None  # Keep unpivoted data for evaluations
 
-        # Initialize evaluation processor
-        self.evaluation_processor = EvaluationProcessor(config=config, baseline_model=config.baseline_model_for_relative_wis)
+        # Initialize evaluation processor (only if evaluations are enabled)
+        if not skip_evaluations:
+            self.evaluation_processor = EvaluationProcessor(config=config, baseline_model=config.baseline_model_for_relative_wis)
+        else:
+            self.evaluation_processor = None
 
         # For tracking processing statistics
         self.processing_stats = {
@@ -99,8 +104,12 @@ class DataProcessor:
         predictions_by_period = self._process_predictions_by_periods(model_output_df, fixed_target_data_df)
         self.processing_stats["forecast_periods"] = len(predictions_by_period)
 
-        # 6: Calculate evaluations
-        evaluations_by_period = self._process_evaluations_by_periods(fixed_target_data_df, model_output_df)
+        # 6: Calculate evaluations (use unpivoted data for evaluations)
+        if not self.skip_evaluations:
+            evaluations_by_period = self._process_evaluations_by_periods(fixed_target_data_df, self.model_output_unpivoted)
+        else:
+            logger.info("Skipping evaluation calculations (disabled by user)")
+            evaluations_by_period = {}
 
         # 7: Generate Metadata
         metadata = self._generate_metadata(locations, model_output_df, target_data_df)
@@ -370,7 +379,11 @@ class DataProcessor:
         else:
             logger.info("'horizon' column already exists, using it.")
 
-        # Pivot quantile data to wide format
+        # Store unpivoted data for evaluations (before pivoting)
+        self.model_output_unpivoted = df.copy()
+        logger.info("Stored unpivoted model output data for evaluations")
+
+        # Pivot quantile data to wide format for predictions output
         if "output_type" in df.columns and "quantile" in df["output_type"].unique():
             logger.info("Pivoting quantile data to wide format...")
             quantile_df = self._pivot_quantiles(df)
@@ -598,11 +611,13 @@ class DataProcessor:
             "dynamicTimePeriod": dynamic_periods_info,
             "modelNames": [model.model_name for model in self.config.models],
             "defaultSelectedDate": latest_model_ref_date.isoformat() if pd.notna(latest_model_ref_date) else None,
+            "evaluationsEnabled": not self.skip_evaluations,  # Flag for frontend to enable/disable Evaluations page
         }
 
         logger.info("Metadata generated.")
         # Only produce log for now for metadata.
         logger.info(f"Default selected date for frontend: {metadata['defaultSelectedDate']}")
+        logger.info(f"Evaluations enabled: {metadata['evaluationsEnabled']}")
         return metadata
 
     def _process_ground_truth_by_forecast_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
@@ -1034,7 +1049,11 @@ class DataProcessor:
         logger.info(f"  • Models processed: {self.processing_stats['models_processed']}")
         logger.info(f"  • Locations detected: {self.processing_stats['locations_detected']}")
         logger.info(f"  • Forecast periods: {self.processing_stats['forecast_periods']}")
-        logger.info(f"  • Evaluations calculated: {self.processing_stats['evaluations_calculated']}")
+        
+        if self.skip_evaluations:
+            logger.info(f"  • Evaluations: DISABLED (skipped by user)")
+        else:
+            logger.info(f"  • Evaluations calculated: {self.processing_stats['evaluations_calculated']}")
 
         if self.historical_target_data:
             logger.info(f"  • Historical snapshots: {len(self.historical_target_data)}")
@@ -1133,13 +1152,18 @@ class DataProcessor:
             return period.start_date, period.end_date
 
 
-def process_data(config: DashboardConfig, dev_mode: bool = False):
+def process_data(config: DashboardConfig, dev_mode: bool = False, skip_evaluations: bool = False):
     """
     Main function to instantiate and run the data processor.
     This will be called by the main workflow orchestrator.
+    
+    Args:
+        config: DashboardConfig object with all settings
+        dev_mode: If True, use test-data-input/ directory
+        skip_evaluations: If True, skip evaluation metrics calculation
     """
     try:
-        processor = DataProcessor(config, dev_mode=dev_mode)
+        processor = DataProcessor(config, dev_mode=dev_mode, skip_evaluations=skip_evaluations)
         success = processor.run()
         if not success:
             raise RuntimeError("Data processing failed.")

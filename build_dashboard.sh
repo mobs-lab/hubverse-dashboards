@@ -63,13 +63,17 @@ show_menu() {
     print_header
     echo "Please select an option:"
     echo ""
-    echo "  1) Build Dashboard (select this if building for the first time)"
+    echo "  1) Build Dashboard - Full (with evaluations)"
     echo ""
-    echo "  2) Build Dashboard (Dev Mode)"
+    echo "  2) Build Dashboard - Without Evaluations (disables Evaluations page)"
     echo ""
-    echo "  3) Check for New Data"
+    echo "  3) Build Dashboard - Dev Mode (with evaluations)"
     echo ""
-    echo "  4) Exit"
+    echo "  4) Build Dashboard - Dev Mode (without evaluations)"
+    echo ""
+    echo "  5) Check for New Data"
+    echo ""
+    echo "  6) Exit"
     echo ""
 }
 
@@ -83,12 +87,12 @@ main() {
     while true; do
         show_menu
 
-        read -p "Enter your choice (1, 2, 3, or 4): " choice
+        read -p "Enter your choice (1-6): " choice
 
         case $choice in
             1)
                 echo ""
-                print_info "Starting Dashboard Build Process..."
+                print_info "Starting Dashboard Build Process (Full - with evaluations)..."
                 echo ""
 
                 # Run the Python workflow
@@ -103,7 +107,24 @@ main() {
 
             2)
                 echo ""
-                print_info "Starting Dashboard Build Process (Dev Mode)..."
+                print_info "Starting Dashboard Build Process (WITHOUT evaluations)..."
+                print_warning "The Evaluations page will be DISABLED in the dashboard."
+                echo ""
+
+                # Run the Python workflow with --skip-evaluations flag
+                if python3 scripts/dashboard_builder_workflow.py --config config.yaml --skip-evaluations; then
+                    print_success "Dashboard build completed successfully!"
+                    print_info "Note: Evaluation generation was skipped. The dashboard Evaluations page is disabled."
+                    exit 0
+                else
+                    print_error "Dashboard build failed. Please check the errors above."
+                    exit 1
+                fi
+                ;;
+
+            3)
+                echo ""
+                print_info "Starting Dashboard Build Process (Dev Mode - with evaluations)..."
                 echo ""
 
                 # Run the Python workflow with --dev flag
@@ -116,7 +137,24 @@ main() {
                 fi
                 ;;
 
-            3)
+            4)
+                echo ""
+                print_info "Starting Dashboard Build Process (Dev Mode - WITHOUT evaluations)..."
+                print_warning "The Evaluations page will be DISABLED in the dashboard."
+                echo ""
+
+                # Run the Python workflow with --dev and --skip-evaluations flags
+                if python3 scripts/dashboard_builder_workflow.py --config config.yaml --dev --skip-evaluations; then
+                    print_success "Dashboard build completed successfully!"
+                    print_info "Note: Evaluation generation was skipped. The dashboard Evaluations page is disabled."
+                    exit 0
+                else
+                    print_error "Dashboard build failed. Please check the errors above."
+                    exit 1
+                fi
+                ;;
+
+            5)
                 echo ""
                 print_info "Data Update Feature"
                 echo ""
@@ -125,7 +163,7 @@ main() {
                 read -p "Press Enter to return to menu..."
                 ;;
 
-            4)
+            6)
                 echo ""
                 print_info "Exiting..."
                 exit 0
@@ -133,7 +171,7 @@ main() {
 
             *)
                 echo ""
-                print_error "Invalid choice. Please enter 1, 2, 3, or 4."
+                print_error "Invalid choice. Please enter a number from 1 to 6."
                 echo ""
                 read -p "Press Enter to continue..."
                 ;;

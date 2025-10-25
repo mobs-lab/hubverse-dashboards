@@ -487,8 +487,8 @@ const SeasonOverviewUSStateMap: React.FC = () => {
 
         // Get state data
         const stateId = d.id?.toString().padStart(2, "0");
-        const stateInfo = locationData.find((loc) => loc.stateNum.toString().padStart(2, "0") === stateId);
-        const stateName = stateInfo?.stateName || `State ${stateId}`;
+        const stateInfo = locationData.find((loc) => loc.locationCode.toString().padStart(2, "0") === stateId);
+        const stateName = stateInfo?.locationName || `State ${stateId}`;
         const value = modelPerformanceData.get(stateId);
         const metricName = mapSelectedScoringOption || "Score";
 

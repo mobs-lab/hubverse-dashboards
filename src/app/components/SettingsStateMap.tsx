@@ -1,6 +1,6 @@
 import { useDataContext } from "@/providers/DataProvider";
 import { updateEvaluationSingleModelViewSelectedState } from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
-import { updateSelectedState } from "@/store/data-slices/settings/SettingsSliceForecastNowcast";
+import { updateSelectedState } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectLocationData } from "@/store/selectors/forecastSelectors";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
@@ -26,7 +26,7 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   const [isMapReady, setIsMapReady] = useState(false);
 
   const dispatch = useAppDispatch();
-  const { selectedStateName } = useAppSelector((state) => state.forecastSettings);
+  const { selectedLocationName: selectedStateName } = useAppSelector((state) => state.forecastSettings);
   const { evaluationsSingleModelViewSelectedStateName } = useAppSelector((state) => state.evaluationsSingleModelSettings);
   const locationData = useAppSelector(selectLocationData);
 

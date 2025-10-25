@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 
 import { modelColorMap, modelNames } from "@/types/common";
-import { SeasonOption } from "@/types/domains/forecasting";
+import { ForecastPeriodOption } from "@/types/domains/forecasting";
 
 import SettingsStateMap from "@/shared-components/SettingsStateMap";
 
@@ -48,12 +48,12 @@ const SingleModelSettingsPanel: React.FC = () => {
 
   // State selection handlers (reused from forecast)
   const onStateSelectionChange = (stateNum: string) => {
-    const selectedState = locationData.find((state) => state.stateNum === stateNum);
+    const selectedState = locationData.find((state) => state.locationCode === stateNum);
     if (selectedState) {
       dispatch(
         updateEvaluationSingleModelViewSelectedState({
-          stateName: selectedState.stateName,
-          stateNum: selectedState.stateNum,
+          stateName: selectedState.locationName,
+          stateNum: selectedState.locationCode,
         })
       );
     }
@@ -73,11 +73,11 @@ const SingleModelSettingsPanel: React.FC = () => {
   const onSeasonSelectionChange = (seasonIdentifier: string) => {
     // The identifier could be a seasonId (for full range) or a label (for dynamic)
     const selectedOption = evaluationSingleModelViewSeasonOptions.find(
-      (option) => option.seasonId === seasonIdentifier || option.timeValue === seasonIdentifier
+      (option) => option.forecastPeriodID === seasonIdentifier || option.timeValue === seasonIdentifier
     );
 
     if (selectedOption) {
-      dispatch(updateEvaluationsSingleModelViewSeasonId(selectedOption.seasonId)); // <-- Dispatch seasonId
+      dispatch(updateEvaluationsSingleModelViewSeasonId(selectedOption.forecastPeriodID)); // <-- Dispatch seasonId
       dispatch(updateEvaluationSingleModelViewDateStart(selectedOption.startDate));
       dispatch(updateEvaluationSingleModelViewDateEnd(selectedOption.endDate));
     }
@@ -101,8 +101,8 @@ const SingleModelSettingsPanel: React.FC = () => {
             onChange={(e) => onStateSelectionChange(e.target.value)}
             className='text-white border-[#5d636a] border-2 font-sans bg-mobs-lab-color-filterspane rounded-md px-2 py-4 w-full'>
             {locationData.map((state) => (
-              <option key={state.state} value={state.stateNum}>
-                {state.stateName}
+              <option key={state.locationNameAlt} value={state.locationCode}>
+                {state.locationName}
               </option>
             ))}
           </select>
@@ -167,8 +167,8 @@ const SingleModelSettingsPanel: React.FC = () => {
             className={
               "text-white border-[#5d636a] border-2 flex-wrap bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 overflow-ellipsis"
             }>
-            {evaluationSingleModelViewSeasonOptions.map((option: SeasonOption) => (
-              <option key={option.index} value={option.seasonId}>
+            {evaluationSingleModelViewSeasonOptions.map((option: ForecastPeriodOption) => (
+              <option key={option.index} value={option.forecastPeriodID}>
                 {option.displayString}
               </option>
             ))}

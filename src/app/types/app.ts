@@ -1,14 +1,10 @@
 export interface LoadingStates {
-  groundTruth: boolean;
-  predictions: boolean;
+  targetData: boolean;
+  modelOutput: boolean;
   locations: boolean;
-  nowcastTrends: boolean;
-  thresholds: boolean;
-  historicalGroundTruth: boolean;
-  seasonOptions: boolean;
+  historicalTargetData: boolean;
+  forecastPeriodOptions: boolean;
   evaluationScores: boolean;
   evaluationDetailedCoverage: boolean;
-  mapData: boolean;
+  locationShapeData: boolean;
 }
-
-

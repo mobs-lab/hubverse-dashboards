@@ -7,8 +7,8 @@ interface HistoricalDataLoaderProps {
   children: React.ReactNode;
 }
 
-const HistoricalDataLoader: React.FC<HistoricalDataLoaderProps> = ({ children }) => {
-  const { historicalDataMode } = useAppSelector((state) => state.forecastSettings);
+const HistoricalTargetDataLoader: React.FC<HistoricalDataLoaderProps> = ({ children }) => {
+  const { historicalTargetDataMode: historicalDataMode } = useAppSelector((state) => state.forecastSettings);
   const { isLoading, isLoaded, error, loadData } = useHistoricalGroundTruthData();
 
   useEffect(() => {
@@ -29,4 +29,4 @@ const HistoricalDataLoader: React.FC<HistoricalDataLoaderProps> = ({ children })
   return <>{children}</>;
 };
 
-export default HistoricalDataLoader;
+export default HistoricalTargetDataLoader;

@@ -1,4 +1,4 @@
-import { updateHistoricalDataMode } from "@/store/data-slices/settings/SettingsSliceForecastNowcast";
+import { updateHistoricalDataMode } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { Switch } from "@/styles/material-tailwind-wrapper";
 import React from "react";
@@ -7,7 +7,7 @@ import InfoButton from "../../components/InfoButton";
 
 const ForecastChartHeader: React.FC = () => {
   const dispatch = useAppDispatch();
-  const historicalDataMode = useAppSelector((state) => state.forecastSettings.historicalDataMode);
+  const historicalDataMode = useAppSelector((state) => state.forecastSettings.historicalTargetDataMode);
 
   const handleHistoricalDataModeToggle = () => {
     dispatch(updateHistoricalDataMode(!historicalDataMode));

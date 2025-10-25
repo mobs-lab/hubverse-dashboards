@@ -28,7 +28,7 @@ const SeasonOverviewContent: React.FC = () => {
   const { loadingStates } = useDataContext();
   const { wisChartScaleType, mapeChartScaleType } = useAppSelector((state) => state.evaluationsSeasonOverviewSettings);
 
-  if (loadingStates.groundTruth || loadingStates.predictions) {
+  if (loadingStates.targetData || loadingStates.modelOutput) {
     return (
       <div className='flex items-center justify-center h-full'>
         <p className='text-white'>Loading data...</p>
@@ -121,7 +121,7 @@ const SingleModelContent = () => {
     }
   }, [evaluationsSingleModelViewSeasonId, loadSingleModelData]);
 
-  if (loadingStates.groundTruth || loadingStates.predictions) {
+  if (loadingStates.targetData || loadingStates.modelOutput) {
     return (
       <div className='flex items-center justify-center h-full'>
         <p className='text-white'>Loading data...</p>
@@ -180,7 +180,7 @@ const EvaluationsPage = () => {
 
   // Determine which data-slices is needed for each tab
   const seasonOverviewReady = !loadingStates.evaluationDetailedCoverage && !loadingStates.evaluationScores;
-  const singleModelReady = !loadingStates.groundTruth && !loadingStates.predictions && !loadingStates.evaluationScores;
+  const singleModelReady = !loadingStates.targetData && !loadingStates.modelOutput && !loadingStates.evaluationScores;
 
   const renderContent = () => {
     // Show loading if evaluations data is still being fetched

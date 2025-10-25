@@ -1,26 +1,26 @@
 // File Path: src/app/forecasts/page.tsx
 
-"use client";
+'use client';
 
-import React from "react";
-import { useDataContext } from "@/providers/DataProvider";
-import ForecastChart from "./forecasts-components/ForecastChart";
-import SettingsPanel from "./forecasts-components/SettingsPanel";
-import NowcastStateThermo from "./forecasts-components/NowcastStateThermo";
+import React from 'react';
+import { useDataContext } from '@/providers/DataProvider';
+import ForecastChart from './forecasts-components/ForecastChart';
+import SettingsPanel from './forecasts-components/SettingsPanel';
+/* import NowcastStateThermo from "./forecasts-components/NowcastStateThermo";
 import NowcastGauge from "./forecasts-components/NowcastGauge";
-import NowcastHeader from "./forecasts-components/NowcastHeader";
-import ForecastChartHeader from "./forecasts-components/ForecastChartHeader";
-import HistoricalDataLoader from "./forecasts-components/HistoricalDataLoader";
+import NowcastHeader from "./forecasts-components/NowcastHeader"; */
+import ForecastChartHeader from './forecasts-components/ForecastChartHeader';
+import HistoricalTargetDataLoader from './forecasts-components/HistoricalDataLoader';
 
-import "../css/component_styles/forecast-page.css";
+import '../css/component_styles/forecast-page.css';
 
 const ForecastPage: React.FC = () => {
   const { loadingStates, isFullyLoaded } = useDataContext();
 
   return (
-    <HistoricalDataLoader>
-      <div className='layout-grid-forecasts-page w-full h-full pl-4'>
-        <div className='nowcast-header util-no-sb-length'>
+    <HistoricalTargetDataLoader>
+      <div className="layout-grid-forecasts-page w-full h-full pl-4">
+        {/*<div className='nowcast-header util-no-sb-length'>
           <NowcastHeader />
         </div>
         {!loadingStates.groundTruth && !loadingStates.thresholds && (
@@ -37,32 +37,29 @@ const ForecastPage: React.FC = () => {
           <div className='nowcast-gauge w-full h-full'>
             <NowcastGauge riskLevel='US' />
           </div>
-        )}
+        )}*/}
         {!loadingStates.locations && (
-          <div className='settings-panel w-full h-full overflow-scroll util-no-sb-length'>
+          <div className="settings-panel w-full h-full overflow-scroll util-no-sb-length">
             <SettingsPanel />
           </div>
         )}
-        <div className='horizontal-separator'>
-          <svg width='100%' height='100%'>
-            <line x1='0' y1='50%' x2='100%' y2='50%' stroke='#5d636a' strokeWidth='1' />
-          </svg>
-        </div>
-        {!loadingStates.groundTruth && !loadingStates.predictions && (
+        {!loadingStates.targetData && !loadingStates.modelOutput && (
           <>
-            <div className='chart-header'>
+            <div className="chart-header">
               <ForecastChartHeader />
             </div>
-            <div className='forecast-graph overflow-scroll util-no-sb-length'>
+            <div className="forecast-graph overflow-scroll util-no-sb-length">
               <ForecastChart />
             </div>
           </>
         )}
         {!isFullyLoaded && (
-          <div className='fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-md'>Loading additional data...</div>
+          <div className="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-md">
+            Loading additional data...
+          </div>
         )}
       </div>
-    </HistoricalDataLoader>
+    </HistoricalTargetDataLoader>
   );
 };
 
