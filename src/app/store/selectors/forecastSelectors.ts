@@ -1,431 +1,310 @@
 // src/store/selector/forecastSelectors.ts
 
-import { createSelector } from "@reduxjs/toolkit";
-import { RootState } from "../index";
-import { StateThresholds, TargetDataRoundDataPoint } from "@/types/domains/forecasting";
+import { RootState } from '../index';
 
-// Selector for thresholds - handles dictionary format
-// TODO: Get rid of this after changing the component to use Dictionary instead for faster access, less find() operations
-export const selectThresholds = createSelector([(state: RootState) => state.auxiliaryData], (auxiliaryData) => {
-  const thresholds = auxiliaryData?.thresholds;
-  if (!thresholds) {
-    console.warn("Warning: selectThresholds: No thresholds data available");
-    return [];
-  }
+// ============================================
+// Basic Selectors
+// ============================================
 
-  // Convert dictionary to array format expected by components
-  const thresholdArray: StateThresholds[] = Object.entries(thresholds).map(([location, data]: [string, any]) => ({
-    location,
-    medium: data.medium,
-    high: data.high,
-    veryHigh: data.veryHigh,
-  }));
+export const selectConfig = (state: RootState) => state.config.config;
 
-  return thresholdArray;
-});
+export const selectLocationMapping = (state: RootState) => state.auxiliaryData.locationMapping;
 
-// Selector for a specific state's thresholds
-export const selectStateThresholds = createSelector(
-  [(state: RootState) => state.auxiliaryData, (state: RootState, stateNum: string) => stateNum],
-  (auxiliaryData, stateNum) => {
-    const thresholds = auxiliaryData?.thresholds;
-    if (!thresholds || !thresholds[stateNum]) {
-      console.warn(`Warning: selectStateThresholds: No thresholds for state ${stateNum}`);
-      return null;
-    }
+export const selectForecastPeriodOptions = (state: RootState) =>
+  state.auxiliaryData.forecastPeriodOptions;
 
-    return {
-      location: stateNum,
-      ...thresholds[stateNum],
-    };
-  }
-);
+export const selectTargetData = (state: RootState) => state.coreData.targetData;
 
-// Selector for locations
-export const selectLocationData = createSelector([(state: RootState) => state.auxiliaryData], (auxiliaryData) => {
-  if (!auxiliaryData?.locations) {
-    console.warn("Warning: selectLocationData: No location data available");
-    return [];
-  }
-  return auxiliaryData.locations;
-});
+export const selectModelOutput = (state: RootState) => state.coreData.modelOutput;
 
-// Selector for nowcast trends - simpler direct access
-export const selectNowcastTrends = createSelector([(state: RootState) => state.coreData.mainData?.nowcastTrends], (nowcastTrends) => {
-  if (!nowcastTrends) {
-    console.warn("Warning: selectNowcastTrends: No nowcast trends available");
-    return {};
-  }
-  return nowcastTrends;
-});
+export const selectHistoricalTargetData = (state: RootState) => state.historicalTargetData.data;
 
-export const selectNowcastTrendsForModelAndDate = createSelector(
-  [
-    (state: RootState) => state.coreData.mainData?.nowcastTrends,
-    (state: RootState, modelName: string) => modelName,
-    (state: RootState, modelName: string, date: Date) => date,
-    (state: RootState, modelName: string, date: Date, stateNum: string) => stateNum,
-  ],
-  (nowcastTrends, modelName, date, stateNum) => {
-    if (!nowcastTrends || !nowcastTrends[modelName]) {
-      return null;
-    }
+export const selectForecastSettings = (state: RootState) => state.forecastSettings;
 
-    const dateISO = date.toISOString().split("T")[0];
-    const dateData = nowcastTrends[modelName][dateISO];
-    if (!dateData) {
-      return null;
-    }
+// ============================================
+// Config-Derived Selectors
+// ============================================
 
-    return dateData[stateNum] || null;
+export const selectEvaluationsEnabled = (state: RootState) =>
+  state.config.config?.evaluationsEnabled ?? false;
+
+export const selectModelNames = (state: RootState) =>
+  state.config.config?.models.map((m) => m.modelName) ?? [];
+
+export const selectModelColorMap = (state: RootState) => state.config.config?.modelColorMap ?? {};
+
+export const selectHorizons = (state: RootState) => state.config.config?.horizons ?? [];
+
+export const selectPredictionIntervalOptions = (state: RootState) =>
+  state.config.config?.predictionIntervals ?? [];
+
+export const selectTargets = (state: RootState) => state.config.config?.targets ?? [];
+
+export const selectTimeUnit = (state: RootState) => state.config.config?.timeUnit ?? 7;
+
+// ============================================
+// Location Selectors
+// ============================================
+
+// Get list of location objects for dropdowns/maps
+export const selectLocationList = createSelector(
+  [selectLocationMapping],
+  (locationMapping): Array<{ code: string; name: string; nameAlt?: string }> => {
+    return Object.entries(locationMapping).map(([code, data]) => ({
+      code,
+      name: data.locationName,
+      nameAlt: data.locationNameAlt,
+    }));
   }
 );
 
-// Find ground truth within a date range, by examining across seasons and find potential partitions, then filter
-export const selectGroundTruthInRange = createSelector(
+// Get location name from code
+export const selectLocationName = (locationCode: string) =>
+  createSelector([selectLocationMapping], (locationMapping): string => {
+    return locationMapping[locationCode]?.locationName || locationCode;
+  });
+
+// ============================================
+// Target Data Selectors
+// ============================================
+
+/**
+ * Get target data for a specific forecast period
+ */
+export const selectTargetDataForPeriod = (forecastPeriodId: string) =>
+  createSelector([selectTargetData], (targetData): TargetData | undefined => {
+    return targetData[forecastPeriodId];
+  });
+
+/**
+ * Get target data for a specific location, period, and date range
+ */
+export const selectTargetDataFiltered = createSelector(
   [
-    (state: RootState) => state.coreData.mainData?.groundTruthData,
-    (state: RootState) => state.auxiliaryData.metadata,
-    (state: RootState, startDate: Date, endDate: Date) => ({ startDate, endDate }),
-    (state: RootState, startDate: Date, endDate: Date, stateNum: string) => stateNum,
+    selectTargetData,
+    (state: RootState) => state.forecastSettings.selectedForecastPeriod,
+    (state: RootState) => state.forecastSettings.selectedLocationCode,
+    (state: RootState) => state.forecastSettings.selectedTargetIds,
+    (state: RootState) => state.forecastSettings.timeFilterRangeStart,
+    (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
   ],
-  (groundTruthData, metadata, { startDate, endDate }, stateNum) => {
-    if (!groundTruthData || !metadata?.forecastPeriod) {
-      // Changed check
-      console.warn("Warning: selectGroundTruthInRange: Missing required data");
-      return [];
-    }
+  (targetData, forecastPeriod, locationCode, targetIds, startDate, endDate) => {
+    if (!forecastPeriod) return [];
 
-    // Find which season contains our date range
-    const relevantSeasons = findRelevantSeasons(metadata.forecastPeriod, startDate, endDate);
+    const periodData = targetData[forecastPeriod.forecastPeriodID];
+    if (!periodData || !periodData[locationCode]) return [];
 
-    if (relevantSeasons.length === 0) {
-      console.warn("Warning: selectGroundTruthInRange: No relevant seasons found");
-      return [];
-    }
+    const locationData = periodData[locationCode];
 
-    const groundTruthPoints: TargetDataRoundDataPoint[] = [];
+    // Filter by date range and targets
+    const filtered: Array<{
+      date: string;
+      targetId: string;
+      observation: number;
+    }> = [];
 
-    // For each relevant season, extract ground truth from centralized collection
-    for (const seasonId of relevantSeasons) {
-      const seasonData = groundTruthData[seasonId];
-      if (!seasonData) continue;
-
-      // Iterate through all reference dates in this season
-      Object.entries(seasonData).forEach(([dateISO, statesData]) => {
-        const date = new Date(dateISO);
-
-        // Check if date is within our range
-        if (date >= startDate && date <= endDate) {
-          const stateData = statesData[stateNum];
-          if (stateData) {
-            groundTruthPoints.push({
-              date,
-              locationNum: stateNum,
-              locationName: "", // Would need location data for full name, skip for now
-              observation: stateData.observation,
-              weeklyRate: stateData.weeklyRate,
+    Object.entries(locationData).forEach(([dateStr, dateData]) => {
+      const date = new Date(dateStr);
+      if (date >= startDate && date <= endDate) {
+        Object.entries(dateData).forEach(([targetId, targetData]) => {
+          if (targetIds.includes(targetId)) {
+            filtered.push({
+              date: dateStr,
+              targetId,
+              observation: targetData.observation,
             });
           }
-        }
-      });
-    }
-
-    // Sort by date and remove duplicates
-    const uniquePoints = Array.from(new Map(groundTruthPoints.map((p) => [p.date.toISOString(), p])).values()).sort(
-      (a, b) => a.date.getTime() - b.date.getTime()
-    );
-
-    return uniquePoints;
-  }
-);
-
-// Extended ground truth selector that includes prediction horizons for tooltip display
-export const selectExtendedGroundTruthInRange = createSelector(
-  [
-    (state: RootState) => state.coreData.mainData?.groundTruthData,
-    (state: RootState) => state.auxiliaryData.metadata,
-    (state: RootState, startDate: Date, endDate: Date, horizon: number) => ({ startDate, endDate, horizon }),
-    (state: RootState, startDate: Date, endDate: Date, horizon: number, stateNum: string) => stateNum,
-  ],
-  (groundTruthData, metadata, { startDate, endDate, horizon }, stateNum) => {
-    if (!groundTruthData || !metadata) {
-      console.warn("Warning: selectExtendedGroundTruthInRange: Missing required data");
-      return [];
-    }
-
-    // Calculate extended end date based on horizon
-    const extendedEndDate = new Date(endDate);
-    if (horizon > 0) {
-      // Add horizon weeks to the end date
-      extendedEndDate.setUTCDate(extendedEndDate.getUTCDate() + horizon * 7);
-    }
-
-    // Find which season contains our extended date range
-    const relevantSeasons = findRelevantSeasons(metadata.forecastPeriod || [], startDate, extendedEndDate);
-
-    if (relevantSeasons.length === 0) {
-      console.warn("Warning: selectExtendedGroundTruthInRange: No relevant seasons found");
-      return [];
-    }
-
-    const groundTruthPoints: TargetDataRoundDataPoint[] = [];
-
-    // For each relevant season, extract ground truth from centralized collection
-    for (const seasonId of relevantSeasons) {
-      const seasonData = groundTruthData[seasonId];
-      if (!seasonData) continue;
-
-      // Iterate through all reference dates in this season
-      Object.entries(seasonData).forEach(([dateISO, statesData]) => {
-        const date = new Date(dateISO);
-
-        // Check if date is within our extended range
-        if (date >= startDate && date <= extendedEndDate) {
-          const stateData = (statesData as any)[stateNum];
-          if (stateData) {
-            groundTruthPoints.push({
-              date,
-              locationNum: stateNum,
-              locationName: "", // Would need location data for full name, skip for now
-              observation: stateData.admissions,
-              weeklyRate: stateData.weeklyRate,
-            });
-          }
-        }
-      });
-    }
-
-    // Sort by date and remove duplicates
-    const uniquePoints = Array.from(new Map(groundTruthPoints.map((p) => [p.date.toISOString(), p])).values()).sort(
-      (a, b) => a.date.getTime() - b.date.getTime()
-    );
-
-    return uniquePoints;
-  }
-);
-
-// Selector for historical ground truth data for a specific week
-export const selectHistoricalDataForWeek = createSelector(
-  [
-    (state: RootState) => state.historicalGroundTruthData?.historicalDataMap,
-    (state: RootState, userSelectedWeek: Date) => userSelectedWeek,
-    (state: RootState, userSelectedWeek: Date, stateNum: string) => stateNum,
-  ],
-  (historicalDataMap, userSelectedWeek, stateNum) => {
-    if (!historicalDataMap) {
-      console.warn("Warning: selectHistoricalDataForWeek: No historical data available");
-      return [];
-    }
-
-    // Find the snapshot date that is one week before the user selected week
-    const targetSnapshotDate = new Date(userSelectedWeek);
-    targetSnapshotDate.setUTCDate(targetSnapshotDate.getUTCDate() - 7);
-    const targetSnapshotISO = targetSnapshotDate.toISOString().split("T")[0];
-
-    const snapshotData = historicalDataMap[targetSnapshotISO];
-    if (!snapshotData) {
-      // console.debug(`DEBUG: No historical snapshot found for ${targetSnapshotISO}`);
-      return [];
-    }
-
-    // Convert the snapshot data into the SurveillanceSingleWeekDataPoint array format
-    const historicalPoints: TargetDataRoundDataPoint[] = [];
-    Object.entries(snapshotData).forEach(([dateISO, statesData]) => {
-      const stateData = (statesData as any)[stateNum];
-      if (stateData) {
-        historicalPoints.push({
-          date: new Date(dateISO),
-          locationNum: stateNum,
-          locationName: "", // location data needed for full name, skip for now
-          observation: stateData.admissions,
-          weeklyRate: stateData.weeklyRate,
         });
       }
     });
 
-    return historicalPoints.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return filtered.sort((a, b) => a.date.localeCompare(b.date));
   }
 );
 
-/* For Weekly Hospitalization Chart, select multiple model's prediction data matching date-models-location. Filtering on Horizons & handling of values done in frontend component. */
-/* NOTE: This changes how much prediction data is offloaded to Weekly Hospitalization Forecast Chart.
-    Previously, all prediction data associated with the date range are selected to be ready to be selected;
-    This new one finds matching ones only when `referenceDate` change, so only triggers when user selects some dates. */
-export const selectPredictionsForMultipleModels = createSelector(
+// ============================================
+// Model Output Selectors
+// ============================================
+
+/**
+ * Get model output for selected settings
+ */
+export const selectModelOutputFiltered = createSelector(
   [
-    (state: RootState) => state.coreData.mainData?.predictionData,
-    (state: RootState) => state.auxiliaryData.metadata,
-    (state: RootState, modelNames: string[], stateNum: string, referenceDate: Date, horizon: number) => ({
-      modelNames,
-      stateNum,
-      referenceDate,
-      horizon,
-    }),
+    selectModelOutput,
+    (state: RootState) => state.forecastSettings.selectedForecastPeriod,
+    (state: RootState) => state.forecastSettings.selectedLocationCode,
+    (state: RootState) => state.forecastSettings.selectedModels,
+    (state: RootState) => state.forecastSettings.selectedTargetIds,
+    (state: RootState) => state.forecastSettings.selectedHorizons,
+    (state: RootState) => state.forecastSettings.timeFilterRangeStart,
+    (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
   ],
-  (predictionData, metadata, { modelNames, stateNum, referenceDate, horizon }) => {
-    console.debug("DEBUG: selectPredictionsForMultipleModels: referenceDate", referenceDate);
-    if (!predictionData || !metadata) {
-      return {};
-    }
+  (
+    modelOutput,
+    forecastPeriod,
+    locationCode,
+    selectedModels,
+    selectedTargets,
+    selectedHorizons,
+    startDate,
+    endDate
+  ) => {
+    if (!forecastPeriod) return {};
 
-    const dateISO = referenceDate.toISOString().split("T")[0];
-    const seasonId = findSeasonForDate(metadata.forecastPeriod || [], referenceDate);
-    if (!seasonId) return {};
-    console.debug("selectPredictionsForMultipleModels: Using dateISO key", dateISO, "in season", seasonId);
+    const periodData = modelOutput[forecastPeriod.forecastPeriodID];
+    if (!periodData) return {};
 
-    const predictions: {} = {};
+    const filtered: any = {};
 
-    modelNames.forEach((modelName) => {
-      console.debug("DEBUG: selectPredictionsForMultipleModels: Model name", modelName);
-      const modelData = predictionData[seasonId]?.[modelName];
-      if (!modelData) return;
+    selectedModels.forEach((modelName) => {
+      if (!periodData[modelName]) return;
 
-      for (const partitionName of ["full-forecast", "forecast-tail"]) {
-        const partition = modelData.partitions[partitionName as keyof typeof modelData.partitions];
-        if (!partition) continue;
-        if (!partition[dateISO]) {
-          if (partitionName === "full-forecast") {
-            // Log only for the main partition to avoid noise
-            console.debug(
-              `selectPredictionsForMultipleModels: Key ${dateISO} not found in partition ${partitionName} for model ${modelName}. Available keys (sample):`,
-              Object.keys(partition).slice(0, 20)
-            );
-          }
-          continue;
-        }
+      const modelData = periodData[modelName];
+      if (!modelData[locationCode]) return;
 
-        const stateData = partition[dateISO][stateNum];
-        if (stateData?.predictions) {
-          // Container to put all horizon-matching final single-prediction-points, keyed by targetDateISO
-          const filteredPredictions: { [targetDateISO: string]: any } = {};
-          Object.entries(stateData.predictions).forEach(([targetDateISO, pred]) => {
-            if (pred.horizon <= horizon) {
-              filteredPredictions[targetDateISO] = pred;
+      const locationData = modelData[locationCode];
+
+      filtered[modelName] = {};
+
+      Object.entries(locationData).forEach(([refDate, refDateData]) => {
+        const date = new Date(refDate);
+        if (date >= startDate && date <= endDate) {
+          filtered[modelName][refDate] = {};
+
+          selectedHorizons.forEach((horizon) => {
+            if (refDateData[horizon]) {
+              filtered[modelName][refDate][horizon] = {};
+
+              selectedTargets.forEach((targetId) => {
+                if (refDateData[horizon][targetId]) {
+                  filtered[modelName][refDate][horizon][targetId] = refDateData[horizon][targetId];
+                }
+              });
             }
           });
-          if (Object.keys(filteredPredictions).length > 0) {
-            (predictions as any)[modelName] = filteredPredictions;
-          }
-          break;
         }
-      }
+      });
     });
-    return predictions;
+
+    return filtered;
   }
 );
 
-// Selector for predictions from a specific model. Used mainly by NowcastStateThermo for calculating risk level value for a given date-location-nowcastModel. In the frontend it then narrows to horizon-0 parts.
-export const selectPredictionsForModelAndWeek = createSelector(
-  [
-    (state: RootState) => state.coreData.mainData?.predictionData,
-    (state: RootState) => state.auxiliaryData.metadata,
-    (state: RootState, modelName: string) => modelName,
-    (state: RootState, modelName: string, stateNum: string) => stateNum,
-    (state: RootState, modelName: string, stateNum: string, referenceDate: Date) => referenceDate,
-  ],
-  (timeSeriesData, metadata, modelName, stateNum, referenceDate) => {
-    if (!timeSeriesData || !metadata) {
-      console.debug("Warning: selectPredictionsForModelAndWeek: Missing data");
-      return null;
+/**
+ * Get predictions for a specific reference date (for chart interaction)
+ */
+export const selectPredictionsForReferenceDate = (referenceDate: Date) =>
+  createSelector(
+    [
+      selectModelOutput,
+      (state: RootState) => state.forecastSettings.selectedForecastPeriod,
+      (state: RootState) => state.forecastSettings.selectedLocationCode,
+      (state: RootState) => state.forecastSettings.selectedModels,
+      (state: RootState) => state.forecastSettings.selectedTargetIds,
+      selectHorizons,
+      selectTimeUnit,
+    ],
+    (modelOutput, forecastPeriod, locationCode, models, targets, allHorizons, timeUnit) => {
+      if (!forecastPeriod) return {};
+
+      const periodData = modelOutput[forecastPeriod.forecastPeriodID];
+      if (!periodData) return {};
+
+      const refDateStr = referenceDate.toISOString().split('T')[0];
+      const result: any = {};
+
+      models.forEach((modelName) => {
+        const modelData = periodData[modelName]?.[locationCode]?.[refDateStr];
+        if (!modelData) return;
+
+        result[modelName] = {};
+
+        allHorizons.forEach((horizon) => {
+          if (modelData[horizon]) {
+            result[modelName][horizon] = {};
+
+            targets.forEach((targetId) => {
+              if (modelData[horizon][targetId]) {
+                // Calculate target date from reference date + horizon
+                const targetDate = new Date(referenceDate);
+                targetDate.setDate(targetDate.getDate() + horizon * timeUnit);
+
+                result[modelName][horizon][targetId] = {
+                  ...modelData[horizon][targetId],
+                  targetDate: targetDate.toISOString().split('T')[0],
+                };
+              }
+            });
+          }
+        });
+      });
+
+      return result;
     }
+  );
 
-    const dateISO = referenceDate.toISOString().split("T")[0];
+// ============================================
+// Historical Target Data Selectors
+// ============================================
 
-    // Find relevant season
-    const seasonId = findSeasonForDate(metadata.forecastPeriod || [], referenceDate);
-    if (!seasonId) {
-      console.warn("Warning: selectPredictionsForModelAndWeek: No season found for date", dateISO);
-      return null;
-    }
-
-    const modelData = timeSeriesData[seasonId]?.[modelName];
-    if (!modelData) {
-      console.warn("Warning: selectPredictionsForModelAndWeek: No model data", { seasonId, modelName });
-      return null;
-    }
-
-    // Check each partition for this date
-    for (const partitionName of ["full-forecast", "forecast-tail"]) {
-      const partition = modelData.partitions[partitionName as keyof typeof modelData.partitions];
-      if (!partition || !partition[dateISO]) continue;
-
-      const stateData = partition[dateISO][stateNum];
-      if (stateData?.predictions) {
-        /* console.debug("DEBUG: selectPredictionsForModelAndWeek: Found predictions", {
-          modelName,
-          dateISO,
-          stateNum,
-          predictionCount: Object.keys(stateData.predictions).length,
-        }); */
-        return stateData.predictions;
-      }
-    }
-
-    console.warn("Warning: selectPredictionsForModelAndWeek: No predictions found");
-    return null;
+/**
+ * Get available as_of dates for historical data
+ */
+export const selectHistoricalAsOfDates = createSelector(
+  [selectHistoricalTargetData],
+  (historicalData): string[] => {
+    return Object.keys(historicalData).sort();
   }
 );
 
-// Helper functions
-function findRelevantSeasons(fullRangeSeasons: any[], startDate: Date, endDate: Date): string[] {
-  const relevantSeasons: string[] = [];
+/**
+ * Get historical target data for a specific as_of date
+ */
+export const selectHistoricalDataForAsOfDate = (asOfDate: string) =>
+  createSelector(
+    [
+      selectHistoricalTargetData,
+      (state: RootState) => state.forecastSettings.selectedLocationCode,
+      (state: RootState) => state.forecastSettings.selectedTargetIds,
+    ],
+    (historicalData, locationCode, targetIds) => {
+      const asOfData = historicalData[asOfDate];
+      if (!asOfData || !asOfData[locationCode]) return [];
 
-  fullRangeSeasons.forEach((season: any) => {
-    const seasonStart = new Date(season.startDate);
-    const seasonEnd = new Date(season.endDate);
+      const locationData = asOfData[locationCode];
+      const result: Array<{
+        date: string;
+        targetId: string;
+        observation: number;
+      }> = [];
 
-    // Check if date ranges overlap
-    if (!(endDate < seasonStart || startDate > seasonEnd)) {
-      if (season.seasonId) {
-        relevantSeasons.push(season.seasonId);
-      } else {
-        console.warn("Season object is missing a seasonId:", season);
-      }
+      Object.entries(locationData).forEach(([dateStr, dateData]) => {
+        Object.entries(dateData).forEach(([targetId, targetData]) => {
+          if (targetIds.includes(targetId)) {
+            result.push({
+              date: dateStr,
+              targetId,
+              observation: targetData.observation,
+            });
+          }
+        });
+      });
+
+      return result.sort((a, b) => a.date.localeCompare(b.date));
     }
-  });
+  );
 
-  return relevantSeasons;
-}
+// ============================================
+// Date Constraint Selectors
+// ============================================
 
-function findSeasonForDate(fullRangeSeasons: any[], date: Date): string | null {
-  for (const season of fullRangeSeasons) {
-    const seasonStart = new Date(season.startDate);
-    const seasonEnd = new Date(season.endDate);
-
-    if (date >= seasonStart && date <= seasonEnd) {
-      return season.seasonId || null;
-    }
-  }
-
-  return null;
-}
-
-// Selector for date constraints from metadata
-export const selectDateConstraints = createSelector([(state: RootState) => state.auxiliaryData.metadata], (metadata) => {
-  if (!metadata?.forecastPeriod || metadata.forecastPeriod.length === 0) {
-    // Fallback to hardcoded dates if no metadata
-    return {
-      earliestDate: new Date("2022-08-23T12:00:00.000Z"),
-      latestDate: new Date("2024-05-24T12:00:00.000Z"),
-    };
-  }
-
-  // Find overall earliest and latest dates across all full range seasons
-  let earliestDate = new Date(metadata.forecastPeriod[0].startDate);
-  let latestDate = new Date(metadata.forecastPeriod[0].endDate);
-
-  metadata.forecastPeriod.forEach((season: any) => {
-    const seasonStart = new Date(season.startDate);
-    const seasonEnd = new Date(season.endDate);
-
-    if (seasonStart < earliestDate) {
-      earliestDate = seasonStart;
-    }
-    if (seasonEnd > latestDate) {
-      latestDate = seasonEnd;
-    }
-  });
-
-  return { earliestDate, latestDate };
+/**
+ * Get the earliest and latest dates available in the data
+ */
+export const selectDateConstraints = createSelector([selectConfig], (config) => {
+  return {
+    earliestDate: config?.earliestDate ? new Date(config.earliestDate) : new Date(),
+    latestDate: config?.latestDate ? new Date(config.latestDate) : new Date(),
+  };
 });

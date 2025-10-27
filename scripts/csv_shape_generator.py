@@ -554,7 +554,7 @@ class CSVShapeGenerator:
         print(f"✓ Targets: {len(self.config.targets)} modelling task(s)")
         for target in self.config.targets:
             print(
-                f"    - {target.target_name} ({target.task_display_string}) → {target.target_key_name_for_task}"
+                f"    - ({target.task_display_string}) → {target.target_key_name_for_task}"
             )
         print(f"✓ Models: {len(self.config.models)} model(s) configured")
         for model in self.config.models:
@@ -578,7 +578,7 @@ class CSVShapeGenerator:
             print(
                 "    Locations will be auto-detected from your data files"
             )
-        
+
         print(
             f"✓ Single Target Mode: {'Yes' if self.config.is_single_target else 'No'}"
         )

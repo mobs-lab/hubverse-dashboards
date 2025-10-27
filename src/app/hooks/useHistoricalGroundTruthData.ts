@@ -2,10 +2,10 @@
 import { useCallback, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useDataContext } from "@/providers/DataProvider";
-import { 
-  setHistoricalGroundTruthJsonData, 
-  clearHistoricalGroundTruthData 
-} from "@/store/data-slices/domains/historicalGroundTruthDataSlice";
+import {
+  setHistoricalGroundTruthJsonData,
+  clearHistoricalGroundTruthData
+} from "@/store/data-slices/domains/historicalTargetDataSlice";
 import { fetchHistoricalGroundTruthData } from "@/utils/dataLoader";
 
 interface UseHistoricalGroundTruthDataReturn {
@@ -18,8 +18,8 @@ interface UseHistoricalGroundTruthDataReturn {
 export const useHistoricalGroundTruthData = (): UseHistoricalGroundTruthDataReturn => {
   const dispatch = useAppDispatch();
   const { updateLoadingState } = useDataContext();
-  const { isLoaded } = useAppSelector((state) => state.historicalGroundTruthData);
-  
+  const { isLoaded } = useAppSelector((state) => state.historicalTargetData);
+
   const isLoadingRef = useRef(false);
   const errorRef = useRef<string | null>(null);
 
@@ -36,7 +36,7 @@ export const useHistoricalGroundTruthData = (): UseHistoricalGroundTruthDataRetu
     try {
       console.log("Loading historical ground truth data...");
       const historicalData = await fetchHistoricalGroundTruthData();
-      
+
       dispatch(setHistoricalGroundTruthJsonData({
         historicalDataMap: historicalData,
       }));

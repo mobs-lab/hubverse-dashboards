@@ -35,14 +35,14 @@ const ForecastChart: React.FC = () => {
 
   // Get all settings variables from Redux
   const {
-    userSelectedWeek,
+    userSelectedDate: userSelectedWeek,
     selectedLocationCode: USStateNum,
     selectedModels: forecastModel,
     selectedHorizon: numOfWeeksAhead,
     timeFilterRangeStart: dateStart,
     timeFilterRangeEnd: dateEnd,
     yAxisScale,
-    selectedPredictionInterval: confidenceInterval,
+    selectedPredictionIntervals: confidenceInterval,
     historicalTargetDataMode: historicalDataMode,
   } = useAppSelector((state) => state.forecastSettings);
 

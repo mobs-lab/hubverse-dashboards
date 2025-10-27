@@ -76,7 +76,7 @@
 # -------
 # Below, you can specify options related to Spatial Data:
 # 1) Whether you want to disable the map to display in Settings Panels, or Evaluation Overview Location Aggregate Hotmap. If True, only dropdown list containing location will be provided and displayed.
-# 2) If option 1 is on, then the relative path to the shape file (must be in topojson or geojson format). It must be inside "/auxiliary-data" folder. Ignored when option 1 is 
+# 2) If option 1 is on, then the relative path to the shape file (must be in topojson or geojson format). It must be inside "/auxiliary-data" folder. Ignored when option 1 is
 # 3) The relative path to the location mapping file (must be csv format).
 - disable_map_in_dashboard: False   # False by default.
 - custom_shape_file_name: null      # When above is False you provide "null", will default to using `states-10m.json` inside `/public` directory. All unavailable locations will be disabled from the shape.

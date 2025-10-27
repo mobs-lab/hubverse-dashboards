@@ -35,7 +35,12 @@ class NpEncoder(json.JSONEncoder):
 
 
 class DataProcessor:
-    def __init__(self, config: DashboardConfig, dev_mode: bool = False, skip_evaluations: bool = False):
+    def __init__(
+        self,
+        config: DashboardConfig,
+        dev_mode: bool = False,
+        skip_evaluations: bool = False,
+    ):
         self.config = config
         self.project_root = Path(__file__).parent.parent
         self.dev_mode = dev_mode
@@ -97,12 +102,12 @@ class DataProcessor:
         locations = self._detect_locations(target_data_df, model_output_df)
         self.processing_stats["locations_detected"] = len(locations)
 
-        # 4: Process ground truth data by forecast periods
-        ground_truth_by_period = self._process_ground_truth_by_forecast_periods(fixed_target_data_df, model_output_df)
+        # 4: Process target data by forecast periods
+        target_data_by_period = self._process_target_data_by_forecast_periods(fixed_target_data_df, model_output_df)
 
-        # 5: Process predictions data by forecast periods
-        predictions_by_period = self._process_predictions_by_periods(model_output_df, fixed_target_data_df)
-        self.processing_stats["forecast_periods"] = len(predictions_by_period)
+        # 5: Process model output data by forecast periods
+        model_output_by_period = self._process_model_output_by_periods(model_output_df, fixed_target_data_df)
+        self.processing_stats["forecast_periods"] = len(model_output_by_period)
 
         # 6: Calculate evaluations (use unpivoted data for evaluations)
         if not self.skip_evaluations:
@@ -116,14 +121,14 @@ class DataProcessor:
 
         # 8: Write output files
         self._write_output_files(
-            ground_truth_by_period,
-            predictions_by_period,
+            target_data_by_period,
+            model_output_by_period,
             metadata,
             evaluations_by_period,
         )
 
         # 8: Print summary
-        self._print_processing_summary(target_data_df, model_output_df, metadata)
+        # self._print_processing_summary(target_data_df, model_output_df, metadata)
 
         logger.info("Data processing completed successfully.")
         return True  # Indicate success
@@ -555,72 +560,171 @@ class DataProcessor:
 
     def _generate_metadata(
         self,
-        locations: list,
+        locations_info: list,
         model_output_df: pd.DataFrame,
         target_data_df: pd.DataFrame,
     ) -> dict:
         """Generates metadata for the frontend."""
         logger.info("Generating metadata...")
 
-        # Get latest dates for special period calculations
-        latest_model_ref_date = model_output_df["reference_date"].max()
-        latest_target_date = target_data_df["date"].max()
+        # Write out location data information
+        # Get unique locations
+        locations_info = sorted(target_data_df["location"].unique().tolist())
 
-        full_range_seasons_info = []
-        for period in self.config.forecast_periods:
-            full_range_seasons_info.append(
+        # Get the date range
+        all_dates = pd.concat([target_data_df["date"], model_output_df["target_end_date"]]).dropna()
+        earliest_date = all_dates.min()
+        latest_date = all_dates.max()
+
+        # Get the latest reference date across all models, for default selection
+        # Since all the models are toggled on by default, visualization guaranteed has prediction line thus
+        latest_model_ref_date = model_output_df["reference_date"].max()
+
+        # Build forecast period info
+        forecast_periods_info = []
+        for idx, period in enumerate(self.config.forecast_periods):
+            forecast_periods_info.append(
                 {
-                    "seasonId": period.period_id,
+                    "forecastPeriodId": period.period_id,
                     "displayString": period.display_string,
+                    "timeValue": f"{period.start_date.date()}/{period.end_date.date()}",
                     "startDate": period.start_date.isoformat(),
                     "endDate": period.end_date.isoformat(),
+                    "isDefaultSelected": getattr(period, "is_default_selected", False),
                 }
             )
 
-        dynamic_periods_info = []
+        # Dynamic/special forecast periods
         for period in self.config.dynamic_periods:
-            anchor_config = period.time_anchor
-            if not anchor_config:
-                continue
+            period_meta = {
+                "forecastPeriodId": period.period_id,
+                "displayString": period.display_string,
+                "timeValue": f"{period.start_date.date()}/{period.end_date.date()}",
+                "startDate": period.start_date.isoformat(),
+                "endDate": period.end_date.isoformat(),
+                "isDefaultSelected": False,
+                "isDynamic": True,
+                "isSpecial": True,
+            }
+            forecast_periods_info.append(period_meta)
 
-            anchor_mode = anchor_config.get("anchor_mode")
-            range_calc = anchor_config.get("range_calculation")
-            time_unit = self.config.time_unit
+        # Build targets info
+        targets_info = []
+        for target in self.config.targets:
+            targets_info.append(
+                {
+                    "targetId": target.target_key,
+                    "displayString": target.task_display_string,
+                    "forecastPeriods": target.forecast_periods,
+                }
+            )
 
-            # Different date to serve as base of calculation: "latestModelOutputRefDate" or "latestTargetDataDate"
-            anchor_date = latest_model_ref_date if anchor_mode == "model-output" else latest_target_date
+        prediction_intervals_info = []
+        for interval in self.config.prediction_intervals:
+            prediction_intervals_info.append(
+                {
+                    "level": interval.level,
+                    "quantiles": interval.output_type_ids,
+                }
+            )
 
-            if pd.notna(anchor_date):
-                # Calculation based on user's config
-                end_date = anchor_date
-                start_date = end_date + pd.Timedelta(days=range_calc * time_unit)
+        model_configs = []
+        model_colors = {}
+        for model in self.config.models:
+            model_configs.append({"modelName": model.model_name, "color": model.color_hex})
+            model_colors[model.model_name] = model.color_hex
 
-                dynamic_periods_info.append(
-                    {
-                        "label": period.period_id,
-                        "displayString": period.display_string,
-                        "isDynamic": True,
-                        "startDate": start_date.isoformat(),
-                        "endDate": end_date.isoformat(),
-                    }
-                )
-
+        # NOTE: Metadata design here
         metadata = {
-            "locations": locations,
-            "fullRangeSeasons": full_range_seasons_info,
-            "dynamicTimePeriod": dynamic_periods_info,
-            "modelNames": [model.model_name for model in self.config.models],
-            "defaultSelectedDate": latest_model_ref_date.isoformat() if pd.notna(latest_model_ref_date) else None,
-            "evaluationsEnabled": not self.skip_evaluations,  # Flag for frontend to enable/disable Evaluations page
+            # === FEATURE FLAGS FOR FRONTEND ===
+            "features": {
+                "evaluationsEnabled": not self.skip_evaluations,
+                "historicalTargetDataEnabled": self.historical_target_data is not None,
+            },
+            # === SPATIAL CONFIGURATION ===
+            "spatial": {
+                "isSingleLocation": self.config.is_single_location,
+                "singleLocationCode": self.config.single_location_mapping if self.config.is_single_location else None,
+                "disableMapInDashboard": self.config.spatial_config.disable_map,
+                "customShapeFileName": self.config.spatial_config.custom_shape_file_name,
+                "locationCodeHeader": self.config.spatial_config.location_code_col_header,
+                "locationNameHeader": self.config.spatial_config.location_name_col_header,
+            },
+            # === TEMPORAL CONFIGURATION ===
+            "temporal": {
+                "timeUnit": self.config.time_unit,
+                "horizons": self.config.horizons,
+                "earliestDate": earliest_date.isoformat() if pd.notna(earliest_date) else None,
+                "latestDate": latest_date.isoformat() if pd.notna(latest_date) else None,
+                "defaultSelectedDate": latest_model_ref_date.isoformat() if pd.notna(latest_model_ref_date) else None,
+            },
+            # === FORECAST PERIODS ===
+            "forecastPeriods": forecast_periods_info,
+            # === MODELS ===
+            "models": {
+                "list": model_configs,
+                "names": [m.model_name for m in self.config.models],
+                "colors": model_colors,
+                "baselineModel": self.config.baseline_model_for_relative_wis if not self.skip_evaluations else None,
+            },
+            # === TARGETS ===
+            "targets": {
+                "list": targets_info,
+                "isSingleTarget": self.config.is_single_target,
+                "defaultTargetId": targets_info[0]["targetId"] if targets_info else None,
+            },
+            # === PREDICTION INTERVALS ===
+            "predictionIntervals": {
+                "available": prediction_intervals_info,
+                "defaults": ["90"],  # Could make this configurable in the future
+            },
+            # === DATA FILES MANIFEST ===
+            "dataManifest": {
+                "forecastPeriods": [p["forecastPeriodId"] for p in forecast_periods_info],
+                "hasHistoricalData": self.historical_target_data is not None,
+                "hasEvaluations": not self.skip_evaluations,
+            },
+            # === COLUMN MAPPINGS (for debugging/reference) ===
+            "columnMappings": {
+                "targetData": {
+                    "date": self.config.column_mapping.date_col,
+                    "observation": self.config.column_mapping.observation_col,
+                    "location": self.config.column_mapping.location_col,
+                    "locationName": self.config.column_mapping.location_name_col,
+                    "target": self.config.column_mapping.target_col,
+                    "asOf": self.config.column_mapping.as_of_col,
+                },
+                "modelOutput": {
+                    "referenceDate": self.config.column_mapping.reference_date_col,
+                    "targetEndDate": self.config.column_mapping.target_end_date_col,
+                    "target": self.config.column_mapping.model_target_col,
+                    "horizon": self.config.column_mapping.horizon_col,
+                    "location": self.config.column_mapping.location_col,
+                    "outputType": self.config.column_mapping.output_type_col,
+                    "outputTypeId": self.config.column_mapping.output_type_id_col,
+                    "value": self.config.column_mapping.value_col,
+                },
+            },
+            # === METADATA INFO ===
+            "_meta": {
+                "generatedAt": pd.Timestamp.now().isoformat(),
+                "dashboardVersion": "2.0.0-generalized",
+                "configVersion": "1.0.0",
+                "locationsDetected": len(locations_info),
+                "dataProcessor": {
+                    "skipEvaluations": self.skip_evaluations,
+                    "devMode": self.dev_mode,
+                },
+            },
         }
 
         logger.info("Metadata generated.")
         # Only produce log for now for metadata.
-        logger.info(f"Default selected date for frontend: {metadata['defaultSelectedDate']}")
-        logger.info(f"Evaluations enabled: {metadata['evaluationsEnabled']}")
+        logger.info(f"Default selected date for frontend: {metadata['temporal']['defaultSelectedDate']}")
+        logger.info(f"Evaluations enabled: {metadata['features']['evaluationsEnabled']}")
         return metadata
 
-    def _process_ground_truth_by_forecast_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
+    def _process_target_data_by_forecast_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
         Structure ground truth (target) data by forecast periods.
         Returns: Map<period_id, Map<date, Map<location, data>>>
@@ -673,13 +777,13 @@ class DataProcessor:
         logger.info(f"Processed ground truth for {len(ground_truth_by_period)} periods.")
         return ground_truth_by_period
 
-    def _process_predictions_by_periods(self, model_output_df: pd.DataFrame, target_data_df: pd.DataFrame) -> dict:
+    def _process_model_output_by_periods(self, model_output_df: pd.DataFrame, target_data_df: pd.DataFrame) -> dict:
         """
-        Structure model predictions by forecast periods.
+        Structure model predictions output by forecast periods.
         Returns: Map<period_id, Map<model, Map<reference_date, Map<location, predictions>>>>
         """
         logger.info("Processing predictions data by forecast periods...")
-        predictions_by_period = {}
+        model_output_by_period = {}
         all_periods = self.config.forecast_periods + self.config.dynamic_periods
 
         for period in all_periods:
@@ -745,10 +849,10 @@ class DataProcessor:
 
                 period_dict[model_name] = model_dict
 
-            predictions_by_period[period.period_id] = period_dict
+            model_output_by_period[period.period_id] = period_dict
 
-        logger.info(f"Processed predictions for {len(predictions_by_period)} periods.")
-        return predictions_by_period
+        logger.info(f"Processed predictions for {len(model_output_by_period)} periods.")
+        return model_output_by_period
 
     def _process_evaluations_by_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
@@ -811,8 +915,8 @@ class DataProcessor:
 
     def _write_output_files(
         self,
-        ground_truth_by_period: dict,
-        predictions_by_period: dict,
+        target_data_by_period: dict,
+        model_output_by_period: dict,
         metadata: dict,
         evaluations_by_period: dict = None,
     ):
@@ -827,36 +931,24 @@ class DataProcessor:
         dynamic_dir = self.output_base_path / "dynamic-time-periods"
         dynamic_dir.mkdir(exist_ok=True, parents=True)
 
-        historical_dir = self.output_base_path / "historical-ground-truth-data"
+        historical_dir = self.output_base_path / "historical-target-data"
         historical_dir.mkdir(exist_ok=True, parents=True)
 
         # Write auxiliary data
         logger.info("Writing auxiliary data files...")
 
-        # Write locations data
-        locations_file = auxiliary_dir / "locationsData.json"
-        with open(locations_file, "w") as f:
-            json.dump(metadata["locations"], f, cls=NpEncoder, separators=(",", ":"))
-        self._track_file_written(locations_file)
-
-        # Write season metadata
-        season_metadata = {
-            "fullRangeSeasons": metadata["fullRangeSeasons"],
-            "dynamicTimePeriod": metadata["dynamicTimePeriod"],
-            "modelNames": metadata["modelNames"],
-            "defaultSelectedDate": metadata["defaultSelectedDate"],
-        }
-        metadata_file = auxiliary_dir / "seasonMetadata.json"
+        # Write metadata data into one file
+        metadata_file = auxiliary_dir / "metadata.json"
         with open(metadata_file, "w") as f:
-            json.dump(season_metadata, f, cls=NpEncoder, separators=(",", ":"))
+            json.dump(metadata, f, cls=NpEncoder, separators=(",", ":"))
         self._track_file_written(metadata_file)
 
-        logger.info(f"  ✓ Written auxiliary data: locations ({len(metadata['locations'])} entries), metadata")
+        logger.info("  ✓ Written auxiliary data: metadata")
 
         # Write historical ground truth data if available
         if self.historical_target_data:
             logger.info("Writing historical ground truth data...")
-            historical_file = historical_dir / "historical-ground-truth-data.json"
+            historical_file = historical_dir / "historical-target-data.json"
             with open(historical_file, "w") as f:
                 json.dump(self.historical_target_data, f, cls=NpEncoder, separators=(",", ":"))
             self._track_file_written(historical_file)
@@ -878,11 +970,11 @@ class DataProcessor:
             logger.info(f"Writing data for period: {period_id}")
 
             # Write ground truth data
-            if period_id in ground_truth_by_period:
-                gt_file = period_dir / "groundTruthData.json"
+            if period_id in target_data_by_period:
+                gt_file = period_dir / "targetData.json"
                 with open(gt_file, "w") as f:
                     json.dump(
-                        ground_truth_by_period[period_id],
+                        target_data_by_period[period_id],
                         f,
                         cls=NpEncoder,
                         separators=(",", ":"),
@@ -890,11 +982,11 @@ class DataProcessor:
                 self._track_file_written(gt_file)
 
             # Write predictions data
-            if period_id in predictions_by_period:
-                pred_file = period_dir / "predictionsData.json"
+            if period_id in model_output_by_period:
+                pred_file = period_dir / "modelOutputData.json"
                 with open(pred_file, "w") as f:
                     json.dump(
-                        predictions_by_period[period_id],
+                        model_output_by_period[period_id],
                         f,
                         cls=NpEncoder,
                         separators=(",", ":"),
@@ -912,11 +1004,11 @@ class DataProcessor:
             # Dynamic periods get a single combined JSON file
             dynamic_data = {}
 
-            if period_id in ground_truth_by_period:
-                dynamic_data["groundTruth"] = ground_truth_by_period[period_id]
+            if period_id in target_data_by_period:
+                dynamic_data["groundTruth"] = target_data_by_period[period_id]
 
-            if period_id in predictions_by_period:
-                dynamic_data["predictions"] = predictions_by_period[period_id]
+            if period_id in model_output_by_period:
+                dynamic_data["predictions"] = model_output_by_period[period_id]
 
             dynamic_file = dynamic_dir / f"{period_id}.json"
             with open(dynamic_file, "w") as f:
@@ -1049,7 +1141,7 @@ class DataProcessor:
         logger.info(f"  • Models processed: {self.processing_stats['models_processed']}")
         logger.info(f"  • Locations detected: {self.processing_stats['locations_detected']}")
         logger.info(f"  • Forecast periods: {self.processing_stats['forecast_periods']}")
-        
+
         if self.skip_evaluations:
             logger.info(f"  • Evaluations: DISABLED (skipped by user)")
         else:
@@ -1057,25 +1149,6 @@ class DataProcessor:
 
         if self.historical_target_data:
             logger.info(f"  • Historical snapshots: {len(self.historical_target_data)}")
-
-        # Model details
-        logger.info("")
-        logger.info("MODELS:")
-        for model_name in metadata["modelNames"]:
-            model_data = model_output_df[model_output_df["model"] == model_name]
-            logger.info(f"  • {model_name}: {len(model_data):,} predictions")
-
-        # Location details
-        logger.info("")
-        logger.info("LOCATIONS:")
-        if self.processing_stats["locations_detected"] <= 10:
-            for loc in metadata["locations"]:
-                loc_name = loc.get("location_name", "Unknown")
-                loc_code = loc.get("location", "??")
-                logger.info(f"  • {loc_code}: {loc_name}")
-        else:
-            logger.info(f"  • {self.processing_stats['locations_detected']} locations detected")
-            logger.info("    (See output files for full list)")
 
         # Output files
         logger.info("")
@@ -1093,12 +1166,12 @@ class DataProcessor:
         logger.info("")
         logger.info("VALIDATION CHECKS:")
 
-        # Check 1: Do we have predictions for all models?
+        # Check 1: Do we have output from all models?
         all_models_have_data = all(model_name in model_output_df["model"].unique() for model_name in metadata["modelNames"])
         logger.info(f"  • All configured models have data: {'✓ Yes' if all_models_have_data else '✗ No'}")
 
         # Check 2: Default selected date
-        if metadata.get("defaultSelectedDate"):
+        if metadata["temporal"].get("defaultSelectedDate"):
             logger.info(f"  • Default selected date: {metadata['defaultSelectedDate']}")
         else:
             logger.info("  • Default selected date: ⚠ Not set")
@@ -1156,7 +1229,7 @@ def process_data(config: DashboardConfig, dev_mode: bool = False, skip_evaluatio
     """
     Main function to instantiate and run the data processor.
     This will be called by the main workflow orchestrator.
-    
+
     Args:
         config: DashboardConfig object with all settings
         dev_mode: If True, use test-data-input/ directory

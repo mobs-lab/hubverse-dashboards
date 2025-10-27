@@ -56,7 +56,7 @@ const NowcastGauge: React.FC<RiskLevelGaugeProps> = ({ riskLevel }) => {
     visible: false,
   });
 
-  const { selectedLocationCode: USStateNum, userSelectedRiskLevelModel, userSelectedWeek } = useAppSelector((state) => state.forecastSettings);
+  const { selectedLocationCode: USStateNum, userSelectedRiskLevelModel, userSelectedDate: userSelectedWeek } = useAppSelector((state) => state.forecastSettings);
   const nowcastTrends = useAppSelector((state) =>
     selectNowcastTrendsForModelAndDate(state, userSelectedRiskLevelModel, userSelectedWeek, USStateNum)
   );

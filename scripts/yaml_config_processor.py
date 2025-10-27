@@ -90,10 +90,7 @@ class ForecastPeriod:
 @dataclass
 class TargetConfig:
     """Configuration for a modelling task/target"""
-
-    target_name: (
-        str  # The name/identifier from config (e.g., "COVID19 Admission Value")
-    )
+    target_key: str  # The actual modelling task target ID, used as UUID
     task_display_string: str  # Display name for frontend (e.g., "admission value")
     target_key_name_for_task: str  # Key to match in target-data and model-output
     forecast_periods: List[str]
@@ -148,74 +145,6 @@ class SpatialDataConfig:
 
 class DashboardConfig:
     """Main configuration class for the dashboard with comprehensive validation"""
-
-    # Default color palette for models without specified colors (64 colors)
-    DEFAULT_COLOR_PALETTE = [
-        "#4CAF50",
-        "#2196F3",
-        "#FF9800",
-        "#9C27B0",
-        "#F44336",
-        "#00BCD4",
-        "#FFEB3B",
-        "#795548",
-        "#607D8B",
-        "#E91E63",
-        "#009688",
-        "#FF5722",
-        "#673AB7",
-        "#3F51B5",
-        "#03A9F4",
-        "#00BCD4",
-        "#4DB6AC",
-        "#81C784",
-        "#AED581",
-        "#DCE775",
-        "#FFF176",
-        "#FFD54F",
-        "#FFB74D",
-        "#FF8A65",
-        "#A1887F",
-        "#90A4AE",
-        "#CE93D8",
-        "#BA68C8",
-        "#AB47BC",
-        "#8E24AA",
-        "#7B1FA2",
-        "#6A1B9A",
-        "#EF5350",
-        "#EC407A",
-        "#AB47BC",
-        "#7E57C2",
-        "#5C6BC0",
-        "#42A5F5",
-        "#29B6F6",
-        "#26C6DA",
-        "#26A69A",
-        "#66BB6A",
-        "#9CCC65",
-        "#D4E157",
-        "#FFEE58",
-        "#FFCA28",
-        "#FFA726",
-        "#FF7043",
-        "#8D6E63",
-        "#78909C",
-        "#BDBDBD",
-        "#9E9E9E",
-        "#757575",
-        "#616161",
-        "#424242",
-        "#212121",
-        "#B39DDB",
-        "#9FA8DA",
-        "#90CAF9",
-        "#81D4FA",
-        "#80DEEA",
-        "#80CBC4",
-        "#A5D6A7",
-        "#C5E1A5",
-    ]
 
     def __init__(self, config_path: Union[str, Path], dev_mode: bool = False):
         self.config_path = Path(config_path)
@@ -882,44 +811,69 @@ class DashboardConfig:
             )
 
     def _validate_and_assign_model_colors(self):
-        """Validate model colors and assign defaults if missing"""
-        models_without_colors = []
-        models_with_invalid_colors = []
+        """Validate and assign colors to all models, using defaults where needed."""
+        default_palette = [
+            "#9ceb94",
+            "#3fc49e",
+            "#45cded",
+            "#0292d1",
+            "#7bb1ff",
+            "#5f5fd6",
+            "#d36f54",
+            "#e89c31",
+            "#a855f7",
+            "#ec4899",
+            "#22c55e",
+            "#f59e0b",
+            "#ef4444",
+            "#8b5cf6",
+            "#06b6d4",
+        ]
 
+        assigned_colors = set()
+        models_needing_colors = []
+
+        # Validate user-assigned colors
         for model in self.models:
+            if model.color_hex:
+                if not self._is_valid_hex_color(model.color_hex):
+                    self._add_warning(
+                        "available_models",
+                        f"Invalid hex color '{model.color_hex}' for model '{model.model_name}'. "
+                        + "Will assign from default palette.",
+                    )
+                    models_needing_colors.append(model)
+                else:
+                    assigned_colors.add(model.color_hex.lower())
+            else:
+                models_needing_colors.append(model)
+
+        # Assign colors from palette to models without colors
+        palette_index = 0
+        for model in models_needing_colors:
+            # Find next available color that hasn't been used
+            while palette_index < len(default_palette):
+                color = default_palette[palette_index]
+                palette_index += 1
+                if color.lower() not in assigned_colors:
+                    model.color_hex = color
+                    assigned_colors.add(color.lower())
+                    break
+
+            # If we run out of palette colors, generate a random one
             if not model.color_hex:
-                models_without_colors.append(model.model_name)
-            elif not self._is_valid_hex_color(model.color_hex):
-                models_with_invalid_colors.append((model.model_name, model.color_hex))
-                # Mark for reassignment
-                model.color_hex = None
-                models_without_colors.append(model.model_name)
+                import random
 
-        if models_with_invalid_colors:
-            invalid_list = [
-                f"{name} ({color})" for name, color in models_with_invalid_colors
-            ]
-            self._add_error(
-                "available_models",
-                f"Invalid hex color format for model(s): {', '.join(invalid_list)}. "
-                + "Colors must be in format #RRGGBB or #RGB (e.g., '#FF5733' or '#F53')",
-            )
+                random_color = f"#{random.randint(0, 0xFFFFFF):06x}"
+                model.color_hex = random_color
+                self._add_warning(
+                    "available_models",
+                    f"Ran out of default colors. Assigned random color {random_color} to '{model.model_name}'",
+                )
 
-        if models_without_colors:
-            self._add_warning(
-                "available_models",
-                f"{len(models_without_colors)} model(s) missing or have invalid color_hex, "
-                + f"will use default color palette: {', '.join(models_without_colors)}",
-            )
-
-            # Assign colors from default palette
-            color_idx = 0
-            for model in self.models:
-                if not model.color_hex:
-                    model.color_hex = self.DEFAULT_COLOR_PALETTE[
-                        color_idx % len(self.DEFAULT_COLOR_PALETTE)
-                    ]
-                    color_idx += 1
+        logger.info(f"✓ Model color assignment complete:")
+        for model in self.models:
+            logger.info(f"  • {model.model_name}: {model.color_hex}")
 
     def _validate_baseline_model(self):
         """Validate baseline model for relative WIS"""
@@ -1135,7 +1089,7 @@ class DashboardConfig:
                                 )
 
                             target = TargetConfig(
-                                target_name=target_name,
+                                target_key=config_dict["target_id"],
                                 task_display_string=config_dict["task_display_string"],
                                 target_key_name_for_task=config_dict[
                                     "target_key_name_for_task"

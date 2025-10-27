@@ -1,108 +1,166 @@
-/* src/app/store/forecast-settings-slice.ts */
+import { ForecastPeriod } from '@/types/domains/forecasting';
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { ForecastPeriodOption } from '@/types/domains/forecasting';
-import { parseISO } from 'date-fns';
 
 interface ForecastSettingsState {
-  selectedLocationName: string;
+  // Location selection
   selectedLocationCode: string;
+
+  // Model selection
   selectedModels: string[];
-  selectedHorizon: number;
+
+  // Target selection
+  selectedTargetIds: string[];
+
+  // Horizon selection
+  selectedHorizons: number[];
+
+  // Time filtering
+  selectedForecastPeriod: ForecastPeriod | null;
   timeFilterRangeStart: Date;
   timeFilterRangeEnd: Date;
-  timeFilterRange: string;
-  yAxisScale: string;
-  selectedPredictionInterval: string[];
+
+  // Visualization settings
+  yAxisScale: 'linear' | 'log';
+
+  // Prediction Interval settings
+  selectedPredictionIntervals: string[];
+
+  // Historical data mode
   historicalTargetDataMode: boolean;
-  forecastPeriodsOptions: ForecastPeriodOption[];
-  /* 
-  //  Note: For RiskLevel Visualization Widgets only, another variable to keep track of the selected Prediction model (a single one) that should only affects the RiskLevel Visualization Widgets themselves.
-  userSelectedRiskLevelModel: string;
-*/
-  //  Note: For ForecastChart to report back the userSelectedWeek to the whole page, for sibling components to use, for example the NowcastGauge and RiskLevelThermometer (inside NowcastStateThermo.tsx)
-  userSelectedWeek: Date;
+  selectedHistoricalAsOfDate: string | null;
+
+  // User interaction state
+  userSelectedDate: Date;
 }
 
+// Minimal initial state - will be populated from config
 const initialState: ForecastSettingsState = {
-  selectedLocationName: 'United States',
   selectedLocationCode: 'US',
-  selectedModels: [
-    'MOBS-GLEAM_FLUH',
-    'MIGHTE-Nsemble',
-    'MIGHTE-Joint',
-    'NU_UCSD-GLEAM_AI_FLUH',
-    'CEPH-Rtrend_fluH',
-    'NEU_ISI-FluBcast',
-    'NEU_ISI-AdaptiveEnsemble',
-    'FluSight-ensemble',
-  ],
-  selectedHorizon: 3,
-  timeFilterRange: '2023-08-01/2024-05-18',
-  timeFilterRangeStart: parseISO('2023-08-01T12:00:00Z'),
-  timeFilterRangeEnd: parseISO('2024-05-04T12:00:00Z'),
+  selectedModels: [],
+  selectedTargetIds: [],
+  selectedHorizons: [],
+  selectedForecastPeriod: null,
+  timeFilterRangeStart: new Date(),
+  timeFilterRangeEnd: new Date(),
   yAxisScale: 'linear',
-  selectedPredictionInterval: ['90'],
+  selectedPredictionIntervals: [],
   historicalTargetDataMode: false,
-  forecastPeriodsOptions: [],
-  userSelectedWeek: new Date(),
+  selectedHistoricalAsOfDate: null,
+  userSelectedDate: new Date(),
 };
 
 const forecastSettingsSlice = createSlice({
-  name: 'forecast-settings-slice',
+  name: 'forecastSettings',
   initialState,
   reducers: {
-    updateSelectedState: (
+    // Initialize settings from config
+    initializeForecastSettings: (
       state,
-      action: PayloadAction<{ stateName: string; stateNum: string }>
+      action: PayloadAction<{
+        locationCode?: string;
+        models: string[];
+        targets: string[];
+        horizons: number[];
+        forecastPeriod: ForecastPeriod;
+        predictionIntervals: string[];
+        selectedDate?: Date;
+      }>
     ) => {
-      state.selectedLocationName = action.payload.stateName;
-      state.selectedLocationCode = action.payload.stateNum;
+      const {
+        locationCode,
+        models,
+        targets,
+        horizons,
+        forecastPeriod,
+        predictionIntervals,
+        selectedDate,
+      } = action.payload;
+
+      state.selectedLocationCode = locationCode || 'US';
+      state.selectedModels = models;
+      state.selectedTargetIds = targets;
+      state.selectedHorizons = horizons;
+      state.selectedForecastPeriod = forecastPeriod;
+      state.timeFilterRangeStart = forecastPeriod.startDate;
+      state.timeFilterRangeEnd = forecastPeriod.endDate;
+      state.selectedPredictionIntervals = predictionIntervals;
+      if (selectedDate) {
+        state.userSelectedDate = selectedDate;
+      }
     },
-    updateSelectedForecastModels: (state, action: PayloadAction<string[]>) => {
+
+    // Location
+    updateSelectedLocation: (state, action: PayloadAction<string>) => {
+      state.selectedLocationCode = action.payload;
+    },
+
+    // Models
+    updateSelectedModels: (state, action: PayloadAction<string[]>) => {
       state.selectedModels = action.payload;
     },
-    updateNumOfWeeksAhead: (state, action: PayloadAction<number>) => {
-      state.selectedHorizon = action.payload;
+
+    // Targets
+    updateSelectedTargets: (state, action: PayloadAction<string[]>) => {
+      state.selectedTargetIds = action.payload;
     },
-    updateDateStart: (state, action: PayloadAction<Date>) => {
+
+    // Horizons
+    updateSelectedHorizons: (state, action: PayloadAction<number[]>) => {
+      state.selectedHorizons = action.payload;
+    },
+
+    // Forecast period
+    updateSelectedForecastPeriod: (state, action: PayloadAction<ForecastPeriod>) => {
+      state.selectedForecastPeriod = action.payload;
+      state.timeFilterRangeStart = action.payload.startDate;
+      state.timeFilterRangeEnd = action.payload.endDate;
+    },
+
+    // Time range
+    updateTimeFilterStart: (state, action: PayloadAction<Date>) => {
       state.timeFilterRangeStart = action.payload;
     },
-    updateDateEnd: (state, action: PayloadAction<Date>) => {
+    updateTimeFilterEnd: (state, action: PayloadAction<Date>) => {
       state.timeFilterRangeEnd = action.payload;
     },
-    updateYScale: (state, action: PayloadAction<string>) => {
+
+    // Visualization
+    updateYScale: (state, action: PayloadAction<'linear' | 'log'>) => {
       state.yAxisScale = action.payload;
     },
-    updateConfidenceInterval: (state, action: PayloadAction<string[]>) => {
-      state.selectedPredictionInterval = action.payload;
+    updateSelectedPredictionIntervals: (state, action: PayloadAction<string[]>) => {
+      state.selectedPredictionIntervals = action.payload;
     },
+
+    // Historical data
     updateHistoricalDataMode: (state, action: PayloadAction<boolean>) => {
       state.historicalTargetDataMode = action.payload;
     },
-    setSeasonOptions: (state, action: PayloadAction<ForecastPeriodOption[]>) => {
-      state.forecastPeriodsOptions = action.payload;
+    updateSelectedHistoricalAsOfDate: (state, action: PayloadAction<string | null>) => {
+      state.selectedHistoricalAsOfDate = action.payload;
     },
-    updateDateRange: (state, action: PayloadAction<string>) => {
-      state.timeFilterRange = action.payload;
-    },
-    updateUserSelectedWeek: (state, action: PayloadAction<Date>) => {
-      state.userSelectedWeek = action.payload;
+
+    // User interaction
+    updateUserSelectedDate: (state, action: PayloadAction<Date>) => {
+      state.userSelectedDate = action.payload;
     },
   },
 });
 
 export const {
-  updateSelectedState,
-  updateSelectedForecastModels,
-  updateNumOfWeeksAhead,
-  updateDateStart,
-  updateDateEnd,
+  initializeForecastSettings,
+  updateSelectedLocation,
+  updateSelectedModels,
+  updateSelectedTargets,
+  updateSelectedHorizons,
+  updateSelectedForecastPeriod,
+  updateTimeFilterStart,
+  updateTimeFilterEnd,
   updateYScale,
-  updateConfidenceInterval,
+  updateSelectedPredictionIntervals,
   updateHistoricalDataMode,
-  updateDateRange,
-  setSeasonOptions,
-  updateUserSelectedWeek,
+  updateSelectedHistoricalAsOfDate,
+  updateUserSelectedDate,
 } = forecastSettingsSlice.actions;
 
 export default forecastSettingsSlice.reducer;

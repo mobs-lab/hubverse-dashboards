@@ -8,3 +8,7 @@ export interface LoadingStates {
   evaluationDetailedCoverage: boolean;
   locationShapeData: boolean;
 }
+
+export type locationCode = string; // "US" or "01".."56"
+export type IsoDate = string; // "YYYY-MM-DD"
+export type forecastPeriodID = string; // "season-2023-2024" | "last-2-weeks" etc.

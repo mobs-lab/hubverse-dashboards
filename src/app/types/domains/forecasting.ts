@@ -4,13 +4,15 @@
 // Coming from user-specified forecast periods, the options available for selecting,
 // Filtering data to be within the time range.
 export interface ForecastPeriodOptions {
-  [forecastPeriodID: string]: {
-    isDefaultSelected?: boolean;
-    displayString: string;
-    timeValue: string;
-    startDate: Date;
-    endDate: Date;
-  };
+  [forecastPeriodID: string]: ForecastPeriod;
+}
+
+export interface ForecastPeriod {
+  isDefaultSelected?: boolean;
+  displayString: string;
+  timeValue: string;
+  startDate: Date;
+  endDate: Date;
 }
 
 // Location (Spatial) Data Interfaces
@@ -24,7 +26,7 @@ export interface LocationMappingData {
 
 // Modelling Task Target Interfaces
 // ---------------------------------
-export interface modellingTaskTarget {
+export interface ModellingTaskTarget {
   [targetId: string]: {
     taskTargetDisplayString: string;
   };

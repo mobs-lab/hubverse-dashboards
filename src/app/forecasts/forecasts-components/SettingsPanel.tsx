@@ -30,7 +30,7 @@ const SettingsPanel: React.FC = () => {
   const locationData = useAppSelector(selectLocationData);
   const { earliestDate, latestDate } = useAppSelector(selectDateConstraints);
 
-  const { selectedLocationCode: USStateNum, selectedModels: forecastModel, timeFilterRangeStart: dateStart, timeFilterRangeEnd: dateEnd, timeFilterRange: dateRange, selectedPredictionInterval: confidenceInterval, forecastPeriodsOptions: seasonOptions } = useAppSelector(
+  const { selectedLocationCode: USStateNum, selectedModels: forecastModel, timeFilterRangeStart: dateStart, timeFilterRangeEnd: dateEnd, timeFilterRange: dateRange, selectedPredictionIntervals: confidenceInterval, selectedForecastPeriod: seasonOptions } = useAppSelector(
     (state) => state.forecastSettings
   );
 

@@ -134,7 +134,7 @@ const NowcastStateThermo: React.FC = () => {
 
   const { mapData } = useDataContext();
 
-  const { selectedLocationName: selectedStateName, selectedLocationCode: USStateNum, userSelectedRiskLevelModel, userSelectedWeek } = useAppSelector((state) => state.forecastSettings);
+  const { selectedLocationName: selectedStateName, selectedLocationCode: USStateNum, userSelectedRiskLevelModel, userSelectedDate: userSelectedWeek } = useAppSelector((state) => state.forecastSettings);
 
   const [currentWeek, setCurrentWeek] = useState("");
   const [previousWeek, setPreviousWeek] = useState("");
