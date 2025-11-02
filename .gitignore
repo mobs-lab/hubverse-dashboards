@@ -343,3 +343,4 @@ config.yaml.*
 
 /test-data-output
 /test-data-input
+/public/test-data-output

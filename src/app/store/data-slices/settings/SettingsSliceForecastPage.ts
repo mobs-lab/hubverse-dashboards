@@ -94,6 +94,20 @@ const forecastSettingsSlice = createSlice({
       state.selectedLocationCode = action.payload;
     },
 
+    // Legacy action for backward compatibility with old components
+    // Maps old {stateName, stateNum} pattern to new selectedLocationCode
+    updateSelectedState: (
+      state,
+      action: PayloadAction<{ stateName?: string; stateNum: string | number }>
+    ) => {
+      // In the new architecture, we use location codes (like FIPS codes)
+      // The stateNum is the location code
+      const locationCode = typeof action.payload.stateNum === 'number'
+        ? String(action.payload.stateNum).padStart(2, '0')
+        : action.payload.stateNum;
+      state.selectedLocationCode = locationCode;
+    },
+
     // Models
     updateSelectedModels: (state, action: PayloadAction<string[]>) => {
       state.selectedModels = action.payload;
@@ -150,6 +164,7 @@ const forecastSettingsSlice = createSlice({
 export const {
   initializeForecastSettings,
   updateSelectedLocation,
+  updateSelectedState,
   updateSelectedModels,
   updateSelectedTargets,
   updateSelectedHorizons,

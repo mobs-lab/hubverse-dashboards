@@ -4,7 +4,7 @@ import { RootState } from "../index";
 import { addWeeks } from "date-fns";
 
 // Selector for core data loading status
-export const selectIsCoreDataLoaded = (state: RootState) => state.coreData.isLoaded;
+export const selectIsCoreDataLoaded = (state: RootState) => state.coreDataStore.isLoaded;
 
 // Helper function to calculate display time range based on metadata and horizon
 function calculateDisplayTimeRange(
@@ -28,9 +28,9 @@ function calculateDisplayTimeRange(
 // Main selector for time series data
 export const selectSingleModelTimeSeriesData = createSelector(
   [
-    (state: RootState) => state.coreData.isLoaded,
-    (state: RootState) => state.coreData.mainData?.predictionData,
-    (state: RootState) => state.coreData.mainData?.groundTruthData,
+    (state: RootState) => state.coreDataStore.isLoaded,
+    (state: RootState) => state.coreDataStore.mainData?.predictionData,
+    (state: RootState) => state.coreDataStore.mainData?.groundTruthData,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSeasonId, // <-- Use seasonId
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewModel,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSelectedStateCode,
@@ -124,8 +124,8 @@ export const selectSingleModelTimeSeriesData = createSelector(
 // Selector for evaluation scores from JSON that syncs with time series data
 export const selectSingleModelScoreDataFromJSON = createSelector(
   [
-    (state: RootState) => state.evaluationData.rawScores,
-    (state: RootState) => state.coreData.mainData?.predictionData,
+    (state: RootState) => state.evaluationDataStore.rawScores,
+    (state: RootState) => state.coreDataStore.mainData?.predictionData,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSeasonId, // <-- Use seasonId
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewModel,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSelectedStateCode,

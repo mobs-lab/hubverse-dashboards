@@ -1,9 +1,12 @@
 "use client";
 import Link from "next/link";
 import React, { useEffect, useRef } from "react";
+import { useAppSelector } from "@/store/hooks";
+import { selectEvaluationsEnabled } from "@/store/selectors/forecastSelectors";
 
 const Header: React.FC = () => {
   const headerRef = useRef<HTMLElement>(null);
+  const evaluationsEnabled = useAppSelector(selectEvaluationsEnabled);
 
   useEffect(() => {
     const updateHeaderHeight = () => {
@@ -34,9 +37,11 @@ const Header: React.FC = () => {
           <Link href='/' className='text-2xl text-mobs-lab-color hover:text-teal-900'>
             Forecasts
           </Link>
-          <Link href='/evaluations/' className='text-2xl text-mobs-lab-color hover:text-teal-900'>
-            Evaluations
-          </Link>
+          {evaluationsEnabled && (
+            <Link href='/evaluations/' className='text-2xl text-mobs-lab-color hover:text-teal-900'>
+              Evaluations
+            </Link>
+          )}
         </nav>
       </div>
     </header>

@@ -1,25 +1,25 @@
 // src/app/components/forecasts-components/ForecastChart.tsx
-"use client";
+'use client';
 
-import * as d3 from "d3";
-import { Axis, NumberValue } from "d3";
-import React, { useCallback, useEffect, useRef } from "react";
+import * as d3 from 'd3';
+import { Axis, NumberValue } from 'd3';
+import React, { useCallback, useEffect, useRef } from 'react';
 
-import { modelColorMap } from "@/types/common";
-import { TargetDataRoundDataPoint } from "@/types/domains/forecasting";
-import { useChartMargins } from "@/utils/chart-margin-utils";
-import { isUTCDateEqual } from "@/utils/date";
-import { useResponsiveSVG } from "@/utils/responsiveSVG";
+import { TargetData, TargetDataCollection } from '@/types/domains/forecasting';
+import { useChartMargins } from '@/utils/chart-margin-utils';
+import { isUTCDateEqual } from '@/utils/date';
+import { useResponsiveSVG } from '@/utils/responsiveSVG';
 
-import { updateUserSelectedWeek } from "@/store/data-slices/settings/SettingsSliceForecastPage";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { updateUserSelectedWeek } from '@/store/data-slices/settings/SettingsSliceForecastPage';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   selectExtendedGroundTruthInRange,
   selectGroundTruthInRange,
   selectHistoricalDataForWeek,
   selectLocationData,
   selectPredictionsForMultipleModels,
-} from "@/store/selectors";
+  selectModelColorMap,
+} from '@/store/selectors';
 
 interface ConfidenceIntervalData {
   interval: string;
@@ -31,33 +31,46 @@ const ForecastChart: React.FC = () => {
   const dispatch = useAppDispatch();
   const svgRef = useRef<SVGSVGElement>(null);
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
-  const margins = useChartMargins(dimensions.width, dimensions.height, "default");
+  const margins = useChartMargins(dimensions.width, dimensions.height, 'default');
+
+  // Get model color map from config
+  const modelColorMap = useAppSelector(selectModelColorMap);
 
   // Get all settings variables from Redux
   const {
-    userSelectedDate: userSelectedWeek,
-    selectedLocationCode: USStateNum,
-    selectedModels: forecastModel,
-    selectedHorizon: numOfWeeksAhead,
-    timeFilterRangeStart: dateStart,
-    timeFilterRangeEnd: dateEnd,
+    userSelectedDate,
+    selectedLocationCode,
+    selectedModels,
+    selectedHorizons,
+    timeFilterRangeStart,
+    timeFilterRangeEnd,
     yAxisScale,
-    selectedPredictionIntervals: confidenceInterval,
-    historicalTargetDataMode: historicalDataMode,
+    selectedPredictionIntervals,
+    historicalTargetDataMode,
   } = useAppSelector((state) => state.forecastSettings);
 
   // Get data using new selectors
   const locationData = useAppSelector(selectLocationData);
-  const groundTruthData = useAppSelector((state) => selectGroundTruthInRange(state, dateStart, dateEnd, USStateNum));
+  const groundTruthData = useAppSelector((state) =>
+    selectGroundTruthInRange(state, dateStart, dateEnd, USStateNum)
+  );
   const extendedGroundTruthData = useAppSelector((state) =>
     selectExtendedGroundTruthInRange(state, dateStart, dateEnd, numOfWeeksAhead, USStateNum)
   );
   const allModelPredictions = useAppSelector((state) =>
-    selectPredictionsForMultipleModels(state, forecastModel, USStateNum, userSelectedWeek, numOfWeeksAhead)
+    selectPredictionsForMultipleModels(
+      state,
+      forecastModel,
+      USStateNum,
+      userSelectedWeek,
+      numOfWeeksAhead
+    )
   );
 
   // Get historical ground truth data
-  const historicalGroundTruthData = useAppSelector((state) => selectHistoricalDataForWeek(state, userSelectedWeek, USStateNum));
+  const historicalGroundTruthData = useAppSelector((state) =>
+    selectHistoricalDataForWeek(state, userSelectedWeek, USStateNum)
+  );
 
   // Convert new prediction data structure to the format expected by rendering functions
   const convertPredictionsToRenderFormat = useCallback(
@@ -71,48 +84,62 @@ const ForecastChart: React.FC = () => {
         }
 
         // Convert the new structure to the old format for compatibility
-        const convertedData = Object.entries(modelPredictions).map(([targetDateISO, pred]: [string, any]) => ({
-          referenceDate: userSelectedWeek,
-          targetEndDate: new Date(targetDateISO),
-          stateNum: USStateNum,
-          confidence025: pred.q05,
-          confidence050: pred.q05,
-          confidence250: pred.q25,
-          confidence500: pred.median,
-          confidence750: pred.q75,
-          confidence950: pred.q95,
-          confidence975: pred.q95,
-          confidence_low: 0, // Will be set below
-          confidence_high: 0, // Will be set below
-        }));
+        const convertedData = Object.entries(modelPredictions).map(
+          ([targetDateISO, pred]: [string, any]) => ({
+            referenceDate: userSelectedWeek,
+            targetEndDate: new Date(targetDateISO),
+            stateNum: USStateNum,
+            confidence025: pred.q05,
+            confidence050: pred.q05,
+            confidence250: pred.q25,
+            confidence500: pred.median,
+            confidence750: pred.q75,
+            confidence950: pred.q95,
+            confidence975: pred.q95,
+            confidence_low: 0, // Will be set below
+            confidence_high: 0, // Will be set below
+          })
+        );
 
         // Create confidence interval data
         const confidenceIntervalData = [];
 
-        if (confidenceInterval.includes("50")) {
+        if (confidenceInterval.includes('50')) {
           confidenceIntervalData.push({
-            interval: "50",
-            data: convertedData.map((d) => ({ ...d, confidence_low: d.confidence250, confidence_high: d.confidence750 })),
+            interval: '50',
+            data: convertedData.map((d) => ({
+              ...d,
+              confidence_low: d.confidence250,
+              confidence_high: d.confidence750,
+            })),
           });
         }
 
-        if (confidenceInterval.includes("90")) {
+        if (confidenceInterval.includes('90')) {
           confidenceIntervalData.push({
-            interval: "90",
-            data: convertedData.map((d) => ({ ...d, confidence_low: d.confidence050, confidence_high: d.confidence950 })),
+            interval: '90',
+            data: convertedData.map((d) => ({
+              ...d,
+              confidence_low: d.confidence050,
+              confidence_high: d.confidence950,
+            })),
           });
         }
 
-        if (confidenceInterval.includes("95")) {
+        if (confidenceInterval.includes('95')) {
           confidenceIntervalData.push({
-            interval: "95",
-            data: convertedData.map((d) => ({ ...d, confidence_low: d.confidence025, confidence_high: d.confidence975 })),
+            interval: '95',
+            data: convertedData.map((d) => ({
+              ...d,
+              confidence_low: d.confidence025,
+              confidence_high: d.confidence975,
+            })),
           });
         }
 
         if (confidenceIntervalData.length === 0) {
           confidenceIntervalData.push({
-            interval: "",
+            interval: '',
             data: convertedData,
           });
         }
@@ -126,7 +153,13 @@ const ForecastChart: React.FC = () => {
   );
 
   const createScalesAndAxes = useCallback(
-    (ground: TargetDataRoundDataPoint[], predictions: any, chartWidth: number, chartHeight: number, yAxisScale: string) => {
+    (
+      ground: TargetDataRoundDataPoint[],
+      predictions: any,
+      chartWidth: number,
+      chartHeight: number,
+      yAxisScale: string
+    ) => {
       // Find the maximum date in the ground truth data, but within the `dateStart` and `dateEnd` range, to avoid showing horizon-ahead data
       // const maxGroundTruthDate = d3.max(ground, (d) => d.date) as Date;
       const maxGroundTruthDate = d3.max(ground, (d) => d.date) as Date;
@@ -152,7 +185,9 @@ const ForecastChart: React.FC = () => {
       const xScale = d3.scaleUtc().domain([dateStart, maxDate]).range([0, chartWidth]);
 
       // Generate ticks for all Saturdays within the date range
-      const allSaturdayTracker = d3.timeDay.range(dateStart, maxDate).filter((d) => d.getDay() === 6);
+      const allSaturdayTracker = d3.timeDay
+        .range(dateStart, maxDate)
+        .filter((d) => d.getDay() === 6);
 
       // Determine ideal tick count based on chart width
       const getIdealTickCount = (width: number, totalTicks: number) => {
@@ -184,9 +219,9 @@ const ForecastChart: React.FC = () => {
         .tickValues(selectedTicks)
         .tickFormat((date, i) => {
           const dateObj = date instanceof Date ? date : new Date(date as number);
-          const year = d3.timeFormat("%Y")(dateObj);
-          const month = d3.timeFormat("%b")(dateObj);
-          const day = d3.timeFormat("%d")(dateObj);
+          const year = d3.timeFormat('%Y')(dateObj);
+          const month = d3.timeFormat('%b')(dateObj);
+          const day = d3.timeFormat('%d')(dateObj);
 
           // First tick always gets full treatment
           if (i === 0) {
@@ -206,7 +241,7 @@ const ForecastChart: React.FC = () => {
             } else if (isNewMonth) {
               return month;
             }
-            return ""; // Hide other labels to reduce clutter
+            return ''; // Hide other labels to reduce clutter
           } else {
             // Full mode for wider charts
             if (isNewYear) {
@@ -234,7 +269,8 @@ const ForecastChart: React.FC = () => {
         Object.values(predictions).forEach((modelData: any) => {
           modelData.forEach((intervalData: any) => {
             intervalData.data.forEach((dataPoint: any) => {
-              const highValue = dataPoint.confidence_high || dataPoint.confidence950 || dataPoint.confidence750;
+              const highValue =
+                dataPoint.confidence_high || dataPoint.confidence950 || dataPoint.confidence750;
               if (highValue > maxPredictionValue) {
                 maxPredictionValue = highValue;
               }
@@ -255,9 +291,9 @@ const ForecastChart: React.FC = () => {
         minValue = Math.max(0, minValue - 1);
       }
 
-      const isLogScale = yAxisScale === "log";
+      const isLogScale = yAxisScale === 'log';
 
-      if (yAxisScale === "linear") {
+      if (!isLogScale) {
         yScale = d3
           .scaleLinear()
           .domain([0, maxValue * 1.1])
@@ -278,20 +314,20 @@ const ForecastChart: React.FC = () => {
         .tickValues(ticks)
         .tickFormat((d) => {
           const val = d.valueOf();
-          if (val === 0) return "0";
-          if (val >= 10000) return d3.format(".2~s")(val);
-          if (val >= 1000) return d3.format(".2~s")(val);
-          if (val >= 100) return d3.format(".0f")(val);
-          if (val >= 10) return d3.format(".0f")(val);
-          if (val >= 1) return d3.format(".0f")(val);
-          return d3.format(".1f")(val);
+          if (val === 0) return '0';
+          if (val >= 10000) return d3.format('.2~s')(val);
+          if (val >= 1000) return d3.format('.2~s')(val);
+          if (val >= 100) return d3.format('.0f')(val);
+          if (val >= 10) return d3.format('.0f')(val);
+          if (val >= 1) return d3.format('.0f')(val);
+          return d3.format('.1f')(val);
         });
 
       yAxis.tickSize(-chartWidth);
 
       return { xScale, yScale, xAxis, yAxis };
     },
-    [dateStart]
+    [timeFilterRangeStart]
   );
 
   function generateYAxisTicks(minValue: number, maxValue: number, isLogScale: boolean): number[] {
@@ -374,7 +410,7 @@ const ForecastChart: React.FC = () => {
     marginTop: number
   ) {
     // Remove existing ground truth data-slices paths and circles
-    svg.selectAll(".ground-truth-path, .ground-truth-dot").remove();
+    svg.selectAll('.ground-truth-path, .ground-truth-dot').remove();
 
     const line = d3
       .line<TargetDataRoundDataPoint>()
@@ -383,28 +419,28 @@ const ForecastChart: React.FC = () => {
       .y((d) => (d.observation !== -1 ? yScale(d.observation) : yScale.range()[0])); // Use bottom of chart for placeholders
 
     svg
-      .append("path")
+      .append('path')
       .datum(surveillanceData)
-      .attr("class", "ground-truth-path")
-      .attr("fill", "none")
-      .attr("stroke", "white")
-      .attr("stroke-width", 1.5)
-      .attr("d", line)
-      .attr("transform", `translate(${marginLeft}, ${marginTop})`);
+      .attr('class', 'ground-truth-path')
+      .attr('fill', 'none')
+      .attr('stroke', 'white')
+      .attr('stroke-width', 1.5)
+      .attr('d', line)
+      .attr('transform', `translate(${marginLeft}, ${marginTop})`);
 
     // Add circles for ground truth data-slices points (including placeholders)
     svg
-      .selectAll(".ground-truth-dot")
+      .selectAll('.ground-truth-dot')
       .data(surveillanceData)
       .enter()
-      .append("circle")
-      .attr("class", "ground-truth-dot")
-      .attr("cx", (d) => xScale(d.date))
-      .attr("cy", (d) => (d.observation !== -1 ? yScale(d.observation) : yScale.range()[0]))
-      .attr("r", 3)
-      .attr("fill", (d) => (d.observation !== -1 ? "white" : "transparent"))
-      .attr("stroke", (d) => (d.observation !== -1 ? "white" : "transparent"))
-      .attr("transform", `translate(${marginLeft}, ${marginTop})`);
+      .append('circle')
+      .attr('class', 'ground-truth-dot')
+      .attr('cx', (d) => xScale(d.date))
+      .attr('cy', (d) => (d.observation !== -1 ? yScale(d.observation) : yScale.range()[0]))
+      .attr('r', 3)
+      .attr('fill', (d) => (d.observation !== -1 ? 'white' : 'transparent'))
+      .attr('stroke', (d) => (d.observation !== -1 ? 'white' : 'transparent'))
+      .attr('transform', `translate(${marginLeft}, ${marginTop})`);
   }
 
   const renderHistoricalData = useCallback(
@@ -417,7 +453,7 @@ const ForecastChart: React.FC = () => {
       marginTop: number
     ) => {
       if (!historicalData || historicalData.length === 0) {
-        console.debug("DEBUG: No historical data available for the selected week.");
+        console.debug('DEBUG: No historical data available for the selected week.');
         return;
       }
 
@@ -431,26 +467,34 @@ const ForecastChart: React.FC = () => {
         .y((d) => yScale(d.observation));
 
       svg
-        .append("path")
-        .datum(historicalDataToDraw.filter((d) => d.observation !== -1 && !isNaN(d.observation) && d.locationNum === USStateNum))
-        .attr("class", "historical-ground-truth-path")
-        .attr("fill", "none")
-        .attr("stroke", "#FFA500") // Orange color for historical data-slices
-        .attr("stroke-width", 3)
-        .attr("d", historicalLine)
-        .attr("transform", `translate(${marginLeft}, ${marginTop})`);
+        .append('path')
+        .datum(
+          historicalDataToDraw.filter(
+            (d) => d.observation !== -1 && !isNaN(d.observation) && d.locationNum === USStateNum
+          )
+        )
+        .attr('class', 'historical-ground-truth-path')
+        .attr('fill', 'none')
+        .attr('stroke', '#FFA500') // Orange color for historical data-slices
+        .attr('stroke-width', 3)
+        .attr('d', historicalLine)
+        .attr('transform', `translate(${marginLeft}, ${marginTop})`);
 
       svg
-        .selectAll(".historical-ground-truth-dot")
-        .data(historicalDataToDraw.filter((d) => d.observation !== -1 && !isNaN(d.observation) && d.locationNum === USStateNum))
+        .selectAll('.historical-ground-truth-dot')
+        .data(
+          historicalDataToDraw.filter(
+            (d) => d.observation !== -1 && !isNaN(d.observation) && d.locationNum === USStateNum
+          )
+        )
         .enter()
-        .append("circle")
-        .attr("class", "historical-ground-truth-dot")
-        .attr("cx", (d) => xScale(d.date))
-        .attr("cy", (d) => yScale(d.observation))
-        .attr("r", 6) // Slightly larger than current ground truth dots
-        .attr("fill", "#FFA500")
-        .attr("transform", `translate(${marginLeft}, ${marginTop})`);
+        .append('circle')
+        .attr('class', 'historical-ground-truth-dot')
+        .attr('cx', (d) => xScale(d.date))
+        .attr('cy', (d) => yScale(d.observation))
+        .attr('r', 6) // Slightly larger than current ground truth dots
+        .attr('fill', '#FFA500')
+        .attr('transform', `translate(${marginLeft}, ${marginTop})`);
     },
     [dateStart, USStateNum]
   );
@@ -466,7 +510,7 @@ const ForecastChart: React.FC = () => {
     isGroundTruthDataPlaceHolderOnly: boolean
   ) {
     // Remove existing prediction data-slices paths and circles
-    svg.selectAll(".prediction-path, .prediction-dot, .confidence-area").remove();
+    svg.selectAll('.prediction-path, .prediction-dot, .confidence-area').remove();
 
     // Check if predictionData is not empty
     if (Object.keys(predictionData).length > 0) {
@@ -487,38 +531,38 @@ const ForecastChart: React.FC = () => {
           if (isGroundTruthDataPlaceHolderOnly) {
             // If there is only a placeholder data-slices point, render the prediction data-slices as its own branch
             svg
-              .append("path")
+              .append('path')
               .datum(predictions[0].data)
-              .attr("class", "prediction-path")
-              .attr("fill", "none")
-              .attr("stroke", modelColor)
-              .attr("stroke-width", 1.5)
-              .attr("d", line)
-              .attr("transform", `translate(${marginLeft}, ${marginTop})`);
+              .attr('class', 'prediction-path')
+              .attr('fill', 'none')
+              .attr('stroke', modelColor)
+              .attr('stroke-width', 1.5)
+              .attr('d', line)
+              .attr('transform', `translate(${marginLeft}, ${marginTop})`);
           } else {
             // Render prediction data-slices points as usual
             svg
-              .append("path")
+              .append('path')
               .datum(predictions[0].data)
-              .attr("class", "prediction-path")
-              .attr("fill", "none")
-              .attr("stroke", modelColor)
-              .attr("stroke-width", 1.5)
-              .attr("d", line)
-              .attr("transform", `translate(${marginLeft}, ${marginTop})`);
+              .attr('class', 'prediction-path')
+              .attr('fill', 'none')
+              .attr('stroke', modelColor)
+              .attr('stroke-width', 1.5)
+              .attr('d', line)
+              .attr('transform', `translate(${marginLeft}, ${marginTop})`);
 
             // Add circles for prediction data-slices points
             svg
               .selectAll(`.prediction-dot-${index}`)
               .data(predictions[0].data)
               .enter()
-              .append("circle")
-              .attr("class", `prediction-dot prediction-dot-${index}`)
-              .attr("cx", (d: any) => xScale(new Date(d.targetEndDate)))
-              .attr("cy", (d: any) => yScale(d.confidence500))
-              .attr("r", 3)
-              .attr("fill", modelColor)
-              .attr("transform", `translate(${marginLeft}, ${marginTop})`);
+              .append('circle')
+              .attr('class', `prediction-dot prediction-dot-${index}`)
+              .attr('cx', (d: any) => xScale(new Date(d.targetEndDate)))
+              .attr('cy', (d: any) => yScale(d.confidence500))
+              .attr('r', 3)
+              .attr('fill', modelColor)
+              .attr('transform', `translate(${marginLeft}, ${marginTop})`);
           }
         }
       });
@@ -537,11 +581,11 @@ const ForecastChart: React.FC = () => {
               .y1((d) => yScale(d.confidence_high));
 
             const opacity =
-              confidenceIntervalData.interval === "50"
+              confidenceIntervalData.interval === '50'
                 ? 0.4
-                : confidenceIntervalData.interval === "90"
+                : confidenceIntervalData.interval === '90'
                   ? 0.2
-                  : confidenceIntervalData.interval === "95"
+                  : confidenceIntervalData.interval === '95'
                     ? 0.1
                     : 1;
 
@@ -550,13 +594,13 @@ const ForecastChart: React.FC = () => {
             color.opacity = opacity;
 
             svg
-              .append("path")
+              .append('path')
               .datum(confidenceIntervalData.data)
-              .attr("class", "confidence-area")
-              .attr("fill", color.toString())
-              .attr("d", area)
-              .attr("transform", `translate(${marginLeft}, ${marginTop})`)
-              .attr("pointer-events", "none");
+              .attr('class', 'confidence-area')
+              .attr('fill', color.toString())
+              .attr('d', area)
+              .attr('transform', `translate(${marginLeft}, ${marginTop})`)
+              .attr('pointer-events', 'none');
           });
         }
       });
@@ -571,24 +615,24 @@ const ForecastChart: React.FC = () => {
     height: number,
     marginBottom: number
   ) {
-    const group = svg.append("g").attr("class", "vertical-indicator-group");
+    const group = svg.append('g').attr('class', 'vertical-indicator-group');
 
     const line = group
-      .append("line")
-      .attr("class", "vertical-indicator")
-      .attr("stroke", "gray")
-      .attr("stroke-width", 0.8)
-      .attr("y1", marginTop)
-      .attr("y2", height - marginBottom);
+      .append('line')
+      .attr('class', 'vertical-indicator')
+      .attr('stroke', 'gray')
+      .attr('stroke-width', 0.8)
+      .attr('y1', marginTop)
+      .attr('y2', height - marginBottom);
 
     const tooltip = group
-      .append("text")
-      .attr("class", "line-tooltip")
-      .attr("fill", "white")
-      .attr("font-size", 12)
-      .attr("text-anchor", "end")
-      .style("font-family", "var(--font-dm-sans)")
-      .attr("y", marginTop + 5);
+      .append('text')
+      .attr('class', 'line-tooltip')
+      .attr('fill', 'white')
+      .attr('font-size', 12)
+      .attr('text-anchor', 'end')
+      .style('font-family', 'var(--font-dm-sans)')
+      .attr('y', marginTop + 5);
 
     /* Change the accompaning tooltip text to DM Sans*/
 
@@ -608,17 +652,17 @@ const ForecastChart: React.FC = () => {
       const epiweek = getEpiweek(date);
       const isLeftSide = xPosition < chartWidth / 5;
 
-      group.attr("transform", `translate(${xPosition + marginLeft}, 0)`);
+      group.attr('transform', `translate(${xPosition + marginLeft}, 0)`);
 
-      group.select("line").attr("stroke", "lightgray").attr("stroke-width", 2);
+      group.select('line').attr('stroke', 'lightgray').attr('stroke-width', 2);
 
       tooltip
-        .attr("x", isLeftSide ? 5 : -5)
-        .attr("text-anchor", isLeftSide ? "start" : "end")
+        .attr('x', isLeftSide ? 5 : -5)
+        .attr('text-anchor', isLeftSide ? 'start' : 'end')
         // .text(`${date.toLocaleDateString()} (Week ${epiweek})`)
         .text(`${date.toUTCString().slice(0, 16)} (Week ${epiweek})`)
-        .attr("fill", "white")
-        .style("font-family", "var(--font-dm-sans), sans-serif");
+        .attr('fill', 'white')
+        .style('font-family', 'var(--font-dm-sans), sans-serif');
     },
     []
   );
@@ -637,23 +681,27 @@ const ForecastChart: React.FC = () => {
     marginBottom: number
   ) {
     return svg
-      .append("line")
-      .attr("class", "mouse-follow-line")
-      .attr("stroke", "gray")
-      .attr("stroke-width", 1)
-      .attr("stroke-dasharray", "5,5")
-      .attr("y1", marginTop)
-      .attr("y2", height - marginBottom)
-      .style("opacity", 0);
+      .append('line')
+      .attr('class', 'mouse-follow-line')
+      .attr('stroke', 'gray')
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '5,5')
+      .attr('y1', marginTop)
+      .attr('y2', height - marginBottom)
+      .style('opacity', 0);
   }
 
-  function createCornerTooltip(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>, marginLeft: number, marginTop: number) {
+  function createCornerTooltip(
+    svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+    marginLeft: number,
+    marginTop: number
+  ) {
     return svg
-      .append("g")
-      .attr("class", "corner-tooltip")
-      .attr("transform", `translate(${marginLeft + 40}, ${marginTop})`)
-      .style("opacity", 0)
-      .attr("pointer-events", "none");
+      .append('g')
+      .attr('class', 'corner-tooltip')
+      .attr('transform', `translate(${marginLeft + 40}, ${marginTop})`)
+      .style('opacity', 0)
+      .attr('pointer-events', 'none');
   }
 
   const updateCornerTooltip = useCallback(
@@ -669,7 +717,7 @@ const ForecastChart: React.FC = () => {
       isHistoricalDataMode: boolean
     ) => {
       // Clear existing content
-      cornerTooltip.selectAll("*").remove();
+      cornerTooltip.selectAll('*').remove();
 
       // Layout constants
       const layout = {
@@ -678,10 +726,10 @@ const ForecastChart: React.FC = () => {
         sectionGap: 10,
         modelColorBoxSize: 12,
         colGap: 30,
-        fontFamily: "var(--font-dm-sans), sans-serif",
-        fontSize: "13px",
-        fontColor: "white",
-        bgColor: "#333943",
+        fontFamily: 'var(--font-dm-sans), sans-serif',
+        fontSize: '13px',
+        fontColor: 'white',
+        bgColor: '#333943',
         // Define column widths for the prediction table
         medianColWidth: 60,
         piColWidth: 110,
@@ -689,29 +737,32 @@ const ForecastChart: React.FC = () => {
       // --- 2. PREPARE DATA ---
       const currentPredictions = findPredictionsForDate(predictionData, data.date);
       const ciOptions: { label: string; low: string; high: string }[] = [];
-      if (confidenceInterval.includes("50")) ciOptions.push({ label: "50% PI", low: "confidence250", high: "confidence750" });
-      if (confidenceInterval.includes("90")) ciOptions.push({ label: "90% PI", low: "confidence050", high: "confidence950" });
-      if (confidenceInterval.includes("95")) ciOptions.push({ label: "95% PI", low: "confidence025", high: "confidence975" });
+      if (confidenceInterval.includes('50'))
+        ciOptions.push({ label: '50% PI', low: 'confidence250', high: 'confidence750' });
+      if (confidenceInterval.includes('90'))
+        ciOptions.push({ label: '90% PI', low: 'confidence050', high: 'confidence950' });
+      if (confidenceInterval.includes('95'))
+        ciOptions.push({ label: '95% PI', low: 'confidence025', high: 'confidence975' });
 
       let maxWidth = 0;
       let currentY = layout.padding + 8;
 
       // --- 3. BUILD TOOLTIP CONTENT (in a container group) ---
       // This container will hold all text and shapes. We'll measure this group.
-      const contentGroup = cornerTooltip.append("g");
+      const contentGroup = cornerTooltip.append('g');
 
       // Helper function to add a line of text and update dimensions
       const addTextLine = (label: string, value: string, yPos: number) => {
         const text = contentGroup
-          .append("text")
-          .attr("x", layout.padding)
-          .attr("y", yPos)
-          .attr("fill", layout.fontColor)
-          .style("font-family", layout.fontFamily)
-          .attr("font-size", layout.fontSize);
+          .append('text')
+          .attr('x', layout.padding)
+          .attr('y', yPos)
+          .attr('fill', layout.fontColor)
+          .style('font-family', layout.fontFamily)
+          .attr('font-size', layout.fontSize);
 
-        text.append("tspan").text(label);
-        text.append("tspan").text(value).attr("font-weight", "bold");
+        text.append('tspan').text(label);
+        text.append('tspan').text(value).attr('font-weight', 'bold');
 
         // Update the maximum width needed for the tooltip
         const node = text.node();
@@ -722,15 +773,17 @@ const ForecastChart: React.FC = () => {
       };
 
       // A. Add Date and Admissions Info
-      currentY = addTextLine("Date: ", data.date.toUTCString().slice(5, 16), currentY);
-      currentY = addTextLine("Admissions: ", formatNumber(data.observation, true), currentY);
+      currentY = addTextLine('Date: ', data.date.toUTCString().slice(5, 16), currentY);
+      currentY = addTextLine('Admissions: ', formatNumber(data.observation, true), currentY);
 
       // B. Add Historical Admissions Info (if toggled)
       if (isHistoricalDataMode && historicalGroundTruthData) {
         const historicalValue =
-          historicalGroundTruthData.find((entry) => isUTCDateEqual(entry.date, data.date) && entry.locationNum === data.locationNum)
-            ?.observation || NaN;
-        currentY = addTextLine("Historical: ", formatNumber(historicalValue, true), currentY);
+          historicalGroundTruthData.find(
+            (entry) =>
+              isUTCDateEqual(entry.date, data.date) && entry.locationNum === data.locationNum
+          )?.observation || NaN;
+        currentY = addTextLine('Historical: ', formatNumber(historicalValue, true), currentY);
       }
 
       // C. Add Prediction Data (if available)
@@ -738,75 +791,88 @@ const ForecastChart: React.FC = () => {
         currentY += layout.sectionGap; // Add space before the prediction section
 
         // Calculate the total width of the prediction table
-        const tableWidth = layout.medianColWidth + ciOptions.length * (layout.piColWidth + layout.colGap);
+        const tableWidth =
+          layout.medianColWidth + ciOptions.length * (layout.piColWidth + layout.colGap);
         maxWidth = Math.max(maxWidth, tableWidth);
 
         Object.entries(currentPredictions).forEach(([modelName, modelData]: [string, any]) => {
           // Model Name and Color Box
-          const modelGroup = contentGroup.append("g").attr("transform", `translate(${layout.padding}, ${currentY})`);
+          const modelGroup = contentGroup
+            .append('g')
+            .attr('transform', `translate(${layout.padding}, ${currentY})`);
 
           modelGroup
-            .append("rect")
-            .attr("width", layout.modelColorBoxSize)
-            .attr("height", layout.modelColorBoxSize)
-            .attr("y", -layout.modelColorBoxSize / 1.5) // Center align with text
-            .attr("fill", modelColorMap[modelName]);
+            .append('rect')
+            .attr('width', layout.modelColorBoxSize)
+            .attr('height', layout.modelColorBoxSize)
+            .attr('y', -layout.modelColorBoxSize / 1.5) // Center align with text
+            .attr('fill', modelColorMap[modelName]);
 
           modelGroup
-            .append("text")
-            .attr("x", layout.modelColorBoxSize + 6)
-            .attr("fill", layout.fontColor)
-            .attr("font-weight", "bold")
-            .style("font-family", layout.fontFamily)
-            .attr("font-size", layout.fontSize)
+            .append('text')
+            .attr('x', layout.modelColorBoxSize + 6)
+            .attr('fill', layout.fontColor)
+            .attr('font-weight', 'bold')
+            .style('font-family', layout.fontFamily)
+            .attr('font-size', layout.fontSize)
             .text(modelName);
 
           currentY += layout.lineHeight;
 
           // Prediction Table (Headers and Values)
-          const tableGroup = contentGroup.append("g").attr("transform", `translate(${layout.padding}, ${currentY})`);
+          const tableGroup = contentGroup
+            .append('g')
+            .attr('transform', `translate(${layout.padding}, ${currentY})`);
 
           // Headers
           tableGroup
-            .append("text")
-            .text("Median")
-            .attr("x", 0)
-            .attr("fill", layout.fontColor)
-            .style("font-family", layout.fontFamily)
-            .attr("font-size", layout.fontSize);
+            .append('text')
+            .text('Median')
+            .attr('x', 0)
+            .attr('fill', layout.fontColor)
+            .style('font-family', layout.fontFamily)
+            .attr('font-size', layout.fontSize);
           ciOptions.forEach((ci, i) => {
             tableGroup
-              .append("text")
+              .append('text')
               .text(ci.label)
-              .attr("x", layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap))
-              .attr("fill", layout.fontColor)
-              .style("font-family", layout.fontFamily)
-              .attr("font-size", layout.fontSize);
+              .attr(
+                'x',
+                layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap)
+              )
+              .attr('fill', layout.fontColor)
+              .style('font-family', layout.fontFamily)
+              .attr('font-size', layout.fontSize);
           });
 
           currentY += layout.lineHeight;
 
           // Values
-          const valueRow = contentGroup.append("g").attr("transform", `translate(${layout.padding}, ${currentY})`);
+          const valueRow = contentGroup
+            .append('g')
+            .attr('transform', `translate(${layout.padding}, ${currentY})`);
 
           valueRow
-            .append("text")
+            .append('text')
             .text(formatNumber(modelData.confidence500))
-            .attr("x", 0)
-            .attr("fill", layout.fontColor)
-            .style("font-family", layout.fontFamily)
-            .attr("font-size", layout.fontSize)
-            .attr("font-weight", "bold");
+            .attr('x', 0)
+            .attr('fill', layout.fontColor)
+            .style('font-family', layout.fontFamily)
+            .attr('font-size', layout.fontSize)
+            .attr('font-weight', 'bold');
 
           ciOptions.forEach((ci, i) => {
             const ciText = `[${formatNumber(modelData[ci.low])}, ${formatNumber(modelData[ci.high])}]`;
             valueRow
-              .append("text")
+              .append('text')
               .text(ciText)
-              .attr("x", layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap))
-              .attr("fill", layout.fontColor)
-              .style("font-family", layout.fontFamily)
-              .attr("font-size", layout.fontSize);
+              .attr(
+                'x',
+                layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap)
+              )
+              .attr('fill', layout.fontColor)
+              .style('font-family', layout.fontFamily)
+              .attr('font-size', layout.fontSize);
           });
 
           currentY += layout.lineHeight;
@@ -820,12 +886,12 @@ const ForecastChart: React.FC = () => {
 
       // Add the background rectangle now that we have the final dimensions
       contentGroup
-        .insert("rect", ":first-child") // Insert behind all content
-        .attr("width", finalWidth)
-        .attr("height", finalHeight)
-        .attr("fill", layout.bgColor)
-        .attr("rx", 8)
-        .attr("ry", 8);
+        .insert('rect', ':first-child') // Insert behind all content
+        .attr('width', finalWidth)
+        .attr('height', finalHeight)
+        .attr('fill', layout.bgColor)
+        .attr('rx', 8)
+        .attr('ry', 8);
 
       // Decide whether to show the tooltip on the left or right
       const cursorX = xScale(data.date);
@@ -838,19 +904,19 @@ const ForecastChart: React.FC = () => {
         : chartWidth + marginLeft - finalWidth; // Show on the right side
 
       // Apply the final position and make it visible
-      cornerTooltip.attr("transform", `translate(${tooltipX}, ${marginTop})`).style("opacity", 1);
+      cornerTooltip.attr('transform', `translate(${tooltipX}, ${marginTop})`).style('opacity', 1);
     },
     [confidenceInterval]
   );
 
   function formatNumber(value: number, isAdmission: boolean = false): string {
     if (Number.isNaN(value)) {
-      return "N/A";
+      return 'N/A';
     }
 
     if (isAdmission) {
       if (value == -1) {
-        return "N/A";
+        return 'N/A';
       }
       // Surveillance data-slices should be integer; just in case
       return Math.round(value).toString();
@@ -865,13 +931,15 @@ const ForecastChart: React.FC = () => {
     // For decimal numbers, use toFixed(2) but trim unnecessary zeros
     const fixed = value.toFixed(2);
     // Remove trailing zeros after decimal point, and remove decimal point if no decimals
-    return fixed.replace(/\.?0+$/, "");
+    return fixed.replace(/\.?0+$/, '');
   }
 
   function findPredictionsForDate(predictionData: any, date: Date) {
     const foundPredictions: { [key: string]: any } = {};
     Object.entries(predictionData).forEach(([modelName, modelPredictions]: [string, any]) => {
-      const prediction = modelPredictions[0].data.find((p: any) => isUTCDateEqual(new Date(p.targetEndDate), date));
+      const prediction = modelPredictions[0].data.find((p: any) =>
+        isUTCDateEqual(new Date(p.targetEndDate), date)
+      );
       if (prediction) {
         foundPredictions[modelName] = prediction;
       }
@@ -887,14 +955,14 @@ const ForecastChart: React.FC = () => {
     chartHeight: number
   ) {
     return svg
-      .append("rect")
-      .attr("class", "event-overlay")
-      .attr("x", marginLeft)
-      .attr("y", marginTop)
-      .attr("width", chartWidth)
-      .attr("height", chartHeight)
-      .style("fill", "none")
-      .style("pointer-events", "all");
+      .append('rect')
+      .attr('class', 'event-overlay')
+      .attr('x', marginLeft)
+      .attr('y', marginTop)
+      .attr('width', chartWidth)
+      .attr('height', chartHeight)
+      .style('fill', 'none')
+      .style('pointer-events', 'all');
   }
 
   function appendAxes(
@@ -911,9 +979,9 @@ const ForecastChart: React.FC = () => {
   ) {
     // Append x-axis
     const xAxisGroup = svg
-      .append("g")
-      .attr("transform", `translate(${marginLeft}, ${chartHeight + marginTop})`)
-      .style("font-family", "var(--font-dm-sans)")
+      .append('g')
+      .attr('transform', `translate(${marginLeft}, ${chartHeight + marginTop})`)
+      .style('font-family', 'var(--font-dm-sans)')
       .call(xAxis);
 
     function wrap(text: d3.Selection<d3.BaseType, unknown, SVGGElement, any>, width: number) {
@@ -924,27 +992,27 @@ const ForecastChart: React.FC = () => {
           line: string[] = [],
           lineNumber = 0,
           lineHeight = 1.0, // ems
-          y = text.attr("y"),
-          dy = parseFloat(text.attr("dy")),
+          y = text.attr('y'),
+          dy = parseFloat(text.attr('dy')),
           tspan = text
             .text(null)
-            .append("tspan")
-            .attr("x", 0)
-            .attr("y", y)
-            .attr("dy", dy + "em");
+            .append('tspan')
+            .attr('x', 0)
+            .attr('y', y)
+            .attr('dy', dy + 'em');
         while ((word = words.pop())) {
           line.push(word);
-          tspan.text(line.join(" "));
+          tspan.text(line.join(' '));
           const node = tspan.node();
           if (node && node.getComputedTextLength() > width) {
             line.pop();
-            tspan.text(line.join(" "));
+            tspan.text(line.join(' '));
             line = [word];
             tspan = text
-              .append("tspan")
-              .attr("x", 0)
-              .attr("y", y)
-              .attr("dy", ++lineNumber * lineHeight + dy + "em")
+              .append('tspan')
+              .attr('x', 0)
+              .attr('y', y)
+              .attr('dy', ++lineNumber * lineHeight + dy + 'em')
               .text(word);
           }
         }
@@ -952,7 +1020,12 @@ const ForecastChart: React.FC = () => {
     }
 
     // Style x-axis ticks
-    xAxisGroup.selectAll(".tick text").style("text-anchor", "middle").attr("dy", "1em").style("font-size", "13px").call(wrap, 32); // 32 is the minimum width to accommodate year number at 1080p 100% zoom view environment
+    xAxisGroup
+      .selectAll('.tick text')
+      .style('text-anchor', 'middle')
+      .attr('dy', '1em')
+      .style('font-size', '13px')
+      .call(wrap, 32); // 32 is the minimum width to accommodate year number at 1080p 100% zoom view environment
 
     // Add year labels if the date range is more than a year
     const timeDiff = dateEnd.getTime() - dateStart.getTime();
@@ -963,35 +1036,40 @@ const ForecastChart: React.FC = () => {
       years.push(dateEnd); // Add the end date to ensure the last year is labeled
 
       xAxisGroup
-        .selectAll(".year-label")
+        .selectAll('.year-label')
         .data(years)
         .enter()
-        .append("text")
-        .attr("class", "year-label")
-        .attr("x", (d) => xScale(d))
-        .attr("y", 30)
-        .attr("text-anchor", "middle")
+        .append('text')
+        .attr('class', 'year-label')
+        .attr('x', (d) => xScale(d))
+        .attr('y', 30)
+        .attr('text-anchor', 'middle')
         .text((d) => d.getFullYear());
     }
 
     // Append y-axis
     const yAxisGroup = svg
-      .append("g")
-      .attr("transform", `translate(${marginLeft}, ${marginTop})`)
-      .style("font-family", "var(--font-dm-sans)")
+      .append('g')
+      .attr('transform', `translate(${marginLeft}, ${marginTop})`)
+      .style('font-family', 'var(--font-dm-sans)')
 
       .call(yAxis)
-      .call((g) => g.select(".domain").remove())
-      .call((g) => g.selectAll(".tick line").attr("stroke-opacity", 0.5).attr("stroke-dasharray", "2,2"));
+      .call((g) => g.select('.domain').remove())
+      .call((g) =>
+        g.selectAll('.tick line').attr('stroke-opacity', 0.5).attr('stroke-dasharray', '2,2')
+      );
 
     // Style y-axis ticks
     yAxisGroup
-      .selectAll(".tick text")
+      .selectAll('.tick text')
       //Make the font size always as big as possible
-      .style("font-size", "18px");
+      .style('font-size', '18px');
   }
 
-  function findNearestDataPoint(data: TargetDataRoundDataPoint[], targetDate: Date): TargetDataRoundDataPoint {
+  function findNearestDataPoint(
+    data: TargetDataRoundDataPoint[],
+    targetDate: Date
+  ): TargetDataRoundDataPoint {
     return data.reduce((prev, curr) => {
       const prevDiff = Math.abs(prev.date.getTime() - targetDate.getTime());
       const currDiff = Math.abs(curr.date.getTime() - targetDate.getTime());
@@ -1007,18 +1085,18 @@ const ForecastChart: React.FC = () => {
     marginLeft: number,
     marginTop: number
   ) {
-    svg.selectAll(".message").remove();
+    svg.selectAll('.message').remove();
 
     svg
-      .append("text")
-      .attr("class", "message")
-      .style("font-family", "var(--font-dm-sans)")
-      .attr("x", chartWidth / 2 + marginLeft)
-      .attr("y", chartHeight / 2 + marginTop)
-      .attr("text-anchor", "middle")
-      .attr("font-size", "22px")
-      .attr("font-weight", "bold")
-      .attr("fill", "white")
+      .append('text')
+      .attr('class', 'message')
+      .style('font-family', 'var(--font-dm-sans)')
+      .attr('x', chartWidth / 2 + marginLeft)
+      .attr('y', chartHeight / 2 + marginTop)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '22px')
+      .attr('font-weight', 'bold')
+      .attr('fill', 'white')
       .text(message);
   }
 
@@ -1034,7 +1112,9 @@ const ForecastChart: React.FC = () => {
       // For each prediction, check if a data-slices point already exists for that
       modelPredictions[0].data.forEach((prediction: any) => {
         // const existingPoint = combinedData.find((d) => d.date.getTime() === new Date(prediction.targetEndDate).getTime());
-        const existingPoint = combinedData.find((d) => isUTCDateEqual(d.date, new Date(prediction.targetEndDate)));
+        const existingPoint = combinedData.find((d) =>
+          isUTCDateEqual(d.date, new Date(prediction.targetEndDate))
+        );
         if (!existingPoint) {
           combinedData.push({
             date: new Date(prediction.targetEndDate),
@@ -1054,7 +1134,10 @@ const ForecastChart: React.FC = () => {
   const bubbleUserSelectedWeek = useCallback(
     (date: Date) => {
       const utcDate = new Date(date.toISOString());
-      console.debug("ForecastChart bubbleUserSelectedWeek: Dispatching standardized UTC date:", utcDate.toISOString());
+      console.debug(
+        'ForecastChart bubbleUserSelectedWeek: Dispatching standardized UTC date:',
+        utcDate.toISOString()
+      );
       dispatch(updateUserSelectedWeek(new Date(date.toISOString()))); // Ensure UTC
     },
     [dispatch]
@@ -1075,9 +1158,18 @@ const ForecastChart: React.FC = () => {
       height: number,
       marginBottom: number
     ) => {
-      const combinedData = createCombinedDataset(extendedGroundTruthDataForTooltip, processedPredictionData);
+      const combinedData = createCombinedDataset(
+        extendedGroundTruthDataForTooltip,
+        processedPredictionData
+      );
 
-      const mouseFollowLine = createMouseFollowLine(svg, marginLeft, marginTop, height, marginBottom);
+      const mouseFollowLine = createMouseFollowLine(
+        svg,
+        marginLeft,
+        marginTop,
+        height,
+        marginBottom
+      );
       const {
         group: verticalIndicatorGroup,
         line: verticalIndicator,
@@ -1094,7 +1186,9 @@ const ForecastChart: React.FC = () => {
         const closestData = findNearestDataPoint(combinedData, date);
 
         const snappedX = xScale(closestData.date);
-        mouseFollowLine.attr("transform", `translate(${snappedX + marginLeft}, 0)`).style("opacity", 1);
+        mouseFollowLine
+          .attr('transform', `translate(${snappedX + marginLeft}, 0)`)
+          .style('opacity', 1);
 
         updateCornerTooltip(
           closestData,
@@ -1114,7 +1208,14 @@ const ForecastChart: React.FC = () => {
         const date = xScale.invert(mouseX - marginLeft);
         const closestData = findNearestDataPoint(combinedData, date);
 
-        updateVerticalIndicator(closestData.date, xScale, marginLeft, chartWidth, verticalIndicatorGroup, lineTooltip);
+        updateVerticalIndicator(
+          closestData.date,
+          xScale,
+          marginLeft,
+          chartWidth,
+          verticalIndicatorGroup,
+          lineTooltip
+        );
       }
 
       function handleMouseMove(event: any) {
@@ -1129,11 +1230,24 @@ const ForecastChart: React.FC = () => {
         const date = xScale.invert(mouseX - marginLeft);
         const closestData = findNearestDataPoint(combinedData, date);
 
-        console.debug("ForecastChart handleClick: Raw inverted date from chart:", date.toISOString());
-        console.debug("ForecastChart handleClick: Snapped to closest data point date:", closestData.date.toISOString());
+        console.debug(
+          'ForecastChart handleClick: Raw inverted date from chart:',
+          date.toISOString()
+        );
+        console.debug(
+          'ForecastChart handleClick: Snapped to closest data point date:',
+          closestData.date.toISOString()
+        );
 
         bubbleUserSelectedWeek(closestData.date);
-        updateVerticalIndicator(closestData.date, xScale, marginLeft, chartWidth, verticalIndicatorGroup, lineTooltip);
+        updateVerticalIndicator(
+          closestData.date,
+          xScale,
+          marginLeft,
+          chartWidth,
+          verticalIndicatorGroup,
+          lineTooltip
+        );
         updateCornerTooltip(
           closestData,
           processedPredictionData,
@@ -1172,7 +1286,7 @@ const ForecastChart: React.FC = () => {
       }
 
       function handleMouseOut() {
-        mouseFollowLine.style("opacity", 0);
+        mouseFollowLine.style('opacity', 0);
         // cornerTooltip.style("opacity", 0);
         if (isDragging) {
           isDragging = false;
@@ -1180,11 +1294,11 @@ const ForecastChart: React.FC = () => {
       }
 
       eventOverlay
-        .on("mousemove", handleMouseMove)
-        .on("mouseout", handleMouseOut)
-        .on("click", handleClick)
-        .on("mousedown", handleMouseDown)
-        .on("mouseup", handleMouseUp);
+        .on('mousemove', handleMouseMove)
+        .on('mouseout', handleMouseOut)
+        .on('click', handleClick)
+        .on('mousedown', handleMouseDown)
+        .on('mouseup', handleMouseUp);
 
       return {
         mouseFollowLine,
@@ -1200,7 +1314,7 @@ const ForecastChart: React.FC = () => {
   useEffect(() => {
     if (svgRef.current && groundTruthData.length > 0 && locationData.length > 0) {
       const svg = d3.select(svgRef.current);
-      svg.selectAll("*").remove();
+      svg.selectAll('*').remove();
 
       const chartWidth = dimensions.width - margins.left - margins.right;
       const chartHeight = dimensions.height - margins.top - margins.bottom;
@@ -1211,7 +1325,14 @@ const ForecastChart: React.FC = () => {
       const allPlaceholders = groundTruthData.every((d) => d.observation === -1);
 
       if (allPlaceholders) {
-        renderMessage(svg as any, "Not enough data, please extend date range.", chartWidth, chartHeight, marginLeft, marginTop);
+        renderMessage(
+          svg as any,
+          'Not enough data, please extend date range.',
+          chartWidth,
+          chartHeight,
+          marginLeft,
+          marginTop
+        );
         return;
       }
 
@@ -1243,25 +1364,53 @@ const ForecastChart: React.FC = () => {
       }
 
       renderGroundTruthData(svg, groundTruthData, xScale, yScale, marginLeft, marginTop);
-      renderPredictionData(svg, processedPredictionData, xScale, yScale, marginLeft, marginTop, confidenceInterval, false);
-      appendAxes(svg as any, xAxis, yAxis, xScale, marginLeft, marginTop, chartWidth, chartHeight, dateStart, dateEnd);
-
-      const { mouseFollowLine, verticalIndicatorGroup, lineTooltip, cornerTooltip } = renderChartComponents(
+      renderPredictionData(
         svg,
-        groundTruthData,
-        extendedGroundTruthData,
         processedPredictionData,
-        historicalGroundTruthData,
+        xScale,
+        yScale,
+        marginLeft,
+        marginTop,
+        confidenceInterval,
+        false
+      );
+      appendAxes(
+        svg as any,
+        xAxis,
+        yAxis,
         xScale,
         marginLeft,
         marginTop,
         chartWidth,
         chartHeight,
-        dimensions.height,
-        marginBottom
+        dateStart,
+        dateEnd
       );
 
-      updateVerticalIndicator(adjustedUserSelectedWeek, xScale, marginLeft, chartWidth, verticalIndicatorGroup, lineTooltip);
+      const { mouseFollowLine, verticalIndicatorGroup, lineTooltip, cornerTooltip } =
+        renderChartComponents(
+          svg,
+          groundTruthData,
+          extendedGroundTruthData,
+          processedPredictionData,
+          historicalGroundTruthData,
+          xScale,
+          marginLeft,
+          marginTop,
+          chartWidth,
+          chartHeight,
+          dimensions.height,
+          marginBottom
+        );
+
+      updateVerticalIndicator(
+        adjustedUserSelectedWeek,
+        xScale,
+        marginLeft,
+        chartWidth,
+        verticalIndicatorGroup,
+        lineTooltip
+      );
     }
   }, [
     dimensions,
@@ -1291,14 +1440,15 @@ const ForecastChart: React.FC = () => {
 
   // Return the SVG object using reference
   return (
-    <div ref={containerRef} className='flex w-full h-full'>
+    <div ref={containerRef} className="flex w-full h-full">
       <svg
         ref={svgRef}
-        width={"100%"}
-        height={"100%"}
-        className='w-full h-full'
-        preserveAspectRatio='xMidYMid meet'
-        viewBox={`0 0 ${dimensions.width || 100} ${dimensions.height || 100}`}></svg>
+        width={'100%'}
+        height={'100%'}
+        className="w-full h-full"
+        preserveAspectRatio="xMidYMid meet"
+        viewBox={`0 0 ${dimensions.width || 100} ${dimensions.height || 100}`}
+      ></svg>
     </div>
   );
 };

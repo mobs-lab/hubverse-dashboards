@@ -27,7 +27,8 @@
       "@/evaluations/*": ["evaluations/*"],
       "@/forecasts/*": ["forecasts/*"],
       "@/utils/*": ["utils/*"],
-      "@/hooks/*": ["hooks/*"]
+      "@/hooks/*": ["hooks/*"],
+      "@/config/*": ["config/*"]
     }
   },
   "include": ["next-env.d.ts", ".next/types/**/*.ts", "**/*.ts", "**/*.tsx"],

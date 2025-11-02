@@ -1,23 +1,25 @@
 // src/store/selector/forecastSelectors.ts
 
+import { createSelector } from '@reduxjs/toolkit';
 import { RootState } from '../index';
+import { TargetData } from '@/types/domains/forecasting';
 
 // ============================================
 // Basic Selectors
 // ============================================
 
-export const selectConfig = (state: RootState) => state.config.config;
+export const selectConfig = (state: RootState) => state.configStore.config;
 
-export const selectLocationMapping = (state: RootState) => state.auxiliaryData.locationMapping;
+export const selectLocationMapping = (state: RootState) => state.auxiliaryDataStore.locationMapping;
 
 export const selectForecastPeriodOptions = (state: RootState) =>
-  state.auxiliaryData.forecastPeriodOptions;
+  state.auxiliaryDataStore.forecastPeriodOptions;
 
-export const selectTargetData = (state: RootState) => state.coreData.targetData;
+export const selectTargetData = (state: RootState) => state.coreDataStore.targetDataCollection;
 
-export const selectModelOutput = (state: RootState) => state.coreData.modelOutput;
+export const selectModelOutput = (state: RootState) => state.coreDataStore.modelOutputCollection;
 
-export const selectHistoricalTargetData = (state: RootState) => state.historicalTargetData.data;
+export const selectHistoricalTargetData = (state: RootState) => state.historicalTargetDataStore.data;
 
 export const selectForecastSettings = (state: RootState) => state.forecastSettings;
 
@@ -26,21 +28,21 @@ export const selectForecastSettings = (state: RootState) => state.forecastSettin
 // ============================================
 
 export const selectEvaluationsEnabled = (state: RootState) =>
-  state.config.config?.evaluationsEnabled ?? false;
+  state.configStore.config?.evaluationsEnabled ?? false;
 
 export const selectModelNames = (state: RootState) =>
-  state.config.config?.models.map((m) => m.modelName) ?? [];
+  state.configStore.config?.models.map((m) => m.modelName) ?? [];
 
-export const selectModelColorMap = (state: RootState) => state.config.config?.modelColorMap ?? {};
+export const selectModelColorMap = (state: RootState) => state.configStore.config?.modelColorMap ?? {};
 
-export const selectHorizons = (state: RootState) => state.config.config?.horizons ?? [];
+export const selectHorizons = (state: RootState) => state.configStore.config?.horizons ?? [];
 
 export const selectPredictionIntervalOptions = (state: RootState) =>
-  state.config.config?.predictionIntervals ?? [];
+  state.configStore.config?.predictionIntervals ?? [];
 
-export const selectTargets = (state: RootState) => state.config.config?.targets ?? [];
+export const selectTargets = (state: RootState) => state.configStore.config?.targets ?? [];
 
-export const selectTimeUnit = (state: RootState) => state.config.config?.timeUnit ?? 7;
+export const selectTimeUnit = (state: RootState) => state.configStore.config?.timeUnit ?? 7;
 
 // ============================================
 // Location Selectors
@@ -91,7 +93,7 @@ export const selectTargetDataFiltered = createSelector(
   (targetData, forecastPeriod, locationCode, targetIds, startDate, endDate) => {
     if (!forecastPeriod) return [];
 
-    const periodData = targetData[forecastPeriod.forecastPeriodID];
+    const periodData = targetData[forecastPeriod.forecastPeriodId];
     if (!periodData || !periodData[locationCode]) return [];
 
     const locationData = periodData[locationCode];
@@ -152,7 +154,7 @@ export const selectModelOutputFiltered = createSelector(
   ) => {
     if (!forecastPeriod) return {};
 
-    const periodData = modelOutput[forecastPeriod.forecastPeriodID];
+    const periodData = modelOutput[forecastPeriod.forecastPeriodId];
     if (!periodData) return {};
 
     const filtered: any = {};
@@ -208,7 +210,7 @@ export const selectPredictionsForReferenceDate = (referenceDate: Date) =>
     (modelOutput, forecastPeriod, locationCode, models, targets, allHorizons, timeUnit) => {
       if (!forecastPeriod) return {};
 
-      const periodData = modelOutput[forecastPeriod.forecastPeriodID];
+      const periodData = modelOutput[forecastPeriod.forecastPeriodId];
       if (!periodData) return {};
 
       const refDateStr = referenceDate.toISOString().split('T')[0];
@@ -308,3 +310,39 @@ export const selectDateConstraints = createSelector([selectConfig], (config) => 
     latestDate: config?.latestDate ? new Date(config.latestDate) : new Date(),
   };
 });
+
+// ============================================
+// Map Data Selectors
+// ============================================
+
+/**
+ * Get map shape data (TopoJSON/GeoJSON)
+ */
+export const selectMapData = (state: RootState) => state.auxiliaryDataStore.mapData;
+
+// ============================================
+// Legacy Compatibility Selectors
+// ============================================
+
+/**
+ * Legacy selector for location data array (for compatibility with old components)
+ * Returns location list derived from locationMapping
+ */
+export const selectLocationData = createSelector([selectLocationList], (locationList) => {
+  if (!locationList || locationList.length === 0) {
+    console.warn('Warning: selectLocationData: No location data available');
+    return [];
+  }
+  return locationList;
+});
+
+/**
+ * Get selected location name from selected location code
+ */
+export const selectSelectedLocationName = createSelector(
+  [selectForecastSettings, selectLocationMapping],
+  (forecastSettings, locationMapping): string => {
+    const locationCode = forecastSettings.selectedLocationCode;
+    return locationMapping[locationCode]?.locationName || locationCode;
+  }
+);

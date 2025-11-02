@@ -18,7 +18,7 @@ interface UseHistoricalGroundTruthDataReturn {
 export const useHistoricalGroundTruthData = (): UseHistoricalGroundTruthDataReturn => {
   const dispatch = useAppDispatch();
   const { updateLoadingState } = useDataContext();
-  const { isLoaded } = useAppSelector((state) => state.historicalTargetData);
+  const { isLoaded } = useAppSelector((state) => state.historicalTargetDataStore);
 
   const isLoadingRef = useRef(false);
   const errorRef = useRef<string | null>(null);

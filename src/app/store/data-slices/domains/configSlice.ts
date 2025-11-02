@@ -83,19 +83,3 @@ const configSlice = createSlice({
 
 export const { setDashboardConfig, clearConfig } = configSlice.actions;
 export default configSlice.reducer;
-
-// Selectors
-export const selectConfig = (state: { config: ConfigState }) => state.config.config;
-export const selectEvaluationsEnabled = (state: { config: ConfigState }) =>
-  state.config.config?.evaluationsEnabled ?? false;
-export const selectNowcastEnabled = (state: { config: ConfigState }) =>
-  state.config.config?.nowcastEnabled ?? false;
-export const selectModelNames = (state: { config: ConfigState }) =>
-  state.config.config?.models.map((m) => m.modelName) ?? [];
-export const selectModelColorMap = (state: { config: ConfigState }) =>
-  state.config.config?.modelColorMap ?? {};
-export const selectHorizons = (state: { config: ConfigState }) =>
-  state.config.config?.horizons ?? [];
-export const selectPredictionIntervalOptions = (state: { config: ConfigState }) =>
-  state.config.config?.predictionIntervals ?? [];
-export const selectTargets = (state: { config: ConfigState }) => state.config.config?.targets ?? [];

@@ -4,10 +4,11 @@
 // Coming from user-specified forecast periods, the options available for selecting,
 // Filtering data to be within the time range.
 export interface ForecastPeriodOptions {
-  [forecastPeriodID: string]: ForecastPeriod;
+  [forecastPeriodId: string]: ForecastPeriod;
 }
 
 export interface ForecastPeriod {
+  forecastPeriodId: string; // Redundantly stored for data selector to use
   isDefaultSelected?: boolean;
   displayString: string;
   timeValue: string;
@@ -46,7 +47,7 @@ export interface TargetData {
 
 // Target Data Collection partitioned by forecast period
 export interface TargetDataCollection {
-  [forecastPeriodID: string]: TargetData;
+  [forecastPeriodId: string]: TargetData;
 }
 
 // Historical Target-Data: Entire Collection organized by associated Date (as_of date)

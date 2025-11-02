@@ -44,7 +44,7 @@ const SingleModelSettingsPanel: React.FC = () => {
     evaluationSingleModelViewSeasonOptions,
   } = useAppSelector((state) => state.evaluationsSingleModelSettings);
 
-  const locationData = useAppSelector((state) => state.auxiliaryData["locations"]);
+  const locationData = useAppSelector((state) => state.auxiliaryDataStore["locations"]);
 
   // State selection handlers (reused from forecast)
   const onStateSelectionChange = (stateNum: string) => {

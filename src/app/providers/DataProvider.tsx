@@ -1,5 +1,6 @@
 'use client';
 
+import { getDataPath, initializeDevMode } from '@/config/devMode';
 import { setMapData } from '@/store/data-slices/domains/auxiliaryDataSlice';
 import { DashboardConfig, setDashboardConfig } from '@/store/data-slices/domains/configSlice';
 import { setAllCoreData } from '@/store/data-slices/domains/coreDataSlice';
@@ -7,6 +8,7 @@ import { initializeForecastSettings } from '@/store/data-slices/settings/Setting
 import { useAppDispatch } from '@/store/hooks';
 import { LoadingStates } from '@/types/app';
 import { ForecastPeriodOptions } from '@/types/domains/forecasting';
+import { logger } from '@/utils/logger';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 interface DataContextType {
@@ -42,20 +44,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Load and parse dashboard metadata from Python processor
    */
   const loadMetadata = async (): Promise<any> => {
-    const response = await fetch('/data/auxiliary/metadata.json');
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/auxiliary/metadata.json`);
     if (!response.ok) {
       throw new Error(`Failed to load metadata: ${response.statusText}`);
-    }
-    return response.json();
-  };
-
-  /**
-   * Load location mapping data
-   */
-  const loadLocationMapping = async (): Promise<any> => {
-    const response = await fetch('/data/auxiliary/locations.json');
-    if (!response.ok) {
-      throw new Error(`Failed to load locations: ${response.statusText}`);
     }
     return response.json();
   };
@@ -67,7 +59,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const fileName = shapeFileName || 'states-10m.json';
     const response = await fetch(`/${fileName}`);
     if (!response.ok) {
-      console.warn(`Failed to load map data: ${response.statusText}`);
+      logger.warn(`Failed to load map data: ${response.statusText}`);
       return null;
     }
     return response.json();
@@ -77,7 +69,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Load target data for a forecast period
    */
   const loadTargetData = async (forecastPeriodId: string): Promise<any> => {
-    const response = await fetch(`/data/${forecastPeriodId}/targetData.json`);
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/${forecastPeriodId}/targetData.json`);
     if (!response.ok) {
       throw new Error(`Failed to load target data for ${forecastPeriodId}`);
     }
@@ -88,7 +81,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Load model output for a forecast period
    */
   const loadModelOutput = async (forecastPeriodId: string): Promise<any> => {
-    const response = await fetch(`/data/${forecastPeriodId}/modelOutput.json`);
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/${forecastPeriodId}/modelOutputData.json`);
     if (!response.ok) {
       throw new Error(`Failed to load model output for ${forecastPeriodId}`);
     }
@@ -106,6 +100,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (metadata.forecastPeriods) {
       metadata.forecastPeriods.forEach((period: any) => {
         forecastPeriodOptions[period.forecastPeriodId] = {
+          forecastPeriodId: period.forecastPeriodId,
           displayString: period.displayString,
           timeValue: period.timeValue,
           startDate: new Date(period.startDate),
@@ -119,59 +114,59 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     }
 
-    // Parse model configurations with colors
-    const models =
-      metadata.modelNames?.map((modelName: string) => ({
-        modelName,
-        color: metadata.modelColors?.[modelName],
+    // Parse model configurations with colors from new nested structure
+    const models = metadata.models?.list || [];
+    const modelColorMap: Record<string, string> = metadata.models?.colors || {};
+
+    // Parse targets from new nested structure
+    const targets =
+      metadata.targets?.list?.map((t: any) => ({
+        targetId: t.targetId,
+        displayString: t.displayString,
       })) || [];
 
-    const modelColorMap: Record<string, string> = {};
-    const defaultPalette = [
-      '#9ceb94',
-      '#3fc49e',
-      '#45cded',
-      '#0292d1',
-      '#7bb1ff',
-      '#5f5fd6',
-      '#d36f54',
-      '#e89c31',
-      '#a855f7',
-      '#ec4899',
-    ];
-
-    models.forEach((model: any, index: number) => {
-      modelColorMap[model.modelName] = model.color || defaultPalette[index % defaultPalette.length];
-    });
+    // Parse prediction intervals from new nested structure
+    const predictionIntervals =
+      metadata.predictionIntervals?.available?.map((pi: any) => ({
+        level: pi.level,
+        quantiles: pi.quantiles,
+      })) || [];
 
     return {
-      evaluationsEnabled: metadata.evaluationsEnabled ?? false,
+      // Feature flags from metadata.features
+      evaluationsEnabled: metadata.features?.evaluationsEnabled ?? false,
       nowcastEnabled: false, // Explicitly disabled for generalized version
-      isSingleLocation: metadata.isSingleLocation ?? false,
-      singleLocationCode: metadata.singleLocationCode,
-      disableMapInDashboard: metadata.disableMapInDashboard ?? false,
-      timeUnit: metadata.timeUnit || 7,
-      horizons: metadata.horizons || [],
+
+      // Spatial configuration from metadata.spatial
+      isSingleLocation: metadata.spatial?.isSingleLocation ?? false,
+      singleLocationCode: metadata.spatial?.singleLocationCode,
+      disableMapInDashboard: metadata.spatial?.disableMapInDashboard ?? false,
+
+      // Temporal configuration from metadata.temporal
+      timeUnit: metadata.temporal?.timeUnit || 7,
+      horizons: metadata.temporal?.horizons || [],
+      defaultSelectedDate: metadata.temporal?.defaultSelectedDate,
+      earliestDate: metadata.temporal?.earliestDate,
+      latestDate: metadata.temporal?.latestDate,
+
+      // Forecast periods
       forecastPeriodOptions,
       defaultForecastPeriodId,
-      locationMapping: {}, // Will be loaded separately
+
+      // Location mapping - will be loaded separately
+      locationMapping: {},
+
+      // Models from metadata.models
       models,
       modelColorMap,
-      targets:
-        metadata.targets?.map((t: any) => ({
-          targetId: t.targetId,
-          displayString: t.displayString,
-        })) || [],
-      defaultTargetId: metadata.targets?.[0]?.targetId || '',
-      predictionIntervals:
-        metadata.predictionIntervals?.map((pi: any) => ({
-          level: pi.level,
-          quantiles: pi.quantiles,
-        })) || [],
-      defaultPredictionIntervals: metadata.defaultPredictionIntervals || ['90'],
-      defaultSelectedDate: metadata.defaultSelectedDate,
-      earliestDate: metadata.earliestDate,
-      latestDate: metadata.latestDate,
+
+      // Targets from metadata.targets
+      targets,
+      defaultTargetId: metadata.targets?.defaultTargetId || targets[0]?.targetId || '',
+
+      // Prediction intervals from metadata.predictionIntervals
+      predictionIntervals,
+      defaultPredictionIntervals: metadata.predictionIntervals?.defaults || ['90'],
     };
   };
 
@@ -183,31 +178,44 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initStartedRef.current = true;
 
     try {
-      console.log('Starting data initialization...');
+      logger.info('Starting data initialization...');
 
       // Step 1: Load metadata
-      console.log('Loading metadata...');
+      logger.log('Loading metadata...');
       const metadata = await loadMetadata();
 
+      // Step 1.5: Initialize development mode from metadata
+      initializeDevMode(metadata);
+      logger.info('Development mode initialized:', metadata.features?.developmentMode ?? false);
+      logger.info('Using data path:', getDataPath());
+
       // Step 2: Build config from metadata
-      console.log('Building configuration...');
+      logger.log('Building configuration...');
       const config = buildConfigFromMetadata(metadata);
 
       // Step 3: Load location mapping
-      console.log('Loading locations...');
-      const locationMapping = await loadLocationMapping();
+      logger.log('Loading locations...');
+      // Convert locationMappingList array to LocationMappingData object
+      const locationMappingList = metadata.spatial?.locationMappingList || [];
+      const locationMapping: any = {};
+      locationMappingList.forEach((loc: any) => {
+        locationMapping[loc.location] = {
+          locationName: loc.location_name,
+          locationNameAlt: loc.location_name_alt,
+        };
+      });
       config.locationMapping = locationMapping;
 
       // Step 4: Dispatch config to Redux
       dispatch(setDashboardConfig(config));
-      console.log('Config loaded:', config);
+      logger.debug('Config loaded:', config);
       updateLoadingState('forecastPeriodOptions', false);
       updateLoadingState('locations', false);
 
       // Step 5: Load map data (if not disabled)
       if (!config.disableMapInDashboard) {
-        console.log('Loading map data...');
-        const mapData = await loadMapShapeData(metadata.customShapeFileName);
+        logger.log('Loading map data...');
+        const mapData = await loadMapShapeData(metadata.spatial?.customShapeFileName);
         if (mapData) {
           dispatch(setMapData(mapData));
         }
@@ -217,7 +225,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Step 6: Load data for default forecast period
       const defaultPeriod = config.forecastPeriodOptions[config.defaultForecastPeriodId];
       if (defaultPeriod) {
-        console.log(`Loading data for period: ${config.defaultForecastPeriodId}`);
+        logger.log(`Loading data for period: ${config.defaultForecastPeriodId}`);
 
         const [targetData, modelOutput] = await Promise.all([
           loadTargetData(config.defaultForecastPeriodId),
@@ -240,7 +248,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateLoadingState('modelOutput', false);
 
         // Step 7: Initialize forecast settings with config defaults
-        console.log('Initializing forecast settings...');
+        logger.log('Initializing forecast settings...');
         dispatch(
           initializeForecastSettings({
             locationCode: config.singleLocationCode || 'US',
@@ -256,9 +264,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
       }
 
-      console.log('Initialization complete!');
+      logger.info('Initialization complete!');
     } catch (error) {
-      console.error('Failed to initialize data:', error);
+      logger.error('Failed to initialize data:', error);
       setInitializationError(error instanceof Error ? error.message : 'Unknown error');
 
       // Reset loading states on error
@@ -283,6 +291,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         initializationError,
       }}
     >
+      {/* Show error message about initialization process and offer for user to reload */}
       {initializationError ? (
         <div className="flex items-center justify-center h-screen text-white">
           <div className="text-center">

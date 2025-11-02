@@ -567,10 +567,6 @@ class DataProcessor:
         """Generates metadata for the frontend."""
         logger.info("Generating metadata...")
 
-        # Write out location data information
-        # Get unique locations
-        locations_info = sorted(target_data_df["location"].unique().tolist())
-
         # Get the date range
         all_dates = pd.concat([target_data_df["date"], model_output_df["target_end_date"]]).dropna()
         earliest_date = all_dates.min()
@@ -649,6 +645,7 @@ class DataProcessor:
                 "customShapeFileName": self.config.spatial_config.custom_shape_file_name,
                 "locationCodeHeader": self.config.spatial_config.location_code_col_header,
                 "locationNameHeader": self.config.spatial_config.location_name_col_header,
+                "locationMappingList": locations_info,
             },
             # === TEMPORAL CONFIGURATION ===
             "temporal": {
@@ -663,7 +660,6 @@ class DataProcessor:
             # === MODELS ===
             "models": {
                 "list": model_configs,
-                "names": [m.model_name for m in self.config.models],
                 "colors": model_colors,
                 "baselineModel": self.config.baseline_model_for_relative_wis if not self.skip_evaluations else None,
             },
@@ -708,9 +704,6 @@ class DataProcessor:
             # === METADATA INFO ===
             "_meta": {
                 "generatedAt": pd.Timestamp.now().isoformat(),
-                "dashboardVersion": "2.0.0-generalized",
-                "configVersion": "1.0.0",
-                "locationsDetected": len(locations_info),
                 "dataProcessor": {
                     "skipEvaluations": self.skip_evaluations,
                     "devMode": self.dev_mode,
@@ -1191,7 +1184,7 @@ class DataProcessor:
 
     def _get_period_date_range(
         self,
-        period: "ForecastPeriod",
+        period,
         target_data_df: pd.DataFrame,
         model_output_df: pd.DataFrame,
     ) -> tuple[pd.Timestamp, pd.Timestamp] | None:

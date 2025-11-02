@@ -1,8 +1,7 @@
-import { useDataContext } from "@/providers/DataProvider";
 import { updateEvaluationSingleModelViewSelectedState } from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
 import { updateSelectedState } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectLocationData } from "@/store/selectors/forecastSelectors";
+import { selectLocationData, selectMapData, selectSelectedLocationName } from "@/store/selectors/forecastSelectors";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import * as d3 from "d3";
 import { zoom, ZoomBehavior, zoomIdentity } from "d3-zoom";
@@ -18,17 +17,18 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
 
-  const { mapData } = useDataContext();
-
   const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const initialTransformRef = useRef<d3.ZoomTransform | null>(null);
 
   const [isMapReady, setIsMapReady] = useState(false);
 
   const dispatch = useAppDispatch();
-  const { selectedLocationName: selectedStateName } = useAppSelector((state) => state.forecastSettings);
-  const { evaluationsSingleModelViewSelectedStateName } = useAppSelector((state) => state.evaluationsSingleModelSettings);
+
+  // Get data from Redux selectors
+  const mapData = useAppSelector(selectMapData);
   const locationData = useAppSelector(selectLocationData);
+  const selectedStateName = useAppSelector(selectSelectedLocationName);
+  const { evaluationsSingleModelViewSelectedStateName } = useAppSelector((state) => state.evaluationsSingleModelSettings);
 
   const initializeZoom = useCallback(() => {
     if (!svgRef.current || !gRef.current) return;

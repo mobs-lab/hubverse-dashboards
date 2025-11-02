@@ -9,15 +9,15 @@ interface CoreDataState {
   loadedForecastPeriods: string[]; // Track which periods have been loaded
 
   // New simplified structure
-  targetData: TargetDataCollection;
-  modelOutput: ModelOutputCollection;
+  targetDataCollection: TargetDataCollection;
+  modelOutputCollection: ModelOutputCollection;
 }
 
 const initialState: CoreDataState = {
   isLoaded: false,
   loadedForecastPeriods: [],
-  targetData: {},
-  modelOutput: {},
+  targetDataCollection: {},
+  modelOutputCollection: {},
 };
 
 const coreDataSlice = createSlice({
@@ -37,12 +37,12 @@ const coreDataSlice = createSlice({
 
       // Add target data for this period
       if (targetData) {
-        state.targetData[forecastPeriodId] = targetData;
+        state.targetDataCollection[forecastPeriodId] = targetData;
       }
 
       // Add model output data for this period
       if (modelOutput) {
-        state.modelOutput[forecastPeriodId] = modelOutput;
+        state.modelOutputCollection[forecastPeriodId] = modelOutput;
       }
 
       // Track that this period has been loaded
@@ -64,15 +64,15 @@ const coreDataSlice = createSlice({
         modelOutput: ModelOutputCollection;
       }>
     ) => {
-      state.targetData = action.payload.targetData;
-      state.modelOutput = action.payload.modelOutput;
+      state.targetDataCollection = action.payload.targetData;
+      state.modelOutputCollection = action.payload.modelOutput;
       state.loadedForecastPeriods = Object.keys(action.payload.targetData);
       state.isLoaded = true;
     },
 
     clearCoreData: (state) => {
-      state.targetData = {};
-      state.modelOutput = {};
+      state.targetDataCollection = {};
+      state.modelOutputCollection = {};
       state.loadedForecastPeriods = [];
       state.isLoaded = false;
     },
