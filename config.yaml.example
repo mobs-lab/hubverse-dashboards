@@ -104,13 +104,28 @@
 # Dashboard will look for each target in column headers in target-data.
 - targets:
     - "COVID19 Admission Value":
-        - task_display_string: "admission value" # REQUIRED This will become the name of this target in the frontend.
+        - target_id: "covid19-admission" # REQUIRED must be unique alphanumeric identifier.
+        - task_display_string: "COVID19 Admissions" # REQUIRED This will become the name of this target in the frontend.
 
         # Each modelling task requires using a specific task target to orchestrate together target-data and model-output.
         # Target-Data: "observation" column values from matching rows containing the key in "target" column are used.
         # Model-Output: Entries' "value" column data from matching rows containing the key in "target" column are used.
         # This allows dashboard to know how to process data, process evaluations, and aggregate things.
-        - target_key_name_for_task: "wk inc covid hosp" # REQUIRED
+        - target_key_in_data: "wk inc covid hosp" # REQUIRED
+
+        # Which seasons to do this modelling task for,
+        # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
+        # If this option is `null` or deleted, defaults to all seasons.
+        - for_forecast_periods: ["season-2024-2025"]
+    - "COVID19 Test 2nd Target":
+        - target_id: "covid19-test-target" # REQUIRED must be unique alphanumeric identifier.
+        - task_display_string: "COVID19 Admissions Test" # REQUIRED This will become the name of this target in the frontend.
+
+        # Each modelling task requires using a specific task target to orchestrate together target-data and model-output.
+        # Target-Data: "observation" column values from matching rows containing the key in "target" column are used.
+        # Model-Output: Entries' "value" column data from matching rows containing the key in "target" column are used.
+        # This allows dashboard to know how to process data, process evaluations, and aggregate things.
+        - target_key_in_data: "wk inc covid prop ed visits" # REQUIRED
 
         # Which seasons to do this modelling task for,
         # Use the `forecast_period_id` value you defined in the beginning of this configuration file!
@@ -251,3 +266,11 @@
 # Even if not a model specified before, this model should also have a dedicated folder inside `/model-output` directory.
 # The baseline model will be used to calculate relative WIS scores for all other models.
 - baseline_model_for_relative_WIS: "CovidHub-baseline"
+
+
+#===================================
+# Dashboard Display Settings
+#===================================
+# TODO: provide channel for user to specify display texts, tooltips, infobutton pop-ups, etc.
+# Forecast page visualization settings (for texts, etc.)
+-

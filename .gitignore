@@ -341,6 +341,5 @@ config.yaml.*
 # Unignore the example file for users.
 !config.yaml.example
 
-/test-data-output
 /test-data-input
 /public/test-data-output

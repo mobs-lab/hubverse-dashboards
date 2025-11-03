@@ -14,12 +14,14 @@ export interface ModelConfig {
 
 export interface TargetConfig {
   targetId: string;
+  targetKeyInData: string;
   displayString: string;
 }
 
 export interface DashboardConfig {
   // Feature flags
   evaluationsEnabled: boolean;
+  historicalTargetDataEnabled: boolean;
   nowcastEnabled: boolean;
 
   // Spatial configuration

@@ -90,9 +90,10 @@ class ForecastPeriod:
 @dataclass
 class TargetConfig:
     """Configuration for a modelling task/target"""
-    target_key: str  # The actual modelling task target ID, used as UUID
-    task_display_string: str  # Display name for frontend (e.g., "admission value")
-    target_key_name_for_task: str  # Key to match in target-data and model-output
+
+    target_id: str  # The actual modelling task target ID, used as UUID
+    task_display_string: str  # Display name for frontend (e.g., "admission value", "admissions", "report", ...)
+    target_key_in_data: str  # Key to match in target-data and model-output
     forecast_periods: List[str]
 
 
@@ -104,9 +105,7 @@ class PredictionInterval:
     output_type_ids: List[str]
 
     def __post_init__(self):
-        self.output_type_ids = sorted(
-            [str(x) for x in self.output_type_ids], key=lambda x: float(x)
-        )
+        self.output_type_ids = sorted([str(x) for x in self.output_type_ids], key=lambda x: float(x))
 
 
 @dataclass
@@ -138,9 +137,7 @@ class SpatialDataConfig:
     def __post_init__(self):
         """Compute derived properties"""
         self.use_default_shape_file = self.custom_shape_file_name is None
-        self.use_default_location_mapping = (
-            self.custom_location_mapping_file_name is None
-        )
+        self.use_default_location_mapping = self.custom_location_mapping_file_name is None
 
 
 class DashboardConfig:
@@ -169,9 +166,7 @@ class DashboardConfig:
                 if not config:
                     raise ValueError("Config file is empty")
                 if not isinstance(config, list):
-                    raise ValueError(
-                        "Config file must have a list of dictionaries at root level"
-                    )
+                    raise ValueError("Config file must have a list of dictionaries at root level")
                 return config
         except FileNotFoundError:
             logger.error(f"Config file not found: {self.config_path}")
@@ -216,12 +211,8 @@ class DashboardConfig:
         logger.info("Parsing configuration...")
 
         # Data source links - CHECK FOR CONFLICTS
-        self.target_data_link = self._get_nested_value(
-            "links_to_hubverse_compatible_data", "target_data_link"
-        )
-        self.model_output_link = self._get_nested_value(
-            "links_to_hubverse_compatible_data", "model_output_link"
-        )
+        self.target_data_link = self._get_nested_value("links_to_hubverse_compatible_data", "target_data_link")
+        self.model_output_link = self._get_nested_value("links_to_hubverse_compatible_data", "model_output_link")
 
         # Check if both local and online modes are enabled
         self._validate_data_source_links()
@@ -242,11 +233,6 @@ class DashboardConfig:
 
         # Validate single-location mode data
         self._validate_single_location_data()
-
-        # TODO: Handle three different criteria and combinations:
-        # - Disabling of Map or not
-        # - Using custom shape file or not
-        # - using custom spatial level—custom location mapping—or not
 
         # Target configuration
         self.is_single_target = self._get_value("is_single_forecast_target", False)
@@ -281,20 +267,13 @@ class DashboardConfig:
             )
 
         # Single target data file name (for non-partitioned formats)
-        self.single_target_data_file_name = self._get_value(
-            "single_target_data_file_name"
-        )
+        self.single_target_data_file_name = self._get_value("single_target_data_file_name")
 
         # Check if partitioned parquet is being used
-        self.is_partitioned_parquet = self._get_value(
-            "parquet_partitioned_by_as_of", False
-        )
+        self.is_partitioned_parquet = self._get_value("parquet_partitioned_by_as_of", False)
 
         # Validate that single_target_data_file_name is provided when needed
-        if (
-            self.target_data_file_format in ["csv", "parquet"]
-            and not self.is_partitioned_parquet
-        ):
+        if self.target_data_file_format in ["csv", "parquet"] and not self.is_partitioned_parquet:
             if not self.single_target_data_file_name:
                 self._add_error(
                     "single_target_data_file_name",
@@ -305,9 +284,7 @@ class DashboardConfig:
         self.column_mapping = self._parse_column_mappings()
 
         # Target data observation format - DEFAULT IF MISSING
-        self.target_data_observation_format = self._get_value(
-            "target_data_observation_format"
-        )
+        self.target_data_observation_format = self._get_value("target_data_observation_format")
         if not self.target_data_observation_format:
             self.target_data_observation_format = "float"
             self._add_warning(
@@ -324,14 +301,10 @@ class DashboardConfig:
         self.evaluation_intervals = self._parse_evaluation_intervals()
 
         # Model output naming standard
-        self.model_output_naming_standard = self._get_value(
-            "model_output_data_file_naming_standard", "ISODate"
-        )
+        self.model_output_naming_standard = self._get_value("model_output_data_file_naming_standard", "ISODate")
 
         # Baseline model for evaluations - REQUIRED
-        self.baseline_model_for_relative_wis = self._get_value(
-            "baseline_model_for_relative_WIS"
-        )
+        self.baseline_model_for_relative_wis = self._get_value("baseline_model_for_relative_WIS")
         if not self.baseline_model_for_relative_wis:
             self._add_error(
                 "baseline_model_for_relative_WIS",
@@ -376,9 +349,7 @@ class DashboardConfig:
             data_location = "test-data-input/" if self.dev_mode else ""
             self._add_error(
                 "data_source",
-                "Both local and online data sources are configured. "
-                + "Please use either local directories "
-                + "OR online links, not both.",
+                "Both local and online data sources are configured. " + "Please use either local directories " + "OR online links, not both.",
             )
         elif not has_online and not has_local:
             data_location = "test-data-input/" if self.dev_mode else ""
@@ -408,8 +379,7 @@ class DashboardConfig:
             if period.display_string in seen_display_strings:
                 self._add_warning(
                     "forecast_periods",
-                    f"Duplicate display_string: '{period.display_string}' "
-                    + f"(period: {period.period_id})",
+                    f"Duplicate display_string: '{period.display_string}' " + f"(period: {period.period_id})",
                 )
             seen_display_strings.add(period.display_string)
 
@@ -463,8 +433,7 @@ class DashboardConfig:
                 elif range_calc > 0:
                     self._add_error(
                         "special_forecast_periods",
-                        f"Special period '{period.period_id}' must have a negative "
-                        + f"'range_calculation' to look backward in time (got {range_calc}).",
+                        f"Special period '{period.period_id}' must have a negative " + f"'range_calculation' to look backward in time (got {range_calc}).",
                     )
 
                 if anchor_on is None:
@@ -498,9 +467,7 @@ class DashboardConfig:
                             )
 
         # Check that only one forecast_period has is_default_selected
-        default_periods = [
-            p.period_id for p in self.forecast_periods if p.is_default_selected
-        ]
+        default_periods = [p.period_id for p in self.forecast_periods if p.is_default_selected]
         if len(default_periods) > 1:
             self._add_error(
                 "forecast_periods",
@@ -522,19 +489,13 @@ class DashboardConfig:
                 )
         else:
             # Multi-location mode: locations will be auto-detected from data
-            logger.info(
-                "  ✓ Multi-location mode: will auto-detect locations from data files"
-            )
+            logger.info("  ✓ Multi-location mode: will auto-detect locations from data files")
 
             # Log which mapping will be used for auto-detected locations
             if self.spatial_config.use_default_location_mapping:
-                logger.info(
-                    f"  ✓ Using default US State FIPS mapping for location names ({len(self.location_mapping)} states)"
-                )
+                logger.info(f"  ✓ Using default US State FIPS mapping for location names ({len(self.location_mapping)} states)")
             else:
-                logger.info(
-                    f"  ✓ Using custom location mapping for location names ({len(self.location_mapping)} locations)"
-                )
+                logger.info(f"  ✓ Using custom location mapping for location names ({len(self.location_mapping)} locations)")
 
     def _parse_spatial_data_config(self) -> SpatialDataConfig:
         """Parse spatial data configuration with comprehensive validation"""
@@ -544,9 +505,7 @@ class DashboardConfig:
         custom_shape_file = self._get_value("custom_shape_file_name")
         custom_location_mapping = self._get_value("custom_location_mapping_file_name")
         location_code_col = self._get_value("location_code_col_header_name", "location")
-        location_name_col = self._get_value(
-            "location_name_col_header_name", "location_name"
-        )
+        location_name_col = self._get_value("location_name_col_header_name", "location_name")
 
         # Create config object
         spatial_config = SpatialDataConfig(
@@ -569,9 +528,7 @@ class DashboardConfig:
 
             # Shape file is ignored when map is disabled
             if custom_shape_file:
-                logger.info(
-                    f"  ℹ️  custom_shape_file_name '{custom_shape_file}' will be ignored (map is disabled)"
-                )
+                logger.info(f"  ℹ️  custom_shape_file_name '{custom_shape_file}' will be ignored (map is disabled)")
 
             # Validate custom location mapping if provided
             if custom_location_mapping:
@@ -583,9 +540,7 @@ class DashboardConfig:
                     )
                 else:
                     spatial_config.location_mapping_path = mapping_path
-                    logger.info(
-                        f"  ✓ Custom location mapping: {custom_location_mapping}"
-                    )
+                    logger.info(f"  ✓ Custom location mapping: {custom_location_mapping}")
             else:
                 logger.info("  ✓ Using default US State FIPS mapping")
 
@@ -673,17 +628,13 @@ class DashboardConfig:
                             if location_code_col in mapping_df.columns:
                                 duplicates = mapping_df[location_code_col].duplicated()
                                 if duplicates.any():
-                                    dup_codes = mapping_df[location_code_col][
-                                        duplicates
-                                    ].tolist()
+                                    dup_codes = mapping_df[location_code_col][duplicates].tolist()
                                     self._add_warning(
                                         "custom_location_mapping_file_name",
                                         f"Duplicate location codes found in mapping: {dup_codes[:5]}",
                                     )
 
-                            logger.info(
-                                f"  ✓ Custom location mapping validated: {len(mapping_df)} locations"
-                            )
+                            logger.info(f"  ✓ Custom location mapping validated: {len(mapping_df)} locations")
 
                         except Exception as e:
                             self._add_error(
@@ -693,9 +644,7 @@ class DashboardConfig:
 
                     spatial_config.location_mapping_path = mapping_path
                     spatial_config.use_default_location_mapping = False
-                    logger.info(
-                        f"  ✓ Custom location mapping: {custom_location_mapping}"
-                    )
+                    logger.info(f"  ✓ Custom location mapping: {custom_location_mapping}")
             else:
                 # Using default FIPS mapping
                 logger.info("  ✓ Using default US State FIPS mapping")
@@ -712,14 +661,9 @@ class DashboardConfig:
 
         return spatial_config
 
-    def _load_location_mapping(
-        self, spatial_config: SpatialDataConfig
-    ) -> Dict[str, str]:
+    def _load_location_mapping(self, spatial_config: SpatialDataConfig) -> Dict[str, str]:
         """Load location mapping from file or use default"""
-        if (
-            not spatial_config.use_default_location_mapping
-            and spatial_config.location_mapping_path
-        ):
+        if not spatial_config.use_default_location_mapping and spatial_config.location_mapping_path:
             try:
                 import pandas as pd
 
@@ -751,9 +695,7 @@ class DashboardConfig:
                     )
                 )
 
-                logger.info(
-                    f"  ✓ Loaded custom location mapping with {len(mapping)} entries"
-                )
+                logger.info(f"  ✓ Loaded custom location mapping with {len(mapping)} entries")
                 return mapping
             except Exception as e:
                 self._add_error(
@@ -767,15 +709,12 @@ class DashboardConfig:
     def _validate_time_unit(self):
         """Validate time_unit value"""
         if self.time_unit < 1:
-            self._add_error(
-                "time_unit", f"time_unit must be at least 1 day (got {self.time_unit})"
-            )
+            self._add_error("time_unit", f"time_unit must be at least 1 day (got {self.time_unit})")
 
         if self.time_unit > 14:
             self._add_warning(
                 "time_unit",
-                f"time_unit is {self.time_unit} days, which is unusually large. "
-                + "Most forecasting hubs use 7 days (weekly) or 1 day (daily).",
+                f"time_unit is {self.time_unit} days, which is unusually large. " + "Most forecasting hubs use 7 days (weekly) or 1 day (daily).",
             )
 
     def _validate_horizons(self):
@@ -806,9 +745,7 @@ class DashboardConfig:
         # Warn about negative horizons (nowcasting)
         negative_horizons = [h for h in self.horizons if isinstance(h, int) and h < 0]
         if negative_horizons:
-            self._add_warning(
-                "horizons", f"Negative horizons detected: {negative_horizons}. "
-            )
+            self._add_warning("horizons", f"Negative horizons detected: {negative_horizons}. ")
 
     def _validate_and_assign_model_colors(self):
         """Validate and assign colors to all models, using defaults where needed."""
@@ -839,8 +776,7 @@ class DashboardConfig:
                 if not self._is_valid_hex_color(model.color_hex):
                     self._add_warning(
                         "available_models",
-                        f"Invalid hex color '{model.color_hex}' for model '{model.model_name}'. "
-                        + "Will assign from default palette.",
+                        f"Invalid hex color '{model.color_hex}' for model '{model.model_name}'. " + "Will assign from default palette.",
                     )
                     models_needing_colors.append(model)
                 else:
@@ -944,21 +880,15 @@ class DashboardConfig:
 
                         try:
                             period = ForecastPeriod(
-                                period_id=config_dict.get(
-                                    "forecast_period_id", period_id
-                                ),
+                                period_id=config_dict.get("forecast_period_id", period_id),
                                 display_string=config_dict["display_string"],
                                 start_date=config_dict["start_date"],
                                 end_date=config_dict["end_date"],
                                 is_special_period=False,
-                                is_default_selected=config_dict.get(
-                                    "is_default_selected", False
-                                ),
+                                is_default_selected=config_dict.get("is_default_selected", False),
                             )
                             periods.append(period)
-                            logger.info(
-                                f"  ✓ Parsed forecast period: {period.period_id}"
-                            )
+                            logger.info(f"  ✓ Parsed forecast period: {period.period_id}")
                         except KeyError as e:
                             self._add_error(
                                 "forecast_periods",
@@ -1009,9 +939,7 @@ class DashboardConfig:
                                 time_anchor=config_dict.get("time_anchor"),
                             )
                             dynamic_periods.append(period)
-                            logger.info(
-                                f"  ✓ Parsed special period (runtime calc): {period.period_id}"
-                            )
+                            logger.info(f"  ✓ Parsed special period (runtime calc): {period.period_id}")
                         except KeyError as e:
                             self._add_error(
                                 "special_forecast_periods",
@@ -1036,14 +964,10 @@ class DashboardConfig:
         try:
             with open(reference_path, "r") as f:
                 mapping = json.load(f)
-                logger.info(
-                    f"  ✓ Loaded US state FIPS mapping ({len(mapping)} locations)"
-                )
+                logger.info(f"  ✓ Loaded US state FIPS mapping ({len(mapping)} locations)")
                 return mapping
         except FileNotFoundError:
-            logger.warning(
-                f"  ⚠ US state FIPS mapping file not found at {reference_path}"
-            )
+            logger.warning(f"  ⚠ US state FIPS mapping file not found at {reference_path}")
             return {}
         except json.JSONDecodeError as e:
             logger.warning(f"  ⚠ Error parsing US state FIPS mapping: {e}")
@@ -1074,32 +998,23 @@ class DashboardConfig:
                             if not forecast_periods:
                                 # Lazy load all period IDs
                                 if all_period_ids is None:
-                                    all_period_ids = [
-                                        p.period_id for p in self.forecast_periods
-                                    ]
-                                    all_period_ids.extend(
-                                        [p.period_id for p in self.dynamic_periods]
-                                    )
+                                    all_period_ids = [p.period_id for p in self.forecast_periods]
+                                    all_period_ids.extend([p.period_id for p in self.dynamic_periods])
 
                                 forecast_periods = all_period_ids
                                 self._add_warning(
                                     "targets",
-                                    f"Target '{target_name}' missing 'for_forecast_periods', "
-                                    + "defaulting to all available periods",
+                                    f"Target '{target_name}' missing 'for_forecast_periods', " + "defaulting to all available periods",
                                 )
 
                             target = TargetConfig(
-                                target_key=config_dict["target_id"],
+                                target_id=config_dict["target_id"],
                                 task_display_string=config_dict["task_display_string"],
-                                target_key_name_for_task=config_dict[
-                                    "target_key_name_for_task"
-                                ],
+                                target_key_in_data=config_dict["target_key_in_data"],
                                 forecast_periods=forecast_periods,
                             )
                             targets.append(target)
-                            logger.info(
-                                f"  ✓ Parsed target: {target_name} → {target.target_key_name_for_task}"
-                            )
+                            logger.info(f"  ✓ Parsed target: {target_name}: Finding {target.target_key_in_data} in data. Target ID: {target.target_id}")
                         except KeyError as e:
                             self._add_error(
                                 "targets",
@@ -1130,23 +1045,15 @@ class DashboardConfig:
         as_of_col_val = target_mapping.get("as_of_col_name")
 
         # Check if using partitioned parquet
-        is_partitioned_parquet = (
-            self.target_data_file_format == "parquet" and self.is_partitioned_parquet
-        )
+        is_partitioned_parquet = self.target_data_file_format == "parquet" and self.is_partitioned_parquet
 
         if is_partitioned_parquet:
             # Partitioned parquet mode: use directory names for versioning
-            logger.info(
-                "  ✓ Using partitioned parquet: historical target-data will be loaded from subdirectories"
-            )
-            as_of_col_val = (
-                None  # Don't use as_of column, use directory-based versioning
-            )
+            logger.info("  ✓ Using partitioned parquet: historical target-data will be loaded from subdirectories")
+            as_of_col_val = None  # Don't use as_of column, use directory-based versioning
         elif as_of_col_val:
             # Single file (CSV or parquet) with as_of column: use column-based aggregation
-            logger.info(
-                f"  ✓ Using '{as_of_col_val}' column for historical target-data versioning"
-            )
+            logger.info(f"  ✓ Using '{as_of_col_val}' column for historical target-data versioning")
         else:
             # No historical data support
             logger.info("  ✓ No historical target-data versioning configured")
@@ -1158,20 +1065,12 @@ class DashboardConfig:
             location_name_col=target_mapping.get("location_name_col_name"),
             target_col=target_mapping.get("target_col_name"),
             as_of_col=as_of_col_val,
-            reference_date_col=model_output_mapping.get(
-                "reference_date_col_name", "reference_date"
-            ),
-            target_end_date_col=model_output_mapping.get(
-                "target_end_date_col_name", "target_end_date"
-            ),
+            reference_date_col=model_output_mapping.get("reference_date_col_name", "reference_date"),
+            target_end_date_col=model_output_mapping.get("target_end_date_col_name", "target_end_date"),
             model_target_col=model_output_mapping.get("target_col_name", "target"),
             horizon_col=model_output_mapping.get("horizon_col_name", "horizon"),
-            output_type_col=model_output_mapping.get(
-                "output_type_col_name", "output_type"
-            ),
-            output_type_id_col=model_output_mapping.get(
-                "output_type_id_col_name", "output_type_id"
-            ),
+            output_type_col=model_output_mapping.get("output_type_col_name", "output_type"),
+            output_type_id_col=model_output_mapping.get("output_type_id_col_name", "output_type_id"),
             value_col=model_output_mapping.get("value_col_name", "value"),
         )
 
@@ -1236,16 +1135,11 @@ class DashboardConfig:
                             output_type_ids = props_dict["uses_output_type_ids"]
 
                             # Validate quantile values
-                            invalid_quantiles = [
-                                q
-                                for q in output_type_ids
-                                if not self._is_valid_quantile(q)
-                            ]
+                            invalid_quantiles = [q for q in output_type_ids if not self._is_valid_quantile(q)]
                             if invalid_quantiles:
                                 self._add_error(
                                     "prediction_intervals",
-                                    f"Invalid quantile values for {level}% interval: {invalid_quantiles}. "
-                                    + "Quantiles must be between 0 and 1.",
+                                    f"Invalid quantile values for {level}% interval: {invalid_quantiles}. " + "Quantiles must be between 0 and 1.",
                                 )
                                 continue
 
@@ -1303,16 +1197,11 @@ class DashboardConfig:
                             output_type_ids = props_dict["uses_output_type_ids"]
 
                             # Validate quantile values
-                            invalid_quantiles = [
-                                q
-                                for q in output_type_ids
-                                if not self._is_valid_quantile(q)
-                            ]
+                            invalid_quantiles = [q for q in output_type_ids if not self._is_valid_quantile(q)]
                             if invalid_quantiles:
                                 self._add_warning(
                                     "evaluations_prediction_intervals",
-                                    f"Invalid quantile values for {level}% evaluation interval: {invalid_quantiles}. "
-                                    + "Quantiles must be between 0 and 1.",
+                                    f"Invalid quantile values for {level}% evaluation interval: {invalid_quantiles}. " + "Quantiles must be between 0 and 1.",
                                 )
                                 continue
 
@@ -1365,9 +1254,7 @@ class DashboardConfig:
         return len(self.validation_warnings) > 0
 
 
-def load_config(
-    config_path: Union[str, Path] = "config.yaml", dev_mode: bool = False
-) -> DashboardConfig:
+def load_config(config_path: Union[str, Path] = "config.yaml", dev_mode: bool = False) -> DashboardConfig:
     """
     Load and validate dashboard configuration
 
@@ -1390,18 +1277,13 @@ def load_config(
             error_count = len(config.validation_errors)
             warning_count = len(config.validation_warnings)
 
-            logger.error(
-                f"Configuration validation failed with {error_count} error(s) "
-                + f"and {warning_count} warning(s)"
-            )
+            logger.error(f"Configuration validation failed with {error_count} error(s) " + f"and {warning_count} warning(s)")
             raise ValueError("Invalid configuration - see errors above")
 
         # Log warnings if any
         if config.has_validation_warnings():
             warning_count = len(config.validation_warnings)
-            logger.warning(
-                f"Configuration loaded with {warning_count} warning(s) - see above"
-            )
+            logger.warning(f"Configuration loaded with {warning_count} warning(s) - see above")
 
         return config
 
@@ -1431,17 +1313,11 @@ def test_config_processor():
 
         # Show location data info
         if config.is_single_location:
-            location_name = config.location_mapping.get(
-                config.single_location_mapping, "Unknown"
-            )
-            print(
-                f"✓ Single location mode: {config.single_location_mapping} ({location_name})"
-            )
+            location_name = config.location_mapping.get(config.single_location_mapping, "Unknown")
+            print(f"✓ Single location mode: {config.single_location_mapping} ({location_name})")
         else:
             print("✓ Multi-location mode: will auto-detect from data files")
-            print(
-                f"✓ Location mapping reference loaded: {len(config.location_mapping)} locations"
-            )
+            print(f"✓ Location mapping reference loaded: {len(config.location_mapping)} locations")
 
         if config.has_validation_warnings():
             print(f"⚠ {len(config.validation_warnings)} warnings (see above)")

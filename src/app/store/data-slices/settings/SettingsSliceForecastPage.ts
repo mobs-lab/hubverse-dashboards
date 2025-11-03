@@ -9,7 +9,7 @@ interface ForecastSettingsState {
   selectedModels: string[];
 
   // Target selection
-  selectedTargetIds: string[];
+  selectedTargetId: string;
 
   // Horizon selection
   selectedHorizons: number[];
@@ -37,7 +37,7 @@ interface ForecastSettingsState {
 const initialState: ForecastSettingsState = {
   selectedLocationCode: 'US',
   selectedModels: [],
-  selectedTargetIds: [],
+  selectedTargetId: '',
   selectedHorizons: [],
   selectedForecastPeriod: null,
   timeFilterRangeStart: new Date(),
@@ -59,26 +59,19 @@ const forecastSettingsSlice = createSlice({
       action: PayloadAction<{
         locationCode?: string;
         models: string[];
-        targets: string[];
+        target: string;
         horizons: number[];
         forecastPeriod: ForecastPeriod;
         predictionIntervals: string[];
         selectedDate?: Date;
       }>
     ) => {
-      const {
-        locationCode,
-        models,
-        targets,
-        horizons,
-        forecastPeriod,
-        predictionIntervals,
-        selectedDate,
-      } = action.payload;
+      const { locationCode, models, target, horizons, forecastPeriod, predictionIntervals, selectedDate } =
+        action.payload;
 
       state.selectedLocationCode = locationCode || 'US';
       state.selectedModels = models;
-      state.selectedTargetIds = targets;
+      state.selectedTargetId = target;
       state.selectedHorizons = horizons;
       state.selectedForecastPeriod = forecastPeriod;
       state.timeFilterRangeStart = forecastPeriod.startDate;
@@ -114,8 +107,8 @@ const forecastSettingsSlice = createSlice({
     },
 
     // Targets
-    updateSelectedTargets: (state, action: PayloadAction<string[]>) => {
-      state.selectedTargetIds = action.payload;
+    updateSelectedTarget: (state, action: PayloadAction<string>) => {
+      state.selectedTargetId = action.payload;
     },
 
     // Horizons
@@ -166,7 +159,7 @@ export const {
   updateSelectedLocation,
   updateSelectedState,
   updateSelectedModels,
-  updateSelectedTargets,
+  updateSelectedTarget,
   updateSelectedHorizons,
   updateSelectedForecastPeriod,
   updateTimeFilterStart,

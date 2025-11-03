@@ -50,6 +50,11 @@ class DataProcessor:
         self.fixed_target_data = None
         self.model_output_unpivoted = None  # Keep unpivoted data for evaluations
 
+        # Create a mapping from the raw target key in data to the corresponding targetId
+        self.target_key_to_id_map = {
+            t.target_key_in_data: t.target_id for t in self.config.targets
+        }
+
         # Initialize evaluation processor (only if evaluations are enabled)
         if not skip_evaluations:
             self.evaluation_processor = EvaluationProcessor(config=config, baseline_model=config.baseline_model_for_relative_wis)
@@ -77,7 +82,7 @@ class DataProcessor:
             logger.info("Writing output to: test-data-output/")
             self.target_data_path = self.project_root / "test-data-input" / "target-data"
             self.model_output_path = self.project_root / "test-data-input" / "model-output"
-            self.output_base_path = self.project_root / "test-data-output"
+            self.output_base_path = self.project_root / "public" / "test-data-output"
         else:
             self.target_data_path = self.project_root / "target-data"
             self.model_output_path = self.project_root / "model-output"
@@ -470,9 +475,11 @@ class DataProcessor:
                     if "location_name" in row and pd.notna(row["location_name"]):
                         data_entry["location_name"] = str(row["location_name"])
 
-                    # Add target if available
+                    # Add target if available, mapping to target_id for consistency
                     if "target" in row and pd.notna(row["target"]):
-                        data_entry["target"] = str(row["target"])
+                        raw_target_key = str(row["target"])
+                        target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
+                        data_entry["target"] = target_id
 
                     location_map[location_key] = data_entry
 
@@ -609,7 +616,8 @@ class DataProcessor:
         for target in self.config.targets:
             targets_info.append(
                 {
-                    "targetId": target.target_key,
+                    "targetId": target.target_id,
+                    "targetKeyInData": target.target_key_in_data,
                     "displayString": target.task_display_string,
                     "forecastPeriods": target.forecast_periods,
                 }
@@ -720,7 +728,7 @@ class DataProcessor:
     def _process_target_data_by_forecast_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
         Structure ground truth (target) data by forecast periods.
-        Returns: Map<period_id, Map<date, Map<location, data>>>
+        Returns: Map<period_id, Map<location, Map<date, Map<target, data>>>>
         """
         logger.info("Processing ground truth data by forecast periods...")
         ground_truth_by_period = {}
@@ -737,33 +745,48 @@ class DataProcessor:
             # Filter target data for this period
             period_target_data = target_data_df[(target_data_df["date"] >= start) & (target_data_df["date"] <= end)].copy()
 
-            # Structure as Map<date, Map<location, data>>
+            # Structure as Map<location, Map<date, Map<target, data>>>
             period_dict = {}
-            for date in period_target_data["date"].unique():
-                date_iso = pd.to_datetime(date).strftime("%Y-%m-%d")
-                date_records = period_target_data[period_target_data["date"] == date]
 
-                location_dict = {}
-                for _, row in date_records.iterrows():
-                    if "location" in row:
-                        location_key = str(row["location"]).zfill(2)
-                    else:
-                        location_key = "US"
+            group_cols = []
+            if "location" in period_target_data.columns:
+                group_cols.append("location")
+            if "date" in period_target_data.columns:
+                group_cols.append("date")
+            if "target" in period_target_data.columns:
+                group_cols.append("target")
 
-                    data_entry = {
-                        "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= 0 else None,
-                    }
+            # Efficiently group and structure data
+            for _, row in period_target_data.iterrows():
+                location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
+                date_iso = pd.to_datetime(row["date"]).strftime("%Y-%m-%d")
+                target_key = str(row.get("target", self.config.targets[0].target_id if self.config.targets else "default"))
 
-                    # Add optional fields
-                    if "location_name" in row and pd.notna(row["location_name"]):
-                        data_entry["location_name"] = str(row["location_name"])
+                data_entry = {
+                    "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= 0 else None,
+                }
 
-                    if "target" in row and pd.notna(row["target"]):
-                        data_entry["target"] = str(row["target"])
+                if "location_name" in row and pd.notna(row["location_name"]):
+                    data_entry["location_name"] = str(row["location_name"])
 
-                    location_dict[location_key] = data_entry
+                # Create nested dictionaries
+                if location_key not in period_dict:
+                    period_dict[location_key] = {}
+                if date_iso not in period_dict[location_key]:
+                    period_dict[location_key][date_iso] = {}
 
-                period_dict[date_iso] = location_dict
+                # Use the canonical targetId as the key
+                raw_target_key = str(
+                    row.get(
+                        'target',
+                        self.config.targets[0].target_key_in_data
+                        if self.config.targets
+                        else 'default',
+                    )
+                )
+                target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
+
+                period_dict[location_key][date_iso][target_id] = data_entry
 
             ground_truth_by_period[period.period_id] = period_dict
 
@@ -773,7 +796,7 @@ class DataProcessor:
     def _process_model_output_by_periods(self, model_output_df: pd.DataFrame, target_data_df: pd.DataFrame) -> dict:
         """
         Structure model predictions output by forecast periods.
-        Returns: Map<period_id, Map<model, Map<reference_date, Map<location, predictions>>>>
+        Returns: Map<period_id, Map<model, Map<location, Map<reference_date, Map<target_date, predictions>>>>>
         """
         logger.info("Processing predictions data by forecast periods...")
         model_output_by_period = {}
@@ -794,51 +817,53 @@ class DataProcessor:
             valid_model_targets = []
             for target in self.config.targets:
                 if period.period_id in target.forecast_periods:
-                    valid_model_targets.append(target.target_key_name_for_task)
+                    valid_model_targets.append(target.target_key_in_data)
 
             # Filter by valid targets if not single target mode
             if not self.config.is_single_target and "target" in period_model_output.columns and valid_model_targets:
                 period_model_output = period_model_output[period_model_output["target"].isin(valid_model_targets)]
 
-            # Structure as Map<model, Map<reference_date, Map<location, Map<target_date, prediction>>>>
+            # Structure as Map<model, Map<location, Map<reference_date, Map<target_date, prediction>>>>
             period_dict = {}
 
             for model_name in period_model_output["model"].unique():
                 model_data = period_model_output[period_model_output["model"] == model_name]
                 model_dict = {}
 
-                for ref_date in model_data["reference_date"].unique():
-                    ref_date_iso = pd.to_datetime(ref_date).strftime("%Y-%m-%d")
-                    ref_date_data = model_data[model_data["reference_date"] == ref_date]
+                for location in model_data["location"].unique():
+                    location_key = str(location).zfill(2)
+                    location_data = model_data[model_data["location"] == location]
                     location_dict = {}
 
-                    for location in ref_date_data["location"].unique():
-                        location_key = str(location).zfill(2)
-                        location_data = ref_date_data[ref_date_data["location"] == location]
+                    for ref_date in location_data["reference_date"].unique():
+                        ref_date_iso = pd.to_datetime(ref_date).strftime("%Y-%m-%d")
+                        ref_date_data = location_data[location_data["reference_date"] == ref_date]
                         predictions_dict = {}
 
-                        for _, row in location_data.iterrows():
+                        for _, row in ref_date_data.iterrows():
                             target_date_iso = pd.to_datetime(row["target_end_date"]).strftime("%Y-%m-%d")
 
                             pred_entry = {
                                 "horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None,
                             }
 
-                            # Add quantile columns if they exist
                             quantile_cols = [col for col in row.index if col.startswith("q")]
                             for q_col in quantile_cols:
                                 if pd.notna(row[q_col]):
                                     pred_entry[q_col] = float(row[q_col])
 
-                            # Add target if available
                             if "target" in row and pd.notna(row["target"]):
-                                pred_entry["target"] = str(row["target"])
+                                raw_target_key = str(row["target"])
+                                target_id = self.target_key_to_id_map.get(
+                                    raw_target_key, raw_target_key
+                                )
+                                pred_entry["targetId"] = target_id
 
                             predictions_dict[target_date_iso] = pred_entry
 
-                        location_dict[location_key] = {"predictions": predictions_dict}
+                        location_dict[ref_date_iso] = {"predictions": predictions_dict}
 
-                    model_dict[ref_date_iso] = location_dict
+                    model_dict[location_key] = location_dict
 
                 period_dict[model_name] = model_dict
 
@@ -873,7 +898,7 @@ class DataProcessor:
             valid_model_targets = []
             for target in self.config.targets:
                 if period.period_id in target.forecast_periods:
-                    valid_model_targets.append(target.target_key_name_for_task)
+                    valid_model_targets.append(target.target_key_in_data)
 
             # Filter by valid targets if not single target mode
             if not self.config.is_single_target and "target" in period_model_output.columns and valid_model_targets:

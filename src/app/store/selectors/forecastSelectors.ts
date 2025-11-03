@@ -10,7 +10,8 @@ import { TargetData } from '@/types/domains/forecasting';
 
 export const selectConfig = (state: RootState) => state.configStore.config;
 
-export const selectLocationMapping = (state: RootState) => state.auxiliaryDataStore.locationMapping;
+export const selectLocationMapping = (state: RootState) =>
+  state.configStore.config?.locationMapping ?? {};
 
 export const selectForecastPeriodOptions = (state: RootState) =>
   state.auxiliaryDataStore.forecastPeriodOptions;
@@ -19,7 +20,8 @@ export const selectTargetData = (state: RootState) => state.coreDataStore.target
 
 export const selectModelOutput = (state: RootState) => state.coreDataStore.modelOutputCollection;
 
-export const selectHistoricalTargetData = (state: RootState) => state.historicalTargetDataStore.data;
+export const selectHistoricalTargetData = (state: RootState) =>
+  state.historicalTargetDataStore.data;
 
 export const selectForecastSettings = (state: RootState) => state.forecastSettings;
 
@@ -33,14 +35,15 @@ export const selectEvaluationsEnabled = (state: RootState) =>
 export const selectModelNames = (state: RootState) =>
   state.configStore.config?.models.map((m) => m.modelName) ?? [];
 
-export const selectModelColorMap = (state: RootState) => state.configStore.config?.modelColorMap ?? {};
+export const selectModelColorMap = (state: RootState) =>
+  state.configStore.config?.modelColorMap ?? {};
 
 export const selectHorizons = (state: RootState) => state.configStore.config?.horizons ?? [];
 
 export const selectPredictionIntervalOptions = (state: RootState) =>
   state.configStore.config?.predictionIntervals ?? [];
 
-export const selectTargets = (state: RootState) => state.configStore.config?.targets ?? [];
+export const selectTargets = (state: RootState) => state.configStore.config?.targets?.list ?? [];
 
 export const selectTimeUnit = (state: RootState) => state.configStore.config?.timeUnit ?? 7;
 
@@ -86,41 +89,55 @@ export const selectTargetDataFiltered = createSelector(
     selectTargetData,
     (state: RootState) => state.forecastSettings.selectedForecastPeriod,
     (state: RootState) => state.forecastSettings.selectedLocationCode,
-    (state: RootState) => state.forecastSettings.selectedTargetIds,
+    (state: RootState) => state.forecastSettings.selectedTargetId,
     (state: RootState) => state.forecastSettings.timeFilterRangeStart,
     (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
   ],
-  (targetData, forecastPeriod, locationCode, targetIds, startDate, endDate) => {
-    if (!forecastPeriod) return [];
+  (targetData, forecastPeriod, locationCode, selectedTargetId, startDate, endDate) => {
+    if (!forecastPeriod) {
+      console.warn('[selectTargetDataFiltered] No forecastPeriod selected. Returning [].');
+      return [];
+    }
 
     const periodData = targetData[forecastPeriod.forecastPeriodId];
-    if (!periodData || !periodData[locationCode]) return [];
+    if (!periodData) {
+      console.warn(
+        `[selectTargetDataFiltered] No data found for forecast period: ${forecastPeriod.forecastPeriodId}. Returning [].`
+      );
+      return [];
+    }
+    const periodDataByLocation = periodData[locationCode];
 
-    const locationData = periodData[locationCode];
-
+    if (!periodDataByLocation) {
+      console.warn(
+        `[selectTargetDataFiltered] No data found for locationCode: ${locationCode}. Returning [].`
+      );
+      return [];
+    }
     // Filter by date range and targets
     const filtered: Array<{
-      date: string;
+      date: Date;
       targetId: string;
-      observation: number;
+      observation: number | null;
     }> = [];
+    Object.entries(periodDataByLocation).forEach(([dateStr, dateData]) => {
+      const safeDate = new Date(dateStr + 'T00:00:00Z'); // Treat date string as UTC
+      const isDateInRange = safeDate >= startDate && safeDate <= endDate;
+      if (isDateInRange) {
+        Object.entries(dateData).forEach(([targetId, targetValue]) => {
+          const isTargetIncluded = targetId === selectedTargetId;
 
-    Object.entries(locationData).forEach(([dateStr, dateData]) => {
-      const date = new Date(dateStr);
-      if (date >= startDate && date <= endDate) {
-        Object.entries(dateData).forEach(([targetId, targetData]) => {
-          if (targetIds.includes(targetId)) {
+          if (isTargetIncluded) {
             filtered.push({
-              date: dateStr,
+              date: safeDate,
               targetId,
-              observation: targetData.observation,
+              observation: targetValue.observation,
             });
           }
         });
       }
     });
-
-    return filtered.sort((a, b) => a.date.localeCompare(b.date));
+    return filtered.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
 );
 
@@ -137,114 +154,65 @@ export const selectModelOutputFiltered = createSelector(
     (state: RootState) => state.forecastSettings.selectedForecastPeriod,
     (state: RootState) => state.forecastSettings.selectedLocationCode,
     (state: RootState) => state.forecastSettings.selectedModels,
-    (state: RootState) => state.forecastSettings.selectedTargetIds,
+    (state: RootState) => state.forecastSettings.selectedTargetId,
     (state: RootState) => state.forecastSettings.selectedHorizons,
-    (state: RootState) => state.forecastSettings.timeFilterRangeStart,
-    (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
+    (state: RootState) => state.forecastSettings.userSelectedDate,
   ],
   (
     modelOutput,
     forecastPeriod,
     locationCode,
     selectedModels,
-    selectedTargets,
+    selectedTargetId,
     selectedHorizons,
-    startDate,
-    endDate
+    userSelectedDate
   ) => {
-    if (!forecastPeriod) return {};
+    if (!forecastPeriod) {
+      console.warn('[selectModelOutputFiltered] No forecastPeriod selected. Returning {}.');
+      return {};
+    }
 
     const periodData = modelOutput[forecastPeriod.forecastPeriodId];
-    if (!periodData) return {};
+    if (!periodData) {
+      console.warn(
+        `[selectModelOutputFiltered] No data for forecast period: ${forecastPeriod.forecastPeriodId}. Returning {}.`
+      );
+      return {};
+    }
 
-    const filtered: any = {};
+    const filteredOutput: any = {};
+    const referenceDateStr = userSelectedDate.toISOString().split('T')[0];
 
     selectedModels.forEach((modelName) => {
-      if (!periodData[modelName]) return;
-
-      const modelData = periodData[modelName];
-      if (!modelData[locationCode]) return;
-
-      const locationData = modelData[locationCode];
-
-      filtered[modelName] = {};
-
-      Object.entries(locationData).forEach(([refDate, refDateData]) => {
-        const date = new Date(refDate);
-        if (date >= startDate && date <= endDate) {
-          filtered[modelName][refDate] = {};
-
-          selectedHorizons.forEach((horizon) => {
-            if (refDateData[horizon]) {
-              filtered[modelName][refDate][horizon] = {};
-
-              selectedTargets.forEach((targetId) => {
-                if (refDateData[horizon][targetId]) {
-                  filtered[modelName][refDate][horizon][targetId] = refDateData[horizon][targetId];
-                }
-              });
-            }
+      const modelData = periodData[modelName]?.[locationCode]?.[referenceDateStr];
+      if (modelData?.predictions) {
+        const predictionsForModel: any = {};
+        Object.entries(modelData.predictions).forEach(([targetDate, prediction]) => {
+          // DEBUG: Peek at each (targetDate, prediction) object
+          console.log('[selectModelOutputFiltered] Peek at each (targetDate, prediction) object:', {
+            targetDate,
+            prediction,
           });
-        }
-      });
-    });
+          // Filter by horizon
+          const isHorizonIncluded =
+            prediction.horizon && selectedHorizons.includes(prediction.horizon);
+          // Filter by target
+          const isTargetIncluded = prediction.targetId === selectedTargetId;
 
-    return filtered;
-  }
-);
-
-/**
- * Get predictions for a specific reference date (for chart interaction)
- */
-export const selectPredictionsForReferenceDate = (referenceDate: Date) =>
-  createSelector(
-    [
-      selectModelOutput,
-      (state: RootState) => state.forecastSettings.selectedForecastPeriod,
-      (state: RootState) => state.forecastSettings.selectedLocationCode,
-      (state: RootState) => state.forecastSettings.selectedModels,
-      (state: RootState) => state.forecastSettings.selectedTargetIds,
-      selectHorizons,
-      selectTimeUnit,
-    ],
-    (modelOutput, forecastPeriod, locationCode, models, targets, allHorizons, timeUnit) => {
-      if (!forecastPeriod) return {};
-
-      const periodData = modelOutput[forecastPeriod.forecastPeriodId];
-      if (!periodData) return {};
-
-      const refDateStr = referenceDate.toISOString().split('T')[0];
-      const result: any = {};
-
-      models.forEach((modelName) => {
-        const modelData = periodData[modelName]?.[locationCode]?.[refDateStr];
-        if (!modelData) return;
-
-        result[modelName] = {};
-
-        allHorizons.forEach((horizon) => {
-          if (modelData[horizon]) {
-            result[modelName][horizon] = {};
-
-            targets.forEach((targetId) => {
-              if (modelData[horizon][targetId]) {
-                // Calculate target date from reference date + horizon
-                const targetDate = new Date(referenceDate);
-                targetDate.setDate(targetDate.getDate() + horizon * timeUnit);
-
-                result[modelName][horizon][targetId] = {
-                  ...modelData[horizon][targetId],
-                  targetDate: targetDate.toISOString().split('T')[0],
-                };
-              }
-            });
+          if (isHorizonIncluded && isTargetIncluded) {
+            predictionsForModel[targetDate] = prediction;
           }
         });
-      });
 
-      return result;
-    }
-  );
+        if (Object.keys(predictionsForModel).length > 0) {
+          filteredOutput[modelName] = predictionsForModel;
+        }
+      }
+    });
+
+    return filteredOutput;
+  }
+);
 
 // ============================================
 // Historical Target Data Selectors
@@ -256,46 +224,37 @@ export const selectPredictionsForReferenceDate = (referenceDate: Date) =>
 export const selectHistoricalAsOfDates = createSelector(
   [selectHistoricalTargetData],
   (historicalData): string[] => {
-    return Object.keys(historicalData).sort();
+    if (!historicalData) return [];
+    return Object.keys(historicalData).sort((a, b) => b.localeCompare(a));
   }
 );
 
 /**
- * Get historical target data for a specific as_of date
+ * Get historical target data for a specific as_of date, location, and targets
+ * Backend structure: as_of -> date -> location -> {observation, target}
  */
-export const selectHistoricalDataForAsOfDate = (asOfDate: string) =>
-  createSelector(
-    [
-      selectHistoricalTargetData,
-      (state: RootState) => state.forecastSettings.selectedLocationCode,
-      (state: RootState) => state.forecastSettings.selectedTargetIds,
-    ],
-    (historicalData, locationCode, targetIds) => {
-      const asOfData = historicalData[asOfDate];
-      if (!asOfData || !asOfData[locationCode]) return [];
+export const selectHistoricalDataPoint = createSelector(
+  [
+    selectHistoricalTargetData,
+    (state: RootState) => state.forecastSettings.selectedHistoricalAsOfDate,
+    (state: RootState) => state.forecastSettings.selectedLocationCode,
+    (state: RootState) => state.forecastSettings.selectedTargetId,
+    (state: RootState, date: Date) => date, // Pass date as an argument to the selector
+  ],
+  (historicalData, asOfDate, locationCode, targetId, date) => {
+    if (!historicalData || !asOfDate) return null;
 
-      const locationData = asOfData[locationCode];
-      const result: Array<{
-        date: string;
-        targetId: string;
-        observation: number;
-      }> = [];
+    const dateStr = date.toISOString().split('T')[0];
+    const locationData = historicalData[asOfDate]?.[dateStr]?.[locationCode];
 
-      Object.entries(locationData).forEach(([dateStr, dateData]) => {
-        Object.entries(dateData).forEach(([targetId, targetData]) => {
-          if (targetIds.includes(targetId)) {
-            result.push({
-              date: dateStr,
-              targetId,
-              observation: targetData.observation,
-            });
-          }
-        });
-      });
+    if (!locationData) return null;
 
-      return result.sort((a, b) => a.date.localeCompare(b.date));
-    }
-  );
+    // Check if the target matches (target is embedded in the data entry)
+    if (locationData.target && locationData.target !== targetId) return null;
+
+    return locationData.observation ?? null;
+  }
+);
 
 // ============================================
 // Date Constraint Selectors

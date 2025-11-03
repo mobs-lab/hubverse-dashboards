@@ -4,6 +4,7 @@ import { getDataPath, initializeDevMode } from '@/config/devMode';
 import { setMapData } from '@/store/data-slices/domains/auxiliaryDataSlice';
 import { DashboardConfig, setDashboardConfig } from '@/store/data-slices/domains/configSlice';
 import { setAllCoreData } from '@/store/data-slices/domains/coreDataSlice';
+import { setHistoricalTargetData } from '@/store/data-slices/domains/historicalTargetDataSlice';
 import { initializeForecastSettings } from '@/store/data-slices/settings/SettingsSliceForecastPage';
 import { useAppDispatch } from '@/store/hooks';
 import { LoadingStates } from '@/types/app';
@@ -16,6 +17,7 @@ interface DataContextType {
   isFullyLoaded: boolean;
   updateLoadingState: (key: keyof LoadingStates, value: boolean) => void;
   initializationError: string | null;
+  loadHistoricalDataIfNeeded: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -39,6 +41,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateLoadingState = useCallback((key: keyof LoadingStates, value: boolean) => {
     setLoadingStates((prev) => ({ ...prev, [key]: value }));
   }, []);
+
+  /**
+   * Lazy load historical target data when toggle is enabled
+   */
+  const loadHistoricalDataIfNeeded = useCallback(async () => {
+    // Check if already loaded
+    if (loadingStates.historicalTargetData) {
+      logger.info('Historical data is already loading...');
+      return;
+    }
+
+    try {
+      updateLoadingState('historicalTargetData', true);
+      logger.info('Loading historical target data...');
+      
+      const historicalData = await loadHistoricalTargetData();
+      dispatch(setHistoricalTargetData(historicalData));
+      
+      logger.info('Historical target data loaded successfully');
+      updateLoadingState('historicalTargetData', false);
+    } catch (error) {
+      logger.error('Failed to load historical target data:', error);
+      updateLoadingState('historicalTargetData', false);
+      // Don't throw error - historical data is optional
+    }
+  }, [dispatch, loadingStates.historicalTargetData, updateLoadingState]);
 
   /**
    * Load and parse dashboard metadata from Python processor
@@ -90,6 +118,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
+   * Load historical target data (lazy loaded when toggle is enabled)
+   */
+  const loadHistoricalTargetData = async (): Promise<any> => {
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/historical-target-data/historical-target-data.json`);
+    if (!response.ok) {
+      throw new Error(`Failed to load historical target data: ${response.statusText}`);
+    }
+    return response.json();
+  };
+
+  /**
    * Build config object from metadata
    */
   const buildConfigFromMetadata = (metadata: any): DashboardConfig => {
@@ -122,6 +162,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targets =
       metadata.targets?.list?.map((t: any) => ({
         targetId: t.targetId,
+        targetKeyInData: t.targetKeyInData,
         displayString: t.displayString,
       })) || [];
 
@@ -135,6 +176,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       // Feature flags from metadata.features
       evaluationsEnabled: metadata.features?.evaluationsEnabled ?? false,
+      historicalTargetDataEnabled: metadata.features?.historicalTargetDataEnabled ?? false,
       nowcastEnabled: false, // Explicitly disabled for generalized version
 
       // Spatial configuration from metadata.spatial
@@ -251,9 +293,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logger.log('Initializing forecast settings...');
         dispatch(
           initializeForecastSettings({
-            locationCode: config.singleLocationCode || 'US',
+            locationCode: config.isSingleLocation ? config.singleLocationCode : '25',
             models: config.models.map((m) => m.modelName),
-            targets: [config.defaultTargetId],
+            target: config.defaultTargetId,
             horizons: config.horizons,
             forecastPeriod: defaultPeriod,
             predictionIntervals: config.defaultPredictionIntervals,
@@ -289,6 +331,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isFullyLoaded,
         updateLoadingState,
         initializationError,
+        loadHistoricalDataIfNeeded,
       }}
     >
       {/* Show error message about initialization process and offer for user to reload */}

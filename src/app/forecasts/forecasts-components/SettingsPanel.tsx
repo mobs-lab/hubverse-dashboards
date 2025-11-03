@@ -9,7 +9,7 @@ import {
   updateSelectedLocation,
   updateSelectedModels,
   updateSelectedPredictionIntervals,
-  updateSelectedTargets,
+  updateSelectedTarget,
   updateTimeFilterEnd,
   updateTimeFilterStart,
   updateYScale,
@@ -49,7 +49,7 @@ const SettingsPanel: React.FC = () => {
     selectedLocationCode,
     selectedModels,
     selectedHorizons: selectedHorizonsList,
-    selectedTargetIds,
+    selectedTargetId,
     timeFilterRangeStart: dateStart,
     timeFilterRangeEnd: dateEnd,
     selectedPredictionIntervals,
@@ -59,6 +59,7 @@ const SettingsPanel: React.FC = () => {
 
   // Check if we have multiple targets to display
   const hasMultipleTargets = targets.length > 1;
+  const isSingleLocation = config?.isSingleLocation ?? false;
 
   // Local state for UI interactions
   const [isModelListExpanded, setIsModelListExpanded] = useState(false);
@@ -153,12 +154,8 @@ const SettingsPanel: React.FC = () => {
     }
   };
 
-  const onTargetSelectionChange = (targetId: string, checked: boolean) => {
-    if (checked) {
-      dispatch(updateSelectedTargets([...selectedTargetIds, targetId]));
-    } else {
-      dispatch(updateSelectedTargets(selectedTargetIds.filter((t) => t !== targetId)));
-    }
+  const onTargetSelectionChange = (targetId: string) => {
+    dispatch(updateSelectedTarget(targetId));
   };
 
   const handleShowAllModels = () => {
@@ -169,37 +166,39 @@ const SettingsPanel: React.FC = () => {
     <div className="bg-mobs-lab-color-filterspane text-white fill-white flex-col h-full w-full rounded-md overflow-scroll util-responsive-text-settings">
       {/* <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length"> */}
       {/* Location Selector */}
-      <div className="mb-6 w-full justify-stretch items-stretch">
-        <Typography variant="h6" className="text-white" placeholder="">
-          Select Location
-        </Typography>
+      {!isSingleLocation && (
+        <div className="mb-6 w-full justify-stretch items-stretch">
+          <Typography variant="h6" className="text-white" placeholder="">
+            Select Location
+          </Typography>
 
-        <div className="w-full">
-          <SettingsStateMap pageSelected="forecast" />
+          <div className="w-full">
+            <SettingsStateMap pageSelected="forecast" />
+          </div>
+
+          {/* Location search input */}
+          <input
+            type="text"
+            placeholder="Search locations..."
+            value={locationSearchText}
+            onChange={(e) => setLocationSearchText(e.target.value)}
+            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mb-2"
+          />
+
+          {/* Location dropdown */}
+          <select
+            value={selectedLocationCode}
+            onChange={(e) => onLocationChange(e.target.value)}
+            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-4 px-2 overflow-ellipsis"
+          >
+            {filteredLocations.map((location: { code: string; name: string; nameAlt?: string }) => (
+              <option key={location.code} value={location.code}>
+                {location.name}
+              </option>
+            ))}
+          </select>
         </div>
-
-        {/* Location search input */}
-        <input
-          type="text"
-          placeholder="Search locations..."
-          value={locationSearchText}
-          onChange={(e) => setLocationSearchText(e.target.value)}
-          className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mb-2"
-        />
-
-        {/* Location dropdown */}
-        <select
-          value={selectedLocationCode}
-          onChange={(e) => onLocationChange(e.target.value)}
-          className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-4 px-2 overflow-ellipsis"
-        >
-          {filteredLocations.map((location: { code: string; name: string; nameAlt?: string }) => (
-            <option key={location.code} value={location.code}>
-              {location.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      )}
 
       {/* Models Selector with Collapsible List */}
       <div className="mb-2 w-full overflow-ellipsis">
@@ -307,29 +306,24 @@ const SettingsPanel: React.FC = () => {
       </div>
 
       {/* Target Selector - Only show if multiple targets exist */}
-      {hasMultipleTargets && (
+      {hasMultipleTargets ? (
         <div className="mb-4 w-full">
           <Typography variant="h6" className="text-white mb-2" placeholder="">
-            Targets
+            Target
           </Typography>
-          <div className="space-y-2">
+          <select
+            value={selectedTargetId}
+            onChange={(e) => onTargetSelectionChange(e.target.value)}
+            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2"
+          >
             {targets.map((target) => (
-              <label
-                key={target.targetId}
-                className="flex items-center text-white hover:bg-gray-700 rounded cursor-pointer px-2 py-1"
-              >
-                <input
-                  type="checkbox"
-                  className="form-checkbox text-blue-600 mr-2"
-                  checked={selectedTargetIds.includes(target.targetId)}
-                  onChange={(e) => onTargetSelectionChange(target.targetId, e.target.checked)}
-                />
-                <span className="xs:text-sm">{target.displayString}</span>
-              </label>
+              <option key={target.targetId} value={target.targetId}>
+                {target.displayString}
+              </option>
             ))}
-          </div>
+          </select>
         </div>
-      )}
+      ) : null}
 
       {/* Horizon Selector - Dropdown */}
       <div className="mb-4 flex-col">
@@ -341,7 +335,7 @@ const SettingsPanel: React.FC = () => {
         </div>
 
         <select
-          value={selectedHorizonsList[0] || horizons[0]}
+          value={selectedHorizonsList[0] ?? horizons[0]}
           onChange={onHorizonChange}
           className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mt-2"
         >

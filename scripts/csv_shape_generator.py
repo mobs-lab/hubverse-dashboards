@@ -77,7 +77,7 @@ class CSVShapeGenerator:
                         "description": "Target identifier",
                         "example": self.config.targets[
                             0
-                        ].target_key_name_for_task
+                        ].target_key_in_data
                         if self.config.targets
                         else "target_value",
                     }
@@ -151,7 +151,7 @@ class CSVShapeGenerator:
 
         if not self.config.is_single_target and self.config.column_mapping.target_col:
             target_value = (
-                self.config.targets[0].target_key_name_for_task
+                self.config.targets[0].target_key_in_data
                 if self.config.targets
                 else "target_value"
             )
@@ -193,7 +193,7 @@ class CSVShapeGenerator:
             {
                 "user_name": self.config.column_mapping.model_target_col,
                 "description": "Target identifier",
-                "example": self.config.targets[0].target_key_name_for_task
+                "example": self.config.targets[0].target_key_in_data
                 if self.config.targets
                 else "target_value",
             }
@@ -244,7 +244,7 @@ class CSVShapeGenerator:
 
         # Get expected values
         expected_targets = [
-            t.target_key_name_for_task for t in self.config.targets
+            t.target_key_in_data for t in self.config.targets
         ]
         expected_horizons = self.config.horizons
         expected_quantiles = self.config.get_all_quantiles()
@@ -302,7 +302,7 @@ class CSVShapeGenerator:
 
         # Generate 4 rows for EACH target
         for target in self.config.targets:
-            target_value = target.target_key_name_for_task
+            target_value = target.target_key_in_data
 
             # Generate 4 diverse sample rows for this target
             # Strategy: Mix different horizons and quantiles
@@ -554,7 +554,7 @@ class CSVShapeGenerator:
         print(f"✓ Targets: {len(self.config.targets)} modelling task(s)")
         for target in self.config.targets:
             print(
-                f"    - ({target.task_display_string}) → {target.target_key_name_for_task}"
+                f"    - ({target.task_display_string}) → {target.target_key_in_data}"
             )
         print(f"✓ Models: {len(self.config.models)} model(s) configured")
         for model in self.config.models:

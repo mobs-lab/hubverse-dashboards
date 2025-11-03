@@ -65,4 +65,4 @@ Then follow your Git Hosting Service's guide to push your new local repo to the 
 Maintain the supposed structure of data (`/target-data`, `/model-output`, etc.), and put
 **Input Data In:** `/test-data-input/`
 
-Then use the dashboard builder script and select option 2.
+And make sure to use the development mode when running dashboard builder script (Option 3 or 4).

@@ -39,7 +39,8 @@ export interface TargetData {
   [locationCode: string]: {
     [date: string]: {
       [targetId: string]: {
-        observation: number;
+        observation: number | null;
+        location_name?: string;
       };
     };
   };
@@ -50,34 +51,39 @@ export interface TargetDataCollection {
   [forecastPeriodId: string]: TargetData;
 }
 
-// Historical Target-Data: Entire Collection organized by associated Date (as_of date)
+// Historical Target-Data: Entire Collection organized by as_of date
+// Structure: as_of -> date -> location -> {observation, target}
 export interface HistoricalTargetDataCollection {
-  [asOfDate: string]: TargetData;
+  [asOfDate: string]: {
+    [date: string]: {
+      [locationCode: string]: {
+        observation: number | null;
+        location_name?: string;
+        target?: string;
+      };
+    };
+  };
 }
 
 // Model Output Interfaces
 // ---------------------------
-// A single round's model output containing all default value and the user-specified prediction intervals.
-export interface ModelOutputRoundDataPoint {
-  value: number; // The default value to display as dots, usually median
-  predictionIntervalData: ModelOutputPredictionInterval[];
+
+// A single prediction data point from a model
+export interface PredictionPoint {
+  horizon: number | null;
+  targetId?: string;
+  // Allows for dynamic quantile keys like 'q0_025', 'q0_5', 'q0_975'
+  [key: string]: number | string | null | undefined;
 }
 
-// One prediction interval's info
-export interface ModelOutputPredictionInterval {
-  predictionIntervalName: string;
-  predictionIntervalQuantileLow: number;
-  predictionIntervalQuantileHigh: number;
-}
-
-// Collection of all model output data
+// Collection of all model output data, structured for the frontend
 export interface ModelOutputCollection {
   [forecastPeriodId: string]: {
     [modelName: string]: {
       [locationCode: string]: {
         [referenceDate: string]: {
-          [horizon: number]: {
-            [targetId: string]: ModelOutputRoundDataPoint;
+          predictions: {
+            [targetDate: string]: PredictionPoint;
           };
         };
       };
