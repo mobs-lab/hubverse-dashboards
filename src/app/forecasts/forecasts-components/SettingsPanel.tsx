@@ -26,7 +26,8 @@ import {
   selectTargets,
 } from '@/store/selectors/forecastSelectors';
 import { Radio, Typography } from '@/styles/material-tailwind-wrapper';
-import React, { useMemo, useState } from 'react';
+import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { horizonSelectorsInfo } from 'types/infobutton-content';
 import SettingsStyledDatePicker from './SettingsStyledDatePicker';
 
@@ -64,6 +65,10 @@ const SettingsPanel: React.FC = () => {
   // Local state for UI interactions
   const [isModelListExpanded, setIsModelListExpanded] = useState(false);
   const [locationSearchText, setLocationSearchText] = useState('');
+  const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
+  const [isPredictionIntervalDropdownOpen, setIsPredictionIntervalDropdownOpen] = useState(false);
+  const locationDropdownRef = useRef<HTMLDivElement>(null);
+  const predictionIntervalDropdownRef = useRef<HTMLDivElement>(null);
 
   // Get forecast period options as array
   const forecastPeriodOptions = useMemo(() => {
@@ -162,6 +167,33 @@ const SettingsPanel: React.FC = () => {
     dispatch(updateSelectedModels(modelNames));
   };
 
+  // Handle clicking outside dropdowns to close them
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        locationDropdownRef.current &&
+        !locationDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsLocationDropdownOpen(false);
+      }
+      if (
+        predictionIntervalDropdownRef.current &&
+        !predictionIntervalDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsPredictionIntervalDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Get selected location name for display
+  const selectedLocationName = useMemo(() => {
+    const location = locationList.find((loc) => loc.code === selectedLocationCode);
+    return location ? location.name : '';
+  }, [locationList, selectedLocationCode]);
+
   return (
     <div className="bg-mobs-lab-color-filterspane text-white fill-white flex-col h-full w-full rounded-md overflow-scroll util-responsive-text-settings">
       {/* <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length"> */}
@@ -176,27 +208,58 @@ const SettingsPanel: React.FC = () => {
             <SettingsStateMap pageSelected="forecast" />
           </div>
 
-          {/* Location search input */}
-          <input
-            type="text"
-            placeholder="Search locations..."
-            value={locationSearchText}
-            onChange={(e) => setLocationSearchText(e.target.value)}
-            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mb-2"
-          />
+          {/* Combined Location Search and Dropdown Combobox */}
+          <div ref={locationDropdownRef} className="relative w-full">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search or select location..."
+                value={locationSearchText || selectedLocationName}
+                onChange={(e) => {
+                  setLocationSearchText(e.target.value);
+                  setIsLocationDropdownOpen(true);
+                }}
+                onFocus={() => setIsLocationDropdownOpen(true)}
+                className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-white"
+              >
+                {isLocationDropdownOpen ? (
+                  <ChevronUpIcon className="h-5 w-5" />
+                ) : (
+                  <ChevronDownIcon className="h-5 w-5" />
+                )}
+              </button>
+            </div>
 
-          {/* Location dropdown */}
-          <select
-            value={selectedLocationCode}
-            onChange={(e) => onLocationChange(e.target.value)}
-            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-4 px-2 overflow-ellipsis"
-          >
-            {filteredLocations.map((location: { code: string; name: string; nameAlt?: string }) => (
-              <option key={location.code} value={location.code}>
-                {location.name}
-              </option>
-            ))}
-          </select>
+            {/* Dropdown list */}
+            {isLocationDropdownOpen && (
+              <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+                {filteredLocations.length > 0 ? (
+                  filteredLocations.map((location: { code: string; name: string; nameAlt?: string }) => (
+                    <div
+                      key={location.code}
+                      onClick={() => {
+                        onLocationChange(location.code);
+                        setLocationSearchText('');
+                        setIsLocationDropdownOpen(false);
+                      }}
+                      className={`px-3 py-2 cursor-pointer hover:bg-gray-700 ${
+                        location.code === selectedLocationCode ? 'bg-gray-700' : ''
+                      }`}
+                    >
+                      {location.name}
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-3 py-2 text-gray-400">No locations found</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -305,25 +368,25 @@ const SettingsPanel: React.FC = () => {
         </button>
       </div>
 
-      {/* Target Selector - Only show if multiple targets exist */}
-      {hasMultipleTargets ? (
-        <div className="mb-4 w-full">
-          <Typography variant="h6" className="text-white mb-2" placeholder="">
-            Target
-          </Typography>
-          <select
-            value={selectedTargetId}
-            onChange={(e) => onTargetSelectionChange(e.target.value)}
-            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2"
-          >
-            {targets.map((target) => (
-              <option key={target.targetId} value={target.targetId}>
-                {target.displayString}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
+      {/* Target Selector */}
+      <div className="mb-4 w-full">
+        <Typography variant="h6" className="text-white mb-2" placeholder="">
+          Target
+        </Typography>
+        {/* If only one target available, this will just become a static display */}
+        <select
+          value={selectedTargetId}
+          onChange={(e) => onTargetSelectionChange(e.target.value)}
+          className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2"
+          disabled={!hasMultipleTargets}
+        >
+          {targets.map((target: { targetId: string; displayString: string; targetKeyInData: string }) => (
+            <option key={target.targetId} value={target.targetId}>
+              {target.displayString}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* Horizon Selector - Dropdown */}
       <div className="mb-4 flex-col">
@@ -358,7 +421,7 @@ const SettingsPanel: React.FC = () => {
             name="yAxisRadioBtn"
             value={value}
             label={value === 'linear' ? 'Linear' : 'Logarithmic'}
-            onChange={(e) => onYAxisScaleChange(e)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onYAxisScaleChange(e)}
             className="text-white"
             labelProps={{ className: 'text-white' }}
             defaultChecked={value === 'linear'}
@@ -367,30 +430,63 @@ const SettingsPanel: React.FC = () => {
         ))}
       </div>
 
-      {/* Prediction Interval Selector - Dropdown/Checkbox */}
-      <div className="mb-2 flex-col justify-stretch items-stretch flex-wrap w-full">
-        <Typography variant="h6" className="text-white" placeholder="">
+      {/* Prediction Interval Selector - Multi-select Dropdown */}
+      <div className="mb-2 w-full">
+        <Typography variant="h6" className="text-white mb-2" placeholder="">
           Prediction Interval
         </Typography>
-        <div className="flex flex-col gap-2 mt-2">
-          {predictionIntervalOptions.map((interval) => (
-            <label key={interval.level} className="flex items-center text-white">
-              <input
-                type="checkbox"
-                className="form-checkbox text-blue-600 mr-2"
-                checked={selectedPredictionIntervals.includes(interval.level)}
-                onChange={(e) => onPredictionIntervalChange(interval.level, e.target.checked)}
-              />
-              <span>{interval.level}% PI</span>
-            </label>
-          ))}
+        <div className="flex gap-2 items-stretch">
+          {/* Dropdown */}
+          <div ref={predictionIntervalDropdownRef} className="relative flex-1">
+            <button
+              type="button"
+              onClick={() => setIsPredictionIntervalDropdownOpen(!isPredictionIntervalDropdownOpen)}
+              className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 flex items-center justify-between"
+            >
+              <span>
+                {selectedPredictionIntervals.length === 0
+                  ? 'No intervals selected'
+                  : `${selectedPredictionIntervals.length} interval${selectedPredictionIntervals.length !== 1 ? 's' : ''} selected`}
+              </span>
+              {isPredictionIntervalDropdownOpen ? (
+                <ChevronUpIcon className="h-5 w-5" />
+              ) : (
+                <ChevronDownIcon className="h-5 w-5" />
+              )}
+            </button>
+
+            {/* Dropdown menu */}
+            {isPredictionIntervalDropdownOpen && (
+              <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+                {predictionIntervalOptions.map((interval) => (
+                  <label
+                    key={interval.level}
+                    className="flex items-center px-3 py-2 hover:bg-gray-700 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      className="form-checkbox text-blue-600 mr-2 h-4 w-4"
+                      checked={selectedPredictionIntervals.includes(interval.level)}
+                      onChange={(e) => onPredictionIntervalChange(interval.level, e.target.checked)}
+                    />
+                    <span>{interval.level}% PI</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* None button */}
           <button
-            className={`flex flex-wrap rounded p-1 ${
+            className={`px-4 py-2 rounded ${
               selectedPredictionIntervals.length === 0
                 ? 'bg-blue-600 text-white'
-                : 'bg-[#5d636a] text-white'
+                : 'bg-[#5d636a] text-white hover:bg-blue-600'
             }`}
-            onClick={() => dispatch(updateSelectedPredictionIntervals([]))}
+            onClick={() => {
+              dispatch(updateSelectedPredictionIntervals([]));
+              setIsPredictionIntervalDropdownOpen(false);
+            }}
           >
             None
           </button>

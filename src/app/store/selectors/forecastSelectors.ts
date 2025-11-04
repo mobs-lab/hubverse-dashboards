@@ -43,7 +43,7 @@ export const selectHorizons = (state: RootState) => state.configStore.config?.ho
 export const selectPredictionIntervalOptions = (state: RootState) =>
   state.configStore.config?.predictionIntervals ?? [];
 
-export const selectTargets = (state: RootState) => state.configStore.config?.targets?.list ?? [];
+export const selectTargets = (state: RootState) => state.configStore.config?.targets ?? [];
 
 export const selectTimeUnit = (state: RootState) => state.configStore.config?.timeUnit ?? 7;
 

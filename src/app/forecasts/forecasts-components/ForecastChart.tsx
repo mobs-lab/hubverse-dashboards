@@ -56,28 +56,28 @@ const ForecastChart: React.FC = () => {
   const allModelPredictions = useAppSelector(selectModelOutputFiltered);
   const historicalTargetData = useAppSelector(selectHistoricalTargetData);
 
+  console.log('[ForecastChart] allModelPredictions from selector:', allModelPredictions);
+
   /**
    * Helper function to get historical data point for a specific date
    * Backend structure: as_of -> date -> location -> {observation, target}
    */
-  const getHistoricalDataPoint = useCallback((date: Date): number | null => {
-    if (!historicalTargetData || !selectedHistoricalAsOfDate) return null;
+  const getHistoricalDataPoint = useCallback(
+    (date: Date): number | null => {
+      if (!historicalTargetData || !selectedHistoricalAsOfDate) return null;
 
-    const dateStr = date.toISOString().split('T')[0];
-    const locationData = historicalTargetData[selectedHistoricalAsOfDate]?.[dateStr]?.[selectedLocationCode];
+      const dateStr = date.toISOString().split('T')[0];
+      const locationData =
+        historicalTargetData[selectedHistoricalAsOfDate]?.[dateStr]?.[selectedLocationCode];
 
-    if (!locationData) return null;
+      if (!locationData) return null;
 
-    // Check if the target matches (target is embedded in the data entry)
-    if (locationData.target && locationData.target !== selectedTargetId) return null;
+      // Check if the target matches (target is embedded in the data entry)
+      if (locationData.target && locationData.target !== selectedTargetId) return null;
 
-    return locationData.observation ?? null;
-  }, [historicalTargetData, selectedHistoricalAsOfDate, selectedLocationCode, selectedTargetId]);
-
-  console.log('[ForecastChart] groundTruthData from selector:', groundTruthData);
-  console.log(
-    '[ForecastChart] allModelPredictions from selector:',
-    allModelPredictions
+      return locationData.observation ?? null;
+    },
+    [historicalTargetData, selectedHistoricalAsOfDate, selectedLocationCode, selectedTargetId]
   );
 
   // Convert new prediction data structure to the format expected by rendering functions
