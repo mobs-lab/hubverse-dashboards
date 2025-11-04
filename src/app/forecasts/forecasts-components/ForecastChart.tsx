@@ -5,7 +5,7 @@ import * as d3 from 'd3';
 import { Axis, NumberValue } from 'd3';
 import React, { useCallback, useEffect, useRef } from 'react';
 
-import { TargetData, PredictionPoint } from '@/types/domains/forecasting';
+import { TargetData, PredictionPointInterval } from '@/types/domains/forecasting';
 import { useChartMargins } from '@/utils/chart-margin-utils';
 import { isUTCDateEqual } from '@/utils/date';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
@@ -82,7 +82,7 @@ const ForecastChart: React.FC = () => {
 
   // Convert new prediction data structure to the format expected by rendering functions
   const convertPredictionsToRenderFormat = useCallback(
-    (predictions: { [modelName: string]: { [targetDate: string]: PredictionPoint } }) => {
+    (predictions: { [modelName: string]: { [targetDate: string]: PredictionPointInterval } }) => {
       const result: PredictionDataForRender = {};
 
       Object.entries(predictions).forEach(([modelName, modelPredictions]) => {
@@ -107,7 +107,7 @@ const ForecastChart: React.FC = () => {
               predData[key] = pred[key];
             }
           });
-          predData.confidence500 = pred.q_0_5; // Assuming median is always provided as q_0_5
+          predData.confidence500 = pred.q0_5;
 
           return predData;
         });
@@ -116,11 +116,13 @@ const ForecastChart: React.FC = () => {
         const confidenceIntervalData: ConfidenceIntervalData[] = [];
 
         selectedPredictionIntervals.forEach((level) => {
-          const lowerQuantile = (1 - parseInt(level) / 100) / 2;
-          const upperQuantile = 1 - lowerQuantile;
+          let lowerQuantile = (1 - parseInt(level) / 100) / 2;
+          let upperQuantile = 1 - lowerQuantile;
+          console.log('lowerQuantile in convertPredictionsToRenderFormat:', lowerQuantile);
+          console.log('upperQuantile in convertPredictionsToRenderFormat:', upperQuantile);
 
-          const lowerKey = `q_${lowerQuantile.toString().replace('.', '_')}`;
-          const upperKey = `q_${upperQuantile.toString().replace('.', '_')}`;
+          const lowerKey = `q0_${lowerQuantile.toFixed(2)}`;
+          const upperKey = `q0_${upperQuantile.toFixed(2)}`;
 
           confidenceIntervalData.push({
             interval: level,
@@ -914,7 +916,7 @@ const ForecastChart: React.FC = () => {
       // If whole number, return as is
       return value.toString();
     }
-
+    console.log('value in formatNumber:', value);
     // For decimal numbers, use toFixed(2) but trim unnecessary zeros
     const fixed = value.toFixed(2);
     // Remove trailing zeros after decimal point, and remove decimal point if no decimals
@@ -931,6 +933,7 @@ const ForecastChart: React.FC = () => {
         foundPredictions[modelName] = prediction;
       }
     });
+    console.log('foundPredictions in findPredictionsForDate:', foundPredictions);
     return Object.keys(foundPredictions).length > 0 ? foundPredictions : null;
   }
 

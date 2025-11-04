@@ -69,11 +69,15 @@ export interface HistoricalTargetDataCollection {
 // ---------------------------
 
 // A single prediction data point from a model
-export interface PredictionPoint {
+export interface PredictionPointInterval {
   horizon: number | null;
   targetId?: string;
-  // Allows for dynamic quantile keys like 'q0_025', 'q0_5', 'q0_975'
-  [key: string]: number | string | null | undefined;
+  value_median: number; // The median value, always needed, calculated by Python using quantiles and put directly here
+  prediction_intervals: {
+    [
+      prediction_interval_name: string // "25", "50", "75", "90", used to display the PI level name in the visualization
+    ]: SinglePredictionIntervalInfo[];
+  };
 }
 
 // Collection of all model output data, structured for the frontend
@@ -83,10 +87,16 @@ export interface ModelOutputCollection {
       [locationCode: string]: {
         [referenceDate: string]: {
           predictions: {
-            [targetDate: string]: PredictionPoint;
+            // Each date's prediction contains that day's median and the available PI information.
+            [targetDate: string]: PredictionPointInterval;
           };
         };
       };
     };
   };
+}
+
+export interface SinglePredictionIntervalInfo {
+  pi_value_high: number; // The high value of the PI, upper bound for the shaded interval regions in visualizations
+  pi_value_low: number; // The low value of the PI, lower bound for the same
 }

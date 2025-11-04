@@ -195,7 +195,7 @@ const SettingsPanel: React.FC = () => {
   }, [locationList, selectedLocationCode]);
 
   return (
-    <div className="bg-mobs-lab-color-filterspane text-white fill-white flex-col h-full w-full rounded-md overflow-scroll util-responsive-text-settings">
+    <div className="bg-mobs-lab-color-filterspane text-white fill-white flex-col h-full w-full rounded-md overflow-scroll p-4 pb-20 util-responsive-text-settings">
       {/* <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length"> */}
       {/* Location Selector */}
       {!isSingleLocation && (
