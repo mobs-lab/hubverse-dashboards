@@ -208,7 +208,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Prediction intervals from metadata.predictionIntervals
       predictionIntervals,
-      defaultPredictionIntervals: metadata.predictionIntervals?.defaults || ['90'],
+      defaultPredictionIntervals: predictionIntervals.map((pi) => pi.level),
     };
   };
 
@@ -296,7 +296,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             locationCode: config.isSingleLocation ? config.singleLocationCode : '25',
             models: config.models.map((m) => m.modelName),
             target: config.defaultTargetId,
-            horizons: config.horizons,
+            horizon: config.horizons[config.horizons.length - 1],
             forecastPeriod: defaultPeriod,
             predictionIntervals: config.defaultPredictionIntervals,
             selectedDate: config.defaultSelectedDate

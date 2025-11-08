@@ -51,9 +51,7 @@ class DataProcessor:
         self.model_output_unpivoted = None  # Keep unpivoted data for evaluations
 
         # Create a mapping from the raw target key in data to the corresponding targetId
-        self.target_key_to_id_map = {
-            t.target_key_in_data: t.target_id for t in self.config.targets
-        }
+        self.target_key_to_id_map = {t.target_key_in_data: t.target_id for t in self.config.targets}
 
         # Initialize evaluation processor (only if evaluations are enabled)
         if not skip_evaluations:
@@ -369,7 +367,6 @@ class DataProcessor:
             raise FileNotFoundError("No model output data could be loaded.")
 
         df = pd.concat(all_model_dfs, ignore_index=True)
-        logger.info(f"  ✓ Combined shape: {df.shape[0]} rows × {df.shape[1]} columns")
         df.rename(columns=valid_rename_dict, inplace=True)
 
         for col in ["reference_date", "target_end_date"]:
@@ -382,10 +379,7 @@ class DataProcessor:
         time_unit = self.config.time_unit
         if "horizon" not in df.columns:
             logger.info("Calculating 'horizon' column from date differences.")
-            if time_unit > 0:
-                df["horizon"] = ((df["target_end_date"] - df["reference_date"]).dt.days / time_unit).astype(int)
-            else:
-                raise ValueError("time_unit must be greater than 0 to calculate horizon.")
+            df["horizon"] = ((df["target_end_date"] - df["reference_date"]).dt.days / time_unit).astype(int)
         else:
             logger.info("'horizon' column already exists, using it.")
 
@@ -427,11 +421,11 @@ class DataProcessor:
         # Pivot the table
         pivoted = quantile_rows.pivot_table(index=index_cols, columns="output_type_id", values="value").reset_index()
 
-        # Rename columns to be valid identifiers (e.g., q0.5 -> q0_5)
-        # Later, these will be used against user-specified "predictions interval" configs.
-        pivoted.columns = [
+        # NOTE: Keep the quantile column header to be 0.XX format
+        # Since user configurations already specifies needed PIs in that format
+        """ pivoted.columns = [
             f"q{str(c).replace('.', '_')}" if isinstance(c, (float, str)) and str(c).replace(".", "").isnumeric() else c for c in pivoted.columns
-        ]
+        ] """
 
         # Merge back with non-quantile rows if any
         if not other_rows.empty:
@@ -778,10 +772,8 @@ class DataProcessor:
                 # Use the canonical targetId as the key
                 raw_target_key = str(
                     row.get(
-                        'target',
-                        self.config.targets[0].target_key_in_data
-                        if self.config.targets
-                        else 'default',
+                        "target",
+                        self.config.targets[0].target_key_in_data if self.config.targets else "default",
                     )
                 )
                 target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
@@ -823,7 +815,8 @@ class DataProcessor:
             if not self.config.is_single_target and "target" in period_model_output.columns and valid_model_targets:
                 period_model_output = period_model_output[period_model_output["target"].isin(valid_model_targets)]
 
-            # Structure as Map<model, Map<location, Map<reference_date, Map<target_date, prediction>>>>
+            # Structure as Map<model, Map<location, Map<reference_date, Map<target_date, predictionPointInterval>>>>
+            # PredictionPointInterval is a custom type to contain single targetEndDate's median value and list of prediction intervals info depending on which ones user want
             period_dict = {}
 
             for model_name in period_model_output["model"].unique():
@@ -843,22 +836,39 @@ class DataProcessor:
                         for _, row in ref_date_data.iterrows():
                             target_date_iso = pd.to_datetime(row["target_end_date"]).strftime("%Y-%m-%d")
 
-                            pred_entry = {
-                                "horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None,
-                            }
+                            # Add horizon field to each PredictionPointInterval
+                            pred_entry = {"horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None}
 
-                            quantile_cols = [col for col in row.index if col.startswith("q")]
-                            for q_col in quantile_cols:
-                                if pd.notna(row[q_col]):
-                                    pred_entry[q_col] = float(row[q_col])
-
+                            # Add targetId info
                             if "target" in row and pd.notna(row["target"]):
                                 raw_target_key = str(row["target"])
-                                target_id = self.target_key_to_id_map.get(
-                                    raw_target_key, raw_target_key
-                                )
+                                target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
                                 pred_entry["targetId"] = target_id
 
+                            # Add value_median and PIs to
+                            # Quantile columns start with "0".
+                            quantile_cols = [col for col in row.index if isinstance(col, float)]
+
+                            # Assign the median value
+                            for qc in quantile_cols:
+                                if (str(qc) == "0.5") and (pd.notna(row[qc])):
+                                    pred_entry["value_median"] = row[qc]
+
+                            # Iterate on user's wanted PIs and low-high end points
+                            pred_intervals = {}
+                            for desired_PI in self.config.prediction_intervals:
+                                single_interval_info = {}
+                                for target_quantile in desired_PI.output_type_ids:
+                                    for qc in quantile_cols:
+                                        if (str(qc) == target_quantile) and pd.notna(row[qc]):
+                                            # Smaller value, pi_value_low
+                                            if target_quantile == desired_PI.output_type_ids[0]:
+                                                single_interval_info["pi_value_low"] = row[qc]
+                                            else:
+                                                single_interval_info["pi_value_high"] = row[qc]
+                                pred_intervals[str(desired_PI.level)] = single_interval_info
+
+                            pred_entry["prediction_intervals"] = pred_intervals
                             predictions_dict[target_date_iso] = pred_entry
 
                         location_dict[ref_date_iso] = {"predictions": predictions_dict}

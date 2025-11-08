@@ -12,7 +12,7 @@ interface ForecastSettingsState {
   selectedTargetId: string;
 
   // Horizon selection
-  selectedHorizons: number[];
+  selectedHorizon: number;
 
   // Time filtering
   selectedForecastPeriod: ForecastPeriod | null;
@@ -38,7 +38,7 @@ const initialState: ForecastSettingsState = {
   selectedLocationCode: 'US',
   selectedModels: [],
   selectedTargetId: '',
-  selectedHorizons: [],
+  selectedHorizon: 1,
   selectedForecastPeriod: null,
   timeFilterRangeStart: new Date(),
   timeFilterRangeEnd: new Date(),
@@ -60,19 +60,19 @@ const forecastSettingsSlice = createSlice({
         locationCode?: string;
         models: string[];
         target: string;
-        horizons: number[];
+        horizon: number;
         forecastPeriod: ForecastPeriod;
         predictionIntervals: string[];
         selectedDate?: Date;
       }>
     ) => {
-      const { locationCode, models, target, horizons, forecastPeriod, predictionIntervals, selectedDate } =
+      const { locationCode, models, target, horizon, forecastPeriod, predictionIntervals, selectedDate } =
         action.payload;
 
       state.selectedLocationCode = locationCode || 'US';
       state.selectedModels = models;
       state.selectedTargetId = target;
-      state.selectedHorizons = horizons;
+      state.selectedHorizon = horizon;
       state.selectedForecastPeriod = forecastPeriod;
       state.timeFilterRangeStart = forecastPeriod.startDate;
       state.timeFilterRangeEnd = forecastPeriod.endDate;
@@ -112,8 +112,8 @@ const forecastSettingsSlice = createSlice({
     },
 
     // Horizons
-    updateSelectedHorizons: (state, action: PayloadAction<number[]>) => {
-      state.selectedHorizons = action.payload;
+    updateSelectedHorizons: (state, action: PayloadAction<number>) => {
+      state.selectedHorizon = action.payload;
     },
 
     // Forecast period

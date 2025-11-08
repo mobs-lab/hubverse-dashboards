@@ -76,7 +76,7 @@ export interface PredictionPointInterval {
   prediction_intervals: {
     [
       prediction_interval_name: string // "25", "50", "75", "90", used to display the PI level name in the visualization
-    ]: SinglePredictionIntervalInfo[];
+    ]: SinglePredictionIntervalInfo;
   };
 }
 

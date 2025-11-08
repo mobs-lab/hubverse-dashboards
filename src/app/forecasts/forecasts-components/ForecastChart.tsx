@@ -5,7 +5,7 @@ import * as d3 from 'd3';
 import { Axis, NumberValue } from 'd3';
 import React, { useCallback, useEffect, useRef } from 'react';
 
-import { TargetData, PredictionPointInterval } from '@/types/domains/forecasting';
+import { PredictionPointInterval, TargetData } from '@/types/domains/forecasting';
 import { useChartMargins } from '@/utils/chart-margin-utils';
 import { isUTCDateEqual } from '@/utils/date';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
@@ -13,18 +13,17 @@ import { useResponsiveSVG } from '@/utils/responsiveSVG';
 import { updateUserSelectedDate } from '@/store/data-slices/settings/SettingsSliceForecastPage';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
-  selectTargetDataFiltered,
-  selectModelOutputFiltered,
   selectHistoricalTargetData,
   selectModelColorMap,
+  selectModelOutputFiltered,
+  selectPredictionIntervalOptions,
+  selectTargetDataFiltered,
   selectTimeUnit,
 } from '@/store/selectors';
 
-interface ConfidenceIntervalData {
-  interval: string;
-  data: any[];
-}
-type PredictionDataForRender = { [modelName: string]: ConfidenceIntervalData[] };
+type PredictionDataForRender = {
+  [modelName: string]: { [targetDate: string]: PredictionPointInterval };
+};
 
 const ForecastChart: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -32,6 +31,8 @@ const ForecastChart: React.FC = () => {
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
   const margins = useChartMargins(dimensions.width, dimensions.height, 'default');
 
+  // Get config-driven data
+  const allPredictionIntervalOptions = useAppSelector(selectPredictionIntervalOptions);
   // Get model color map from config
   const modelColorMap = useAppSelector(selectModelColorMap);
   const timeUnit = useAppSelector(selectTimeUnit);
@@ -41,7 +42,7 @@ const ForecastChart: React.FC = () => {
     userSelectedDate,
     selectedLocationCode,
     selectedModels,
-    selectedHorizons,
+    selectedHorizon,
     timeFilterRangeStart,
     timeFilterRangeEnd,
     yAxisScale,
@@ -80,79 +81,10 @@ const ForecastChart: React.FC = () => {
     [historicalTargetData, selectedHistoricalAsOfDate, selectedLocationCode, selectedTargetId]
   );
 
-  // Convert new prediction data structure to the format expected by rendering functions
-  const convertPredictionsToRenderFormat = useCallback(
-    (predictions: { [modelName: string]: { [targetDate: string]: PredictionPointInterval } }) => {
-      const result: PredictionDataForRender = {};
-
-      Object.entries(predictions).forEach(([modelName, modelPredictions]) => {
-        if (!modelPredictions || Object.keys(modelPredictions).length === 0) {
-          result[modelName] = [];
-          return;
-        }
-
-        // Convert the new structure to the old format for compatibility
-        const convertedData = Object.entries(modelPredictions).map(([targetDateISO, pred]) => {
-          const predData: any = {
-            referenceDate: userSelectedDate,
-            targetEndDate: new Date(targetDateISO),
-            stateNum: selectedLocationCode,
-            confidence_low: 0, // Will be set below
-            confidence_high: 0, // Will be set below
-          };
-
-          // Dynamically map quantiles to confidence levels
-          Object.keys(pred).forEach((key) => {
-            if (key.startsWith('q')) {
-              predData[key] = pred[key];
-            }
-          });
-          predData.confidence500 = pred.q0_5;
-
-          return predData;
-        });
-
-        // Create confidence interval data
-        const confidenceIntervalData: ConfidenceIntervalData[] = [];
-
-        selectedPredictionIntervals.forEach((level) => {
-          let lowerQuantile = (1 - parseInt(level) / 100) / 2;
-          let upperQuantile = 1 - lowerQuantile;
-          console.log('lowerQuantile in convertPredictionsToRenderFormat:', lowerQuantile);
-          console.log('upperQuantile in convertPredictionsToRenderFormat:', upperQuantile);
-
-          const lowerKey = `q0_${lowerQuantile.toFixed(2)}`;
-          const upperKey = `q0_${upperQuantile.toFixed(2)}`;
-
-          confidenceIntervalData.push({
-            interval: level,
-            data: convertedData.map((d) => ({
-              ...d,
-              confidence_low: d[lowerKey],
-              confidence_high: d[upperKey],
-            })),
-          });
-        });
-
-        if (confidenceIntervalData.length === 0) {
-          confidenceIntervalData.push({
-            interval: '',
-            data: convertedData,
-          });
-        }
-
-        result[modelName] = confidenceIntervalData;
-      });
-
-      return result;
-    },
-    [userSelectedDate, selectedLocationCode, selectedPredictionIntervals]
-  );
-
   const createScalesAndAxes = useCallback(
     (
       ground: { date: Date; observation: number | null }[],
-      predictions: any,
+      predictions: PredictionDataForRender,
       chartWidth: number,
       chartHeight: number,
       yAxisScale: string
@@ -164,14 +96,12 @@ const ForecastChart: React.FC = () => {
       // Find the maximum date in the prediction data
       let maxPredictionDate = new Date(0);
       if (predictions && Object.keys(predictions).length > 0) {
-        Object.values(predictions).forEach((modelData: any) => {
-          modelData.forEach((intervalData: any) => {
-            intervalData.data.forEach((dataPoint: any) => {
-              const targetEndDate = new Date(dataPoint.targetEndDate);
-              if (targetEndDate > maxPredictionDate) {
-                maxPredictionDate = targetEndDate;
-              }
-            });
+        Object.values(predictions).forEach((modelPredictions) => {
+          Object.keys(modelPredictions).forEach((targetDateISO) => {
+            const targetEndDate = new Date(targetDateISO);
+            if (targetEndDate > maxPredictionDate) {
+              maxPredictionDate = targetEndDate;
+            }
           });
         });
       }
@@ -250,6 +180,12 @@ const ForecastChart: React.FC = () => {
 
       xAxis.tickSize(14); // Increase tick size to accommodate multi-line labels
 
+      const subTicks = tickDates.filter(
+        (date) => !selectedTicks.some((majorTick) => isUTCDateEqual(date, majorTick as Date))
+      );
+
+      const xAxisWithSubTicks = d3.axisBottom(xScale).tickValues(subTicks).tickFormat(() => '').tickSize(6);
+
       // Initialize yScale with a default linear scale
       // Update yScale
       let yScale: d3.ScaleSymLog<number, number> | d3.ScaleLinear<number, number>;
@@ -261,13 +197,11 @@ const ForecastChart: React.FC = () => {
 
       let maxPredictionValue = 0;
       if (predictions && Object.keys(predictions).length > 0) {
-        Object.values(predictions).forEach((modelData: any) => {
-          modelData.forEach((intervalData: any) => {
-            intervalData.data.forEach((dataPoint: any) => {
-              const highValue =
-                dataPoint.confidence_high || dataPoint.confidence950 || dataPoint.confidence750;
-              if (highValue > maxPredictionValue) {
-                maxPredictionValue = highValue;
+        Object.values(predictions).forEach((modelPredictions) => {
+          Object.values(modelPredictions).forEach((prediction) => {
+            Object.values(prediction.prediction_intervals).forEach((interval) => {
+              if (interval.pi_value_high > maxPredictionValue) {
+                maxPredictionValue = interval.pi_value_high;
               }
             });
           });
@@ -320,7 +254,7 @@ const ForecastChart: React.FC = () => {
 
       yAxis.tickSize(-chartWidth);
 
-      return { xScale, yScale, xAxis, yAxis };
+      return { xScale, yScale, xAxis, yAxis, xAxisWithSubTicks };
     },
     [timeFilterRangeStart, timeUnit]
   );
@@ -505,93 +439,129 @@ const ForecastChart: React.FC = () => {
 
     // Check if predictionData is not empty
     if (Object.keys(predictionData).length > 0) {
-      // Get an array of values from the predictionData object
-      const predictionDataArray = Object.values(predictionData);
+      Object.entries(predictionData).forEach(([modelName, modelPredictions], index) => {
+        const predictionsArray = Object.entries(modelPredictions).map(([targetDate, pred]) => ({
+          targetEndDate: new Date(targetDate),
+          ...pred,
+        }));
 
-      predictionDataArray.forEach((predictions, index) => {
-        if (predictions[0]?.data) {
-          const modelName = Object.keys(predictionData)[index];
+        if (predictionsArray.length > 0) {
           const modelColor = modelColorMap[modelName] || `hsl(${index * 60}, 100%, 50%)`;
 
           // Render prediction data-slices points
           const line = d3
             .line<any>()
             .x((d) => xScale(new Date(d.targetEndDate)))
-            .y((d) => yScale(d.confidence500));
+            .y((d) => yScale(d.value_median));
 
-          if (isGroundTruthDataPlaceHolderOnly) {
-            // If there is only a placeholder data-slices point, render the prediction data-slices as its own branch
+          // Separate predictions into past (negative horizon) and future (positive horizon)
+          const zeroDate = new Date(userSelectedDate);
+          const pastPredictions = predictionsArray
+            .filter((d) => d.targetEndDate < zeroDate)
+            .sort((a, b) => a.targetEndDate.getTime() - b.targetEndDate.getTime()); // Sort ascending for path
+          const futurePredictions = predictionsArray
+            .filter((d) => d.targetEndDate >= zeroDate)
+            .sort((a, b) => a.targetEndDate.getTime() - b.targetEndDate.getTime()); // Sort ascending for path
+
+          // Find the point closest to the zero date to connect the paths
+          const connectionPoint = futurePredictions[0]; // Should be the zeroDate point if it exists
+
+          const pastPathData = connectionPoint ? [...pastPredictions, connectionPoint] : pastPredictions;
+          const futurePathData = futurePredictions;
+
+          if (pastPathData.length > 0) {
             svg
               .append('path')
-              .datum(predictions[0].data)
-              .attr('class', 'prediction-path')
+              .datum(pastPathData)
+              .attr('class', 'prediction-path-past')
               .attr('fill', 'none')
               .attr('stroke', modelColor)
               .attr('stroke-width', 1.5)
               .attr('d', line)
-              .attr('transform', `translate(${marginLeft}, ${marginTop})`);
-          } else {
-            // Render prediction data-slices points as usual
-            svg
-              .append('path')
-              .datum(predictions[0].data)
-              .attr('class', 'prediction-path')
-              .attr('fill', 'none')
-              .attr('stroke', modelColor)
-              .attr('stroke-width', 1.5)
-              .attr('d', line)
-              .attr('transform', `translate(${marginLeft}, ${marginTop})`);
-
-            // Add circles for prediction data-slices points
-            svg
-              .selectAll(`.prediction-dot-${index}`)
-              .data(predictions[0].data)
-              .enter()
-              .append('circle')
-              .attr('class', `prediction-dot prediction-dot-${index}`)
-              .attr('cx', (d: any) => xScale(new Date(d.targetEndDate)))
-              .attr('cy', (d: any) => yScale(d.confidence500))
-              .attr('r', 3)
-              .attr('fill', modelColor)
               .attr('transform', `translate(${marginLeft}, ${marginTop})`);
           }
-        }
-      });
 
-      // Render confidence intervals separately
-      predictionDataArray.forEach((predictions, index) => {
-        if (predictions[0]?.data) {
-          const modelName = Object.keys(predictionData)[index];
-          const modelColor = modelColorMap[modelName] || `hsl(${index * 60}, 100%, 50%)`;
+          if (futurePathData.length > 0) {
+            svg
+              .append('path')
+              .datum(futurePathData)
+              .attr('class', 'prediction-path-future')
+              .attr('fill', 'none')
+              .attr('stroke', modelColor)
+              .attr('stroke-width', 1.5)
+              .attr('d', line)
+              .attr('transform', `translate(${marginLeft}, ${marginTop})`);
+          }
 
-          predictions.forEach((confidenceIntervalData: ConfidenceIntervalData) => {
+          // Add circles for prediction data-slices points
+          svg
+            .selectAll(`.prediction-dot-${index}`)
+            .data(predictionsArray)
+            .enter()
+            .append('circle')
+            .attr('class', `prediction-dot prediction-dot-${index}`)
+            .attr('cx', (d: any) => xScale(new Date(d.targetEndDate)))
+            .attr('cy', (d: any) => yScale(d.value_median))
+            .attr('r', 3)
+            .attr('fill', modelColor)
+            .attr('transform', `translate(${marginLeft}, ${marginTop})`);
+
+          // Render confidence intervals separately
+          // Create a stable opacity mapping based on all available intervals
+          const sortedAvailableLevels = allPredictionIntervalOptions
+            .map((opt) => opt.level)
+            .sort((a, b) => parseInt(a) - parseInt(b));
+
+          const opacityScale = d3
+            .scaleLinear()
+            .domain([0, sortedAvailableLevels.length])
+            .range([0.5, 0.1]);
+
+          const opacityMap = new Map<string, number>();
+          sortedAvailableLevels.forEach((level, i) => {
+            opacityMap.set(level, opacityScale(i));
+          });
+
+          selectedPredictionIntervals.forEach((level) => {
             const area = d3
               .area<any>()
               .x((d) => xScale(new Date(d.targetEndDate)))
-              .y0((d) => yScale(d.confidence_low))
-              .y1((d) => yScale(d.confidence_high));
+              .y0((d) => {
+                const interval = d.prediction_intervals?.[level];
+                return interval ? yScale(interval.pi_value_low) : yScale(0);
+              })
+              .y1((d) => {
+                const interval = d.prediction_intervals?.[level];
+                return interval ? yScale(interval.pi_value_high) : yScale(0);
+              });
 
-            const opacity =
-              confidenceIntervalData.interval === '50'
-                ? 0.4
-                : confidenceIntervalData.interval === '90'
-                  ? 0.2
-                  : confidenceIntervalData.interval === '95'
-                    ? 0.1
-                    : 1;
+            const opacity = opacityMap.get(level) ?? 0.2;
 
             const color = d3.color(modelColor);
             if (!color) return;
             color.opacity = opacity;
 
-            svg
-              .append('path')
-              .datum(confidenceIntervalData.data)
-              .attr('class', 'confidence-area')
-              .attr('fill', color.toString())
-              .attr('d', area)
-              .attr('transform', `translate(${marginLeft}, ${marginTop})`)
-              .attr('pointer-events', 'none');
+            if (pastPathData.length > 0) {
+              svg
+                .append('path')
+                .datum(pastPathData)
+                .attr('class', 'confidence-area-past')
+                .attr('fill', color.toString())
+                .attr('d', area)
+                .attr('transform', `translate(${marginLeft}, ${marginTop})`)
+                .attr('pointer-events', 'none');
+            }
+
+            if (futurePathData.length > 0) {
+              svg
+                .append('path')
+                .datum(futurePathData)
+                .attr('class', 'confidence-area-future')
+                .attr('fill', color.toString())
+                .attr('d', area)
+                .attr('transform', `translate(${marginLeft}, ${marginTop})`)
+                .attr('pointer-events', 'none');
+            }
           });
         }
       });
@@ -698,7 +668,7 @@ const ForecastChart: React.FC = () => {
   const updateCornerTooltip = useCallback(
     (
       data: { date: Date; observation: number | null; targetId: string },
-      predictionData: any,
+      predictionData: PredictionDataForRender,
       historicalDataPoint: number | null,
       xScale: d3.ScaleTime<number, number>,
       chartWidth: number,
@@ -727,16 +697,6 @@ const ForecastChart: React.FC = () => {
       };
       // --- 2. PREPARE DATA ---
       const currentPredictions = findPredictionsForDate(predictionData, data.date);
-      const ciOptions: { level: string; lowKey: string; highKey: string }[] =
-        selectedPredictionIntervals.map((level) => {
-          const lowerQuantile = (1 - parseInt(level) / 100) / 2;
-          const upperQuantile = 1 - lowerQuantile;
-          return {
-            level: `${level}% PI`,
-            lowKey: `q_${lowerQuantile.toString().replace('.', '_')}`,
-            highKey: `q_${upperQuantile.toString().replace('.', '_')}`,
-          };
-        });
 
       let maxWidth = 0;
       let currentY = layout.padding + 8;
@@ -776,96 +736,112 @@ const ForecastChart: React.FC = () => {
       }
 
       // C. Add Prediction Data (if available)
-      if (currentPredictions) {
+      if (currentPredictions && Object.keys(currentPredictions).length > 0) {
         currentY += layout.sectionGap; // Add space before the prediction section
 
         // Calculate the total width of the prediction table
         const tableWidth =
-          layout.medianColWidth + ciOptions.length * (layout.piColWidth + layout.colGap);
+          layout.medianColWidth +
+          selectedPredictionIntervals.length * (layout.piColWidth + layout.colGap);
         maxWidth = Math.max(maxWidth, tableWidth);
 
-        Object.entries(currentPredictions).forEach(([modelName, modelData]: [string, any]) => {
-          // Model Name and Color Box
-          const modelGroup = contentGroup
-            .append('g')
-            .attr('transform', `translate(${layout.padding}, ${currentY})`);
+        Object.entries(currentPredictions).forEach(
+          ([modelName, modelPrediction]: [string, PredictionPointInterval]) => {
+            // Model Name and Color Box
+            const modelGroup = contentGroup
+              .append('g')
+              .attr('transform', `translate(${layout.padding}, ${currentY})`);
 
-          modelGroup
-            .append('rect')
-            .attr('width', layout.modelColorBoxSize)
-            .attr('height', layout.modelColorBoxSize)
-            .attr('y', -layout.modelColorBoxSize / 1.5) // Center align with text
-            .attr('fill', modelColorMap[modelName]);
+            modelGroup
+              .append('rect')
+              .attr('width', layout.modelColorBoxSize)
+              .attr('height', layout.modelColorBoxSize)
+              .attr('y', -layout.modelColorBoxSize / 1.5) // Center align with text
+              .attr('fill', modelColorMap[modelName]);
 
-          modelGroup
-            .append('text')
-            .attr('x', layout.modelColorBoxSize + 6)
-            .attr('fill', layout.fontColor)
-            .attr('font-weight', 'bold')
-            .style('font-family', layout.fontFamily)
-            .attr('font-size', layout.fontSize)
-            .text(modelName);
+            const modelText = modelGroup
+              .append('text')
+              .attr('x', layout.modelColorBoxSize + 6)
+              .attr('fill', layout.fontColor)
+              .attr('font-weight', 'bold')
+              .style('font-family', layout.fontFamily)
+              .attr('font-size', layout.fontSize)
+              .text(modelName);
 
-          currentY += layout.lineHeight;
+            if (selectedPredictionIntervals.length === 0) {
+              const node = modelText.node();
+              if (node) {
+                const textWidth = node.getComputedTextLength();
+                const estWidth = textWidth + layout.modelColorBoxSize + layout.padding * 2 + 6;
+                maxWidth = Math.max(maxWidth, estWidth);
+              }
+            }
 
-          // Prediction Table (Headers and Values)
-          const tableGroup = contentGroup
-            .append('g')
-            .attr('transform', `translate(${layout.padding}, ${currentY})`);
+            currentY += layout.lineHeight;
 
-          // Headers
-          tableGroup
-            .append('text')
-            .text('Median')
-            .attr('x', 0)
-            .attr('fill', layout.fontColor)
-            .style('font-family', layout.fontFamily)
-            .attr('font-size', layout.fontSize);
-          ciOptions.forEach((ci, i) => {
+            // Prediction Table (Headers and Values)
+            const tableGroup = contentGroup
+              .append('g')
+              .attr('transform', `translate(${layout.padding}, ${currentY})`);
+
+            // Headers
             tableGroup
               .append('text')
-              .text(ci.level)
-              .attr(
-                'x',
-                layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap)
-              )
+              .text('Median')
+              .attr('x', 0)
               .attr('fill', layout.fontColor)
               .style('font-family', layout.fontFamily)
               .attr('font-size', layout.fontSize);
-          });
 
-          currentY += layout.lineHeight;
+            selectedPredictionIntervals.forEach((level, i) => {
+              tableGroup
+                .append('text')
+                .text(`${level}% PI`)
+                .attr(
+                  'x',
+                  layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap)
+                )
+                .attr('fill', layout.fontColor)
+                .style('font-family', layout.fontFamily)
+                .attr('font-size', layout.fontSize);
+            });
 
-          // Values
-          const valueRow = contentGroup
-            .append('g')
-            .attr('transform', `translate(${layout.padding}, ${currentY})`);
+            currentY += layout.lineHeight;
 
-          valueRow
-            .append('text')
-            .text(formatNumber(modelData.confidence500))
-            .attr('x', 0)
-            .attr('fill', layout.fontColor)
-            .style('font-family', layout.fontFamily)
-            .attr('font-size', layout.fontSize)
-            .attr('font-weight', 'bold');
+            // Values
+            const valueRow = contentGroup
+              .append('g')
+              .attr('transform', `translate(${layout.padding}, ${currentY})`);
 
-          ciOptions.forEach((ci, i) => {
-            const ciText = `[${formatNumber(modelData[ci.lowKey])}, ${formatNumber(modelData[ci.highKey])}]`;
             valueRow
               .append('text')
-              .text(ciText)
-              .attr(
-                'x',
-                layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap)
-              )
+              .text(formatNumber(modelPrediction.value_median))
+              .attr('x', 0)
               .attr('fill', layout.fontColor)
               .style('font-family', layout.fontFamily)
-              .attr('font-size', layout.fontSize);
-          });
+              .attr('font-size', layout.fontSize)
+              .attr('font-weight', 'bold');
 
-          currentY += layout.lineHeight;
-        });
+            selectedPredictionIntervals.forEach((level, i) => {
+              const interval = modelPrediction.prediction_intervals[level];
+              const ciText = interval
+                ? `[${formatNumber(interval.pi_value_low)}, ${formatNumber(interval.pi_value_high)}]`
+                : 'N/A';
+              valueRow
+                .append('text')
+                .text(ciText)
+                .attr(
+                  'x',
+                  layout.medianColWidth + layout.colGap + i * (layout.piColWidth + layout.colGap)
+                )
+                .attr('fill', layout.fontColor)
+                .style('font-family', layout.fontFamily)
+                .attr('font-size', layout.fontSize);
+            });
+
+            currentY += layout.lineHeight;
+          }
+        );
       }
 
       // --- 4. DRAW BACKGROUND AND POSITION THE TOOLTIP ---
@@ -898,8 +874,8 @@ const ForecastChart: React.FC = () => {
     [selectedPredictionIntervals]
   );
 
-  function formatNumber(value: number | null, isAdmission: boolean = false): string {
-    if (value === null || Number.isNaN(value)) {
+  function formatNumber(value: number | null | undefined, isAdmission: boolean = false): string {
+    if (value === null || value === undefined || Number.isNaN(value)) {
       return 'N/A';
     }
 
@@ -916,24 +892,29 @@ const ForecastChart: React.FC = () => {
       // If whole number, return as is
       return value.toString();
     }
-    console.log('value in formatNumber:', value);
     // For decimal numbers, use toFixed(2) but trim unnecessary zeros
     const fixed = value.toFixed(2);
     // Remove trailing zeros after decimal point, and remove decimal point if no decimals
     return fixed.replace(/\.?0+$/, '');
   }
 
-  function findPredictionsForDate(predictionData: any, date: Date) {
-    const foundPredictions: { [key: string]: any } = {};
-    Object.entries(predictionData).forEach(([modelName, modelPredictions]: [string, any]) => {
-      const prediction = modelPredictions[0].data.find((p: any) =>
-        isUTCDateEqual(new Date(p.targetEndDate), date)
+  function findPredictionsForDate(
+    predictionData: PredictionDataForRender,
+    date: Date
+  ): { [modelName: string]: PredictionPointInterval } | null {
+    const foundPredictions: { [modelName: string]: PredictionPointInterval } = {};
+
+    Object.entries(predictionData).forEach(([modelName, modelPredictions]) => {
+      const targetDateISO = date.toISOString().split('T')[0];
+      const predictionForDate = Object.entries(modelPredictions).find(
+        ([d]) => d.startsWith(targetDateISO)
       );
-      if (prediction) {
-        foundPredictions[modelName] = prediction;
+
+      if (predictionForDate) {
+        foundPredictions[modelName] = predictionForDate[1];
       }
     });
-    console.log('foundPredictions in findPredictionsForDate:', foundPredictions);
+
     return Object.keys(foundPredictions).length > 0 ? foundPredictions : null;
   }
 
@@ -959,6 +940,7 @@ const ForecastChart: React.FC = () => {
     svg: d3.Selection<d3.BaseType, unknown, HTMLElement, any>,
     xAxis: Axis<NumberValue>,
     yAxis: Axis<NumberValue>,
+    xAxisMinor: Axis<NumberValue>,
     xScale: d3.ScaleTime<number, number, never>,
     marginLeft: number,
     marginTop: number,
@@ -973,6 +955,14 @@ const ForecastChart: React.FC = () => {
       .attr('transform', `translate(${marginLeft}, ${chartHeight + marginTop})`)
       .style('font-family', 'var(--font-dm-sans)')
       .call(xAxis);
+
+    // Append sub x-axis
+    svg
+      .append('g')
+      .attr('class', 'x-axis-with-sub-ticks')
+      .attr('transform', `translate(${marginLeft}, ${chartHeight + marginTop})`)
+      .call(xAxisMinor)
+      .call((g) => g.select('.domain').remove()); // Remove domain line for minor axis
 
     function wrap(text: d3.Selection<d3.BaseType, unknown, SVGGElement, any>, width: number) {
       text.each(function (this: d3.BaseType) {
@@ -1092,22 +1082,20 @@ const ForecastChart: React.FC = () => {
 
   function createCombinedDataset(
     groundTruthData: { date: Date; observation: number | null; targetId: string }[],
-    predictionData: any
+    predictionData: PredictionDataForRender
   ): { date: Date; observation: number | null; targetId: string }[] {
     // First deconstruct the whole of ground truth data-slices into a new array
     let combinedData = [...groundTruthData];
 
     // Then iterate over each model's predictions
-    Object.values(predictionData).forEach((modelPredictions: any) => {
+    Object.values(predictionData).forEach((modelPredictions) => {
       // For each prediction, check if a data-slices point already exists for that
-      modelPredictions[0].data.forEach((prediction: any) => {
-        // const existingPoint = combinedData.find((d) => d.date.getTime() === new Date(prediction.targetEndDate).getTime());
-        const existingPoint = combinedData.find((d) =>
-          isUTCDateEqual(d.date, new Date(prediction.targetEndDate))
-        );
+      Object.keys(modelPredictions).forEach((targetDateISO) => {
+        const predictionDate = new Date(targetDateISO);
+        const existingPoint = combinedData.find((d) => isUTCDateEqual(d.date, predictionDate));
         if (!existingPoint) {
           combinedData.push({
-            date: new Date(prediction.targetEndDate),
+            date: predictionDate,
             observation: null,
             targetId: groundTruthData[0]?.targetId || '',
           });
@@ -1135,7 +1123,7 @@ const ForecastChart: React.FC = () => {
     (
       svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
       filteredGroundTruthData: { date: Date; observation: number | null; targetId: string }[],
-      processedPredictionData: any,
+      processedPredictionData: PredictionDataForRender,
       xScale: d3.ScaleTime<number, number>,
       marginLeft: number,
       marginTop: number,
@@ -1333,7 +1321,7 @@ const ForecastChart: React.FC = () => {
         (d) => d.observation === null || d.observation < 0
       );
 
-      if (allPlaceholders) {
+      if (allPlaceholders && Object.keys(allModelPredictions).length === 0) {
         renderMessage(
           svg as any,
           'Not enough data, please extend date range.',
@@ -1356,12 +1344,9 @@ const ForecastChart: React.FC = () => {
         dispatch(updateUserSelectedDate(adjustedUserSelectedDate));
       }
 
-      // Process prediction data
-      const processedPredictionData = convertPredictionsToRenderFormat(allModelPredictions);
-
-      const { xScale, yScale, xAxis, yAxis } = createScalesAndAxes(
+      const { xScale, yScale, xAxis, yAxis, xAxisWithSubTicks } = createScalesAndAxes(
         groundTruthData,
-        processedPredictionData,
+        allModelPredictions,
         chartWidth,
         chartHeight,
         yAxisScale
@@ -1380,7 +1365,7 @@ const ForecastChart: React.FC = () => {
       renderGroundTruthData(svg, groundTruthData, xScale, yScale, marginLeft, marginTop);
       renderPredictionData(
         svg,
-        processedPredictionData,
+        allModelPredictions,
         xScale,
         yScale,
         marginLeft,
@@ -1392,6 +1377,7 @@ const ForecastChart: React.FC = () => {
         svg as any,
         xAxis,
         yAxis,
+        xAxisWithSubTicks,
         xScale,
         marginLeft,
         marginTop,
@@ -1405,7 +1391,7 @@ const ForecastChart: React.FC = () => {
         renderChartComponents(
           svg,
           groundTruthData,
-          processedPredictionData,
+          allModelPredictions,
           xScale,
           marginLeft,
           marginTop,
@@ -1442,9 +1428,9 @@ const ForecastChart: React.FC = () => {
     historicalTargetDataMode,
     renderChartComponents,
     updateVerticalIndicator,
-    convertPredictionsToRenderFormat,
     renderHistoricalData,
     getHistoricalDataPoint,
+    allPredictionIntervalOptions,
   ]);
 
   // Return the SVG object using reference

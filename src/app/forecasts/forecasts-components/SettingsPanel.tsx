@@ -49,7 +49,7 @@ const SettingsPanel: React.FC = () => {
   const {
     selectedLocationCode,
     selectedModels,
-    selectedHorizons: selectedHorizonsList,
+    selectedHorizon,
     selectedTargetId,
     timeFilterRangeStart: dateStart,
     timeFilterRangeEnd: dateEnd,
@@ -110,7 +110,7 @@ const SettingsPanel: React.FC = () => {
 
   const onHorizonChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const horizon = Number(event.target.value);
-    dispatch(updateSelectedHorizons([horizon]));
+    dispatch(updateSelectedHorizons(horizon));
   };
 
   const onDateStartSelectionChange = (date: Date | null) => {
@@ -148,15 +148,14 @@ const SettingsPanel: React.FC = () => {
   };
 
   const onPredictionIntervalChange = (interval: string, checked: boolean) => {
+    let updatedIntervals;
     if (checked) {
-      dispatch(updateSelectedPredictionIntervals([...selectedPredictionIntervals, interval]));
+      updatedIntervals = [...selectedPredictionIntervals, interval];
     } else {
-      dispatch(
-        updateSelectedPredictionIntervals(
-          selectedPredictionIntervals.filter((pi) => pi !== interval)
-        )
-      );
+      updatedIntervals = selectedPredictionIntervals.filter((pi) => pi !== interval);
     }
+    updatedIntervals.sort((a, b) => parseInt(a) - parseInt(b));
+    dispatch(updateSelectedPredictionIntervals(updatedIntervals));
   };
 
   const onTargetSelectionChange = (targetId: string) => {
@@ -239,21 +238,23 @@ const SettingsPanel: React.FC = () => {
             {isLocationDropdownOpen && (
               <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
                 {filteredLocations.length > 0 ? (
-                  filteredLocations.map((location: { code: string; name: string; nameAlt?: string }) => (
-                    <div
-                      key={location.code}
-                      onClick={() => {
-                        onLocationChange(location.code);
-                        setLocationSearchText('');
-                        setIsLocationDropdownOpen(false);
-                      }}
-                      className={`px-3 py-2 cursor-pointer hover:bg-gray-700 ${
-                        location.code === selectedLocationCode ? 'bg-gray-700' : ''
-                      }`}
-                    >
-                      {location.name}
-                    </div>
-                  ))
+                  filteredLocations.map(
+                    (location: { code: string; name: string; nameAlt?: string }) => (
+                      <div
+                        key={location.code}
+                        onClick={() => {
+                          onLocationChange(location.code);
+                          setLocationSearchText('');
+                          setIsLocationDropdownOpen(false);
+                        }}
+                        className={`px-3 py-2 cursor-pointer hover:bg-gray-700 ${
+                          location.code === selectedLocationCode ? 'bg-gray-700' : ''
+                        }`}
+                      >
+                        {location.name}
+                      </div>
+                    )
+                  )
                 ) : (
                   <div className="px-3 py-2 text-gray-400">No locations found</div>
                 )}
@@ -380,11 +381,13 @@ const SettingsPanel: React.FC = () => {
           className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2"
           disabled={!hasMultipleTargets}
         >
-          {targets.map((target: { targetId: string; displayString: string; targetKeyInData: string }) => (
-            <option key={target.targetId} value={target.targetId}>
-              {target.displayString}
-            </option>
-          ))}
+          {targets.map(
+            (target: { targetId: string; displayString: string; targetKeyInData: string }) => (
+              <option key={target.targetId} value={target.targetId}>
+                {target.displayString}
+              </option>
+            )
+          )}
         </select>
       </div>
 
@@ -398,7 +401,7 @@ const SettingsPanel: React.FC = () => {
         </div>
 
         <select
-          value={selectedHorizonsList[0] ?? horizons[0]}
+          value={selectedHorizon ?? horizons[0]}
           onChange={onHorizonChange}
           className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mt-2"
         >
@@ -415,19 +418,21 @@ const SettingsPanel: React.FC = () => {
         <Typography variant="h6" className="text-white" placeholder="">
           Y-Axis Scale
         </Typography>
-        {['linear', 'log'].map((value) => (
-          <Radio
-            key={value}
-            name="yAxisRadioBtn"
-            value={value}
-            label={value === 'linear' ? 'Linear' : 'Logarithmic'}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onYAxisScaleChange(e)}
-            className="text-white"
-            labelProps={{ className: 'text-white' }}
-            defaultChecked={value === 'linear'}
-            crossOrigin=""
-          />
-        ))}
+        <div className="flex">
+          {['linear', 'log'].map((value) => (
+            <Radio
+              key={value}
+              name="yAxisRadioBtn"
+              value={value}
+              label={value === 'linear' ? 'Linear' : 'Logarithmic'}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => onYAxisScaleChange(e)}
+              className="text-white"
+              labelProps={{ className: 'text-white' }}
+              checked={yAxisScale === value}
+              crossOrigin=""
+            />
+          ))}
+        </div>
       </div>
 
       {/* Prediction Interval Selector - Multi-select Dropdown */}

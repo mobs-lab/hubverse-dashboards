@@ -155,7 +155,7 @@ export const selectModelOutputFiltered = createSelector(
     (state: RootState) => state.forecastSettings.selectedLocationCode,
     (state: RootState) => state.forecastSettings.selectedModels,
     (state: RootState) => state.forecastSettings.selectedTargetId,
-    (state: RootState) => state.forecastSettings.selectedHorizons,
+    (state: RootState) => state.forecastSettings.selectedHorizon,
     (state: RootState) => state.forecastSettings.userSelectedDate,
   ],
   (
@@ -164,7 +164,7 @@ export const selectModelOutputFiltered = createSelector(
     locationCode,
     selectedModels,
     selectedTargetId,
-    selectedHorizons,
+    selectedHorizon,
     userSelectedDate
   ) => {
     if (!forecastPeriod) {
@@ -188,14 +188,9 @@ export const selectModelOutputFiltered = createSelector(
       if (modelData?.predictions) {
         const predictionsForModel: any = {};
         Object.entries(modelData.predictions).forEach(([targetDate, prediction]) => {
-          // DEBUG: Peek at each (targetDate, prediction) object
-          console.log('[selectModelOutputFiltered] Peek at each (targetDate, prediction) object:', {
-            targetDate,
-            prediction,
-          });
           // Filter by horizon
           const isHorizonIncluded =
-            prediction.horizon && selectedHorizons.includes(prediction.horizon);
+            prediction.horizon !== null && prediction.horizon <= selectedHorizon;
           // Filter by target
           const isTargetIncluded = prediction.targetId === selectedTargetId;
 
