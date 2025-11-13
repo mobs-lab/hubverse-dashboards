@@ -4,12 +4,10 @@
 import * as d3 from 'd3';
 import { Axis, NumberValue } from 'd3';
 import React, { useCallback, useEffect, useRef } from 'react';
-
 import { PredictionPointInterval, TargetData } from '@/types/domains/forecasting';
 import { useChartMargins } from '@/utils/chart-margin-utils';
 import { isUTCDateEqual } from '@/utils/date';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
-
 import { updateUserSelectedDate } from '@/store/data-slices/settings/SettingsSliceForecastPage';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
@@ -20,6 +18,7 @@ import {
   selectTargetDataFiltered,
   selectTimeUnit,
 } from '@/store/selectors';
+import { useHistoricalTargetData } from '../hooks/useHistoricalTargetData';
 
 type PredictionDataForRender = {
   [modelName: string]: { [targetDate: string]: PredictionPointInterval };
@@ -30,6 +29,9 @@ const ForecastChart: React.FC = () => {
   const svgRef = useRef<SVGSVGElement>(null);
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
   const margins = useChartMargins(dimensions.width, dimensions.height, 'default');
+
+  // Initialize historical target data hook (handles loading and syncing)
+  useHistoricalTargetData();
 
   // Get config-driven data
   const allPredictionIntervalOptions = useAppSelector(selectPredictionIntervalOptions);
@@ -65,18 +67,57 @@ const ForecastChart: React.FC = () => {
    */
   const getHistoricalDataPoint = useCallback(
     (date: Date): number | null => {
-      if (!historicalTargetData || !selectedHistoricalAsOfDate) return null;
+      console.debug('[ForecastChart.getHistoricalDataPoint] Called with:', {
+        date: date.toISOString(),
+        hasHistoricalTargetData: !!historicalTargetData,
+        selectedHistoricalAsOfDate,
+        selectedLocationCode,
+        selectedTargetId,
+        historicalDataKeys: historicalTargetData ? Object.keys(historicalTargetData) : [],
+      });
+
+      if (!historicalTargetData || !selectedHistoricalAsOfDate) {
+        console.debug('[ForecastChart.getHistoricalDataPoint] Missing data or asOfDate');
+        return null;
+      }
 
       const dateStr = date.toISOString().split('T')[0];
-      const locationData =
-        historicalTargetData[selectedHistoricalAsOfDate]?.[dateStr]?.[selectedLocationCode];
+      const asOfData = historicalTargetData[selectedHistoricalAsOfDate];
 
-      if (!locationData) return null;
+      console.debug('[ForecastChart.getHistoricalDataPoint] As-of data:', {
+        dateStr,
+        hasAsOfData: !!asOfData,
+        asOfDataKeys: asOfData ? Object.keys(asOfData).slice(0, 10) : [],
+      });
 
-      // Check if the target matches (target is embedded in the data entry)
-      if (locationData.target && locationData.target !== selectedTargetId) return null;
+      const dateData = asOfData?.[dateStr];
+      console.debug('[ForecastChart.getHistoricalDataPoint] Date data:', {
+        hasDateData: !!dateData,
+        dateDataKeys: dateData ? Object.keys(dateData) : [],
+      });
 
-      return locationData.observation ?? null;
+      const locationData = dateData?.[selectedLocationCode];
+      console.debug('[ForecastChart.getHistoricalDataPoint] Location data:', {
+        hasLocationData: !!locationData,
+        locationData,
+      });
+
+      if (!locationData) {
+        console.debug('[ForecastChart.getHistoricalDataPoint] No location data found');
+        return null;
+      }
+
+      if (locationData.target !== selectedTargetId) {
+        console.debug('[ForecastChart.getHistoricalDataPoint] Target mismatch (filtering out):', {
+          expectedTarget: selectedTargetId,
+          actualTarget: locationData.target,
+        });
+        return null;
+      }
+
+      const observation = locationData.observation ?? null;
+      console.debug('[ForecastChart.getHistoricalDataPoint] Returning observation:', observation);
+      return observation;
     },
     [historicalTargetData, selectedHistoricalAsOfDate, selectedLocationCode, selectedTargetId]
   );
@@ -184,7 +225,11 @@ const ForecastChart: React.FC = () => {
         (date) => !selectedTicks.some((majorTick) => isUTCDateEqual(date, majorTick as Date))
       );
 
-      const xAxisWithSubTicks = d3.axisBottom(xScale).tickValues(subTicks).tickFormat(() => '').tickSize(6);
+      const xAxisWithSubTicks = d3
+        .axisBottom(xScale)
+        .tickValues(subTicks)
+        .tickFormat(() => '')
+        .tickSize(6);
 
       // Initialize yScale with a default linear scale
       // Update yScale
@@ -386,12 +431,25 @@ const ForecastChart: React.FC = () => {
       marginTop: number
     ) => {
       if (!historicalData || historicalData.length === 0) {
-        console.debug('DEBUG: No historical data available for the selected week.');
+        console.debug('[ForecastChart.renderHistoricalData] No historical data to render.');
         return;
       }
 
-      /*Ensure the historical data-slices to be drawn is cutoff before dateStart*/
-      const historicalDataToDraw = historicalData.filter((d) => d.date >= timeFilterRangeStart);
+      // Filter to show only historical data up to the selected date (as_of date)
+      // This shows what was known AS OF the selected reference date
+      const historicalDataBeforeSelected = historicalData.filter(
+        (d) => d.date < userSelectedDate && d.date >= timeFilterRangeStart
+      );
+
+      console.debug('[ForecastChart.renderHistoricalData] Filtered data:', {
+        originalCount: historicalData.length,
+        filteredCount: historicalDataBeforeSelected.length,
+        validObservations: historicalDataBeforeSelected.filter((d) => d.observation !== null)
+          .length,
+      });
+
+      /*Ensure the historical data to be drawn is cutoff before dateStart and the user selected date*/
+      const historicalDataToDraw = historicalDataBeforeSelected;
 
       const historicalLine = d3
         .line<{ date: Date; observation: number | null }>()
@@ -421,7 +479,7 @@ const ForecastChart: React.FC = () => {
         .attr('fill', '#FFA500')
         .attr('transform', `translate(${marginLeft}, ${marginTop})`);
     },
-    [timeFilterRangeStart]
+    [timeFilterRangeStart, userSelectedDate, selectedHistoricalAsOfDate]
   );
 
   function renderPredictionData(
@@ -466,7 +524,9 @@ const ForecastChart: React.FC = () => {
           // Find the point closest to the zero date to connect the paths
           const connectionPoint = futurePredictions[0]; // Should be the zeroDate point if it exists
 
-          const pastPathData = connectionPoint ? [...pastPredictions, connectionPoint] : pastPredictions;
+          const pastPathData = connectionPoint
+            ? [...pastPredictions, connectionPoint]
+            : pastPredictions;
           const futurePathData = futurePredictions;
 
           if (pastPathData.length > 0) {
@@ -906,8 +966,8 @@ const ForecastChart: React.FC = () => {
 
     Object.entries(predictionData).forEach(([modelName, modelPredictions]) => {
       const targetDateISO = date.toISOString().split('T')[0];
-      const predictionForDate = Object.entries(modelPredictions).find(
-        ([d]) => d.startsWith(targetDateISO)
+      const predictionForDate = Object.entries(modelPredictions).find(([d]) =>
+        d.startsWith(targetDateISO)
       );
 
       if (predictionForDate) {

@@ -95,6 +95,7 @@ class TargetConfig:
     task_display_string: str  # Display name for frontend (e.g., "admission value", "admissions", "report", ...)
     target_key_in_data: str  # Key to match in target-data and model-output
     forecast_periods: List[str]
+    is_default_selected: bool = False  # Whether this target is selected by default
 
 
 @dataclass
@@ -312,6 +313,19 @@ class DashboardConfig:
             )
         else:
             self._validate_baseline_model()
+
+        # Default selections for UI initialization
+        self.default_selected_location = self._parse_default_selected_location()
+        self.default_selected_prediction_intervals = self._normalize_prediction_interval_list(
+            self._get_value("default_selected_prediction_intervals")
+        )
+        self.default_selected_horizon = self._get_value("default_selected_horizon")
+        self.default_selected_prediction_intervals_for_evaluations = self._normalize_prediction_interval_list(
+            self._get_value("default_selected_prediction_intervals_for_evaluations")
+        )
+        
+        # Validate default selections
+        self._validate_default_selections()
 
         # Final validation
         self._print_validation_results()
@@ -824,6 +838,100 @@ class DashboardConfig:
                 + f"Available models: {', '.join(model_names)}",
             )
 
+    def _parse_default_selected_location(self) -> Optional[str]:
+        """Parse default selected location from config"""
+        default_location = self._get_value("default_selected_location")
+        if not default_location:
+            return None
+        
+        # Handle dict format: {"US": "US"} or string format: "US"
+        if isinstance(default_location, dict):
+            # Get the first key from the dict
+            location_code = list(default_location.keys())[0] if default_location else None
+            return location_code
+        elif isinstance(default_location, str):
+            return default_location
+        else:
+            self._add_warning(
+                "default_selected_location",
+                f"Invalid format for default_selected_location: {default_location}. Expected string or dict."
+            )
+            return None
+
+    def _normalize_prediction_interval_list(self, pi_list: Optional[List]) -> Optional[List[str]]:
+        """Normalize prediction interval list to strings for frontend consistency"""
+        if not pi_list:
+            return None
+        # Convert all values to strings to ensure type consistency
+        return [str(pi) for pi in pi_list]
+
+    def _validate_default_selections(self):
+        """Validate default selection configurations"""
+        # Validate default location
+        if self.default_selected_location:
+            if self.default_selected_location not in self.location_mapping:
+                self._add_warning(
+                    "default_selected_location",
+                    f"Default location '{self.default_selected_location}' not found in location mapping. "
+                    f"Available locations: {list(self.location_mapping.keys())[:5]}..."
+                )
+        
+        # Validate default prediction intervals
+        if self.default_selected_prediction_intervals:
+            if not isinstance(self.default_selected_prediction_intervals, list):
+                self._add_error(
+                    "default_selected_prediction_intervals",
+                    "default_selected_prediction_intervals must be a list of interval levels (e.g., ['50', '90'])"
+                )
+            else:
+                available_levels = [str(pi.level) for pi in self.prediction_intervals]
+                invalid_pis = [pi for pi in self.default_selected_prediction_intervals if str(pi) not in available_levels]
+                if invalid_pis:
+                    self._add_warning(
+                        "default_selected_prediction_intervals",
+                        f"Default prediction intervals {invalid_pis} not found in configured prediction_intervals. "
+                        f"Available: {available_levels}"
+                    )
+        
+        # Validate default horizon
+        if self.default_selected_horizon is not None:
+            if not isinstance(self.default_selected_horizon, int):
+                self._add_error(
+                    "default_selected_horizon",
+                    f"default_selected_horizon must be an integer (got {type(self.default_selected_horizon).__name__})"
+                )
+            elif self.default_selected_horizon not in self.horizons:
+                self._add_warning(
+                    "default_selected_horizon",
+                    f"Default horizon {self.default_selected_horizon} not found in configured horizons: {self.horizons}"
+                )
+        
+        # Validate default evaluation intervals
+        if self.default_selected_prediction_intervals_for_evaluations:
+            if not isinstance(self.default_selected_prediction_intervals_for_evaluations, list):
+                self._add_error(
+                    "default_selected_prediction_intervals_for_evaluations",
+                    "default_selected_prediction_intervals_for_evaluations must be a list"
+                )
+            else:
+                available_eval_levels = [str(pi.level) for pi in self.evaluation_intervals]
+                invalid_eval_pis = [pi for pi in self.default_selected_prediction_intervals_for_evaluations 
+                                   if str(pi) not in available_eval_levels]
+                if invalid_eval_pis:
+                    self._add_warning(
+                        "default_selected_prediction_intervals_for_evaluations",
+                        f"Default evaluation intervals {invalid_eval_pis} not found in evaluations_prediction_intervals. "
+                        f"Available: {available_eval_levels}"
+                    )
+        
+        # Validate only one default target
+        default_targets = [t.target_id for t in self.targets if t.is_default_selected]
+        if len(default_targets) > 1:
+            self._add_error(
+                "targets",
+                f"Only one target can be set as default. Found: {', '.join(default_targets)}"
+            )
+
     def _print_validation_results(self):
         """Print all validation warnings and errors"""
         if self.validation_warnings:
@@ -1012,6 +1120,7 @@ class DashboardConfig:
                                 task_display_string=config_dict["task_display_string"],
                                 target_key_in_data=config_dict["target_key_in_data"],
                                 forecast_periods=forecast_periods,
+                                is_default_selected=config_dict.get("is_default_selected", False),
                             )
                             targets.append(target)
                             logger.info(f"  ✓ Parsed target: {target_name}: Finding {target.target_key_in_data} in data. Target ID: {target.target_id}")

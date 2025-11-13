@@ -53,13 +53,17 @@ export interface TargetDataCollection {
 
 // Historical Target-Data: Entire Collection organized by as_of date
 // Structure: as_of -> date -> location -> {observation, target}
+// 
+// IMPORTANT: The 'target' field should contain the target_id (e.g., "covid19-admission")
+// that matches the target_id in the config, NOT the raw target key from source data.
+// The Python processor maps raw target keys to target_ids using target_key_to_id_map.
 export interface HistoricalTargetDataCollection {
   [asOfDate: string]: {
     [date: string]: {
       [locationCode: string]: {
         observation: number | null;
         location_name?: string;
-        target?: string;
+        target: string; // Required - the target_id this observation belongs to
       };
     };
   };

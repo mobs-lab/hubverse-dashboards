@@ -237,17 +237,74 @@ export const selectHistoricalDataPoint = createSelector(
     (state: RootState, date: Date) => date, // Pass date as an argument to the selector
   ],
   (historicalData, asOfDate, locationCode, targetId, date) => {
-    if (!historicalData || !asOfDate) return null;
+    console.debug('[selectHistoricalDataPoint] Called with:', {
+      hasHistoricalData: !!historicalData,
+      asOfDate,
+      locationCode,
+      targetId,
+      date: date?.toISOString(),
+      historicalDataKeys: historicalData ? Object.keys(historicalData) : [],
+    });
+
+    if (!historicalData || !asOfDate) {
+      console.debug('[selectHistoricalDataPoint] Missing data or asOfDate:', {
+        hasHistoricalData: !!historicalData,
+        asOfDate,
+      });
+      return null;
+    }
 
     const dateStr = date.toISOString().split('T')[0];
-    const locationData = historicalData[asOfDate]?.[dateStr]?.[locationCode];
+    const asOfData = historicalData[asOfDate];
+    
+    console.debug('[selectHistoricalDataPoint] Looking for date:', {
+      dateStr,
+      hasAsOfData: !!asOfData,
+      asOfDataKeys: asOfData ? Object.keys(asOfData).slice(0, 5) : [],
+    });
 
-    if (!locationData) return null;
+    const dateData = asOfData?.[dateStr];
+    
+    console.debug('[selectHistoricalDataPoint] Date data:', {
+      hasDateData: !!dateData,
+      dateDataKeys: dateData ? Object.keys(dateData) : [],
+    });
 
-    // Check if the target matches (target is embedded in the data entry)
-    if (locationData.target && locationData.target !== targetId) return null;
+    const locationData = dateData?.[locationCode];
 
-    return locationData.observation ?? null;
+    console.debug('[selectHistoricalDataPoint] Location data:', {
+      hasLocationData: !!locationData,
+      locationData,
+    });
+
+    if (!locationData) {
+      console.debug('[selectHistoricalDataPoint] No location data found');
+      return null;
+    }
+
+    // IMPORTANT: Target field is required in historical data
+    // Check if the target matches the currently selected target
+    if (!locationData.target) {
+      console.warn('[selectHistoricalDataPoint] Historical data missing target field!', {
+        asOfDate,
+        dateStr,
+        locationCode,
+        locationData,
+      });
+      return null;
+    }
+
+    if (locationData.target !== targetId) {
+      console.debug('[selectHistoricalDataPoint] Target mismatch (filtering out):', {
+        expectedTarget: targetId,
+        actualTarget: locationData.target,
+      });
+      return null;
+    }
+
+    const observation = locationData.observation ?? null;
+    console.debug('[selectHistoricalDataPoint] Returning observation:', observation);
+    return observation;
   }
 );
 

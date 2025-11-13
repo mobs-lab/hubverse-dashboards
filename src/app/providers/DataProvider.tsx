@@ -169,9 +169,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Parse prediction intervals from new nested structure
     const predictionIntervals =
       metadata.predictionIntervals?.available?.map((pi: any) => ({
-        level: pi.level,
+        level: String(pi.level),  // Ensure level is a string for consistency
         quantiles: pi.quantiles,
       })) || [];
+
+    // Parse default selections from metadata
+    const defaults = metadata.defaults || {};
+    const defaultLocation = defaults.location || (metadata.spatial?.isSingleLocation ? metadata.spatial?.singleLocationCode : 'US');
+    const defaultHorizon = defaults.horizon !== undefined ? defaults.horizon : (metadata.temporal?.horizons?.[metadata.temporal.horizons.length - 1] || 1);
+    // Ensure all prediction interval values are strings for consistency
+    const defaultPredictionIntervals = defaults.predictionIntervals 
+      ? defaults.predictionIntervals.map((pi: any) => String(pi))
+      : predictionIntervals.map((pi: any) => String(pi.level));
 
     return {
       // Feature flags from metadata.features
@@ -208,7 +217,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Prediction intervals from metadata.predictionIntervals
       predictionIntervals,
-      defaultPredictionIntervals: predictionIntervals.map((pi) => pi.level),
+      defaultPredictionIntervals,
+      
+      // Default selections
+      defaultLocation,
+      defaultHorizon,
     };
   };
 
@@ -293,10 +306,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logger.log('Initializing forecast settings...');
         dispatch(
           initializeForecastSettings({
-            locationCode: config.isSingleLocation ? config.singleLocationCode : '25',
+            locationCode: config.defaultLocation || (config.isSingleLocation ? config.singleLocationCode : '25'),
             models: config.models.map((m) => m.modelName),
             target: config.defaultTargetId,
-            horizon: config.horizons[config.horizons.length - 1],
+            horizon: config.defaultHorizon !== undefined ? config.defaultHorizon : config.horizons[config.horizons.length - 1],
             forecastPeriod: defaultPeriod,
             predictionIntervals: config.defaultPredictionIntervals,
             selectedDate: config.defaultSelectedDate

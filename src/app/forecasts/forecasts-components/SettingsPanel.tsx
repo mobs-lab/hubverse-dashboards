@@ -92,8 +92,8 @@ const SettingsPanel: React.FC = () => {
   }, [locationList, locationSearchText]);
 
   // Model list preview/expansion
-  const displayedModels = isModelListExpanded ? modelNames : modelNames.slice(0, 5);
-  const hasMoreModels = modelNames.length > 5;
+  const displayedModels = isModelListExpanded ? modelNames : modelNames.slice(0, 4);
+  const hasMoreModels = modelNames.length > 4;
 
   // Event Handlers
   const onLocationChange = (locationCode: string) => {
@@ -269,50 +269,69 @@ const SettingsPanel: React.FC = () => {
         <Typography variant="h6" className="text-white mb-1" placeholder="">
           Models
         </Typography>
-        <div className="space-y-2 h-full overflow-y-auto pr-1">
-          {displayedModels.map((model) => (
-            <label
-              key={model}
-              className="inline-flex items-center text-white hover:bg-gray-700 rounded cursor-pointer w-full"
-            >
-              <span
-                className="w-[1em] h-[1em] border-2 rounded-sm mr-2"
-                style={{
-                  backgroundColor: selectedModels.includes(model)
-                    ? modelColorMap[model]
-                    : 'transparent',
-                  borderColor: modelColorMap[model],
-                }}
-              />
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={selectedModels.includes(model)}
-                onChange={(e) => onModelSelectionChange(model, e.target.checked)}
-              />
-              <span className="ml-2 xs:text-sm">{model}</span>
-            </label>
-          ))}
+        <div className="relative">
+          <div 
+            className={`space-y-2 overflow-y-auto pr-1 transition-all duration-300 ${
+              isModelListExpanded ? 'max-h-96' : 'max-h-40'
+            }`}
+          >
+            {displayedModels.map((model) => (
+              <label
+                key={model}
+                className="inline-flex items-center text-white hover:bg-gray-700 rounded cursor-pointer w-full"
+              >
+                <span
+                  className="w-[1em] h-[1em] border-2 rounded-sm mr-2"
+                  style={{
+                    backgroundColor: selectedModels.includes(model)
+                      ? modelColorMap[model]
+                      : 'transparent',
+                    borderColor: modelColorMap[model],
+                  }}
+                />
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={selectedModels.includes(model)}
+                  onChange={(e) => onModelSelectionChange(model, e.target.checked)}
+                />
+                <span className="ml-2 xs:text-sm">{model}</span>
+              </label>
+            ))}
+          </div>
+
+          {/* Expand/Collapse button - anchored to bottom with gradient overlay */}
+          {hasMoreModels && (
+            <div className="relative">
+              {!isModelListExpanded && (
+                <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-mobs-lab-color-filterspane to-transparent pointer-events-none" />
+              )}
+              <button
+                className="w-full mt-2 bg-[#5d636a]/60 hover:bg-[#5d636a]/90 text-white py-2 px-2 rounded text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                onClick={() => setIsModelListExpanded(!isModelListExpanded)}
+              >
+                {isModelListExpanded ? (
+                  <>
+                    <ChevronUpIcon className="h-4 w-4" />
+                    <span>Show Less ({modelNames.length} total)</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDownIcon className="h-4 w-4" />
+                    <span>Show More ({modelNames.length - 4} more)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Expand/Collapse area */}
-        {hasMoreModels && (
-          <button
-            className="w-full mt-2 bg-[#5d636a]/50 hover:bg-[#5d636a]/70 text-white py-1 px-2 rounded text-sm transition-colors"
-            onClick={() => setIsModelListExpanded(!isModelListExpanded)}
-          >
-            {isModelListExpanded
-              ? `Show Less (${modelNames.length} total)`
-              : `Show More (${modelNames.length - 5} more)`}
-          </button>
-        )}
-
-        {/* Show All Models button */}
+        {/* Select All Models button */}
         <button
-          className="w-full mt-2 bg-[#5d636a] hover:bg-blue-600 text-white py-1 px-2 rounded text-sm"
+          className="w-full mt-2 bg-[#5d636a] hover:bg-blue-600 text-white py-1 px-2 rounded text-sm transition-colors"
           onClick={handleShowAllModels}
         >
-          Show All Models
+          Select All Models
         </button>
       </div>
 

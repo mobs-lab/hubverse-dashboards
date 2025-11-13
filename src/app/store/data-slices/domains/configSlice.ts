@@ -50,12 +50,16 @@ export interface DashboardConfig {
 
   // Prediction intervals
   predictionIntervals: PredictionIntervalConfig[];
-  defaultPredictionIntervals: string[]; // ["90"]
+  defaultPredictionIntervals: string[]; // ["50", "90"]
 
   // Dates
   defaultSelectedDate?: string;
   earliestDate?: string;
   latestDate?: string;
+  
+  // Default selections for UI initialization
+  defaultLocation?: string;
+  defaultHorizon?: number;
 }
 
 interface ConfigState {

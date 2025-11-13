@@ -7,6 +7,7 @@ import { useDataContext } from '@/providers/DataProvider';
 import ForecastChart from './forecasts-components/ForecastChart';
 import SettingsPanel from './forecasts-components/SettingsPanel';
 import ForecastChartHeader from './forecasts-components/ForecastChartHeader';
+import ForecastLocationHeader from './forecasts-components/ForecastLocationHeader';
 
 import '../css/component_styles/forecast-page.css';
 
@@ -16,9 +17,14 @@ const ForecastPage: React.FC = () => {
   return (
     <div className="layout-grid-forecasts-page w-full h-full pl-4">
       {!loadingStates.locations && (
-        <div className="settings-panel">
-          <SettingsPanel />
-        </div>
+        <>
+          <div className="location-header">
+            <ForecastLocationHeader />
+          </div>
+          <div className="settings-panel">
+            <SettingsPanel />
+          </div>
+        </>
       )}
       {!loadingStates.targetData && !loadingStates.modelOutput && (
         <>

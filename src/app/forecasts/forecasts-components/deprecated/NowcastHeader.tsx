@@ -3,7 +3,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectLocationData, selectModelNames } from "@/store/selectors/forecastSelectors";
 import React from "react";
 import { activityLevelsInfo } from "types/infobutton-content";
-import InfoButton from "../../components/InfoButton";
+import InfoButton from "../../../components/InfoButton";
 
 const NowcastHeader: React.FC = () => {
   const dispatch = useAppDispatch();

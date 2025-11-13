@@ -1,0 +1,665 @@
+{
+  "$defs": {
+    "ForecastPeriodConfig": {
+      "description": "Configuration for a forecast period (time range)",
+      "properties": {
+        "forecast_period_id": {
+          "description": "Unique identifier for this forecast period",
+          "examples": [
+            "season-2024-2025",
+            "round-1"
+          ],
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Forecast Period Id",
+          "type": "string"
+        },
+        "start_date": {
+          "description": "Start date of forecast period (ISO format)",
+          "format": "date-time",
+          "title": "Start Date",
+          "type": "string"
+        },
+        "end_date": {
+          "description": "End date of forecast period (ISO format)",
+          "format": "date-time",
+          "title": "End Date",
+          "type": "string"
+        },
+        "display_string": {
+          "description": "Human-readable name shown in dashboard",
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Display String",
+          "type": "string"
+        },
+        "is_default_selected": {
+          "default": false,
+          "description": "Whether this period is selected by default (only one allowed)",
+          "title": "Is Default Selected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "forecast_period_id",
+        "start_date",
+        "end_date",
+        "display_string"
+      ],
+      "title": "ForecastPeriodConfig",
+      "type": "object"
+    },
+    "ModelConfig": {
+      "description": "Configuration for a forecast model",
+      "properties": {
+        "model_name": {
+          "minLength": 1,
+          "title": "Model Name",
+          "type": "string"
+        },
+        "color_hex": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9a-fA-F]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hex color code for visualization",
+          "title": "Color Hex"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Display name (defaults to model_name)",
+          "title": "Display Name"
+        }
+      },
+      "required": [
+        "model_name"
+      ],
+      "title": "ModelConfig",
+      "type": "object"
+    },
+    "ModelOutputHeaderMapping": {
+      "description": "Column name mappings for model output data",
+      "properties": {
+        "reference_date_col_name": {
+          "default": "reference_date",
+          "title": "Reference Date Col Name",
+          "type": "string"
+        },
+        "target_end_date_col_name": {
+          "default": "target_end_date",
+          "title": "Target End Date Col Name",
+          "type": "string"
+        },
+        "target_col_name": {
+          "default": "target",
+          "title": "Target Col Name",
+          "type": "string"
+        },
+        "horizon_col_name": {
+          "default": "horizon",
+          "title": "Horizon Col Name",
+          "type": "string"
+        },
+        "location_col_name": {
+          "default": "location",
+          "title": "Location Col Name",
+          "type": "string"
+        },
+        "output_type_col_name": {
+          "default": "output_type",
+          "title": "Output Type Col Name",
+          "type": "string"
+        },
+        "output_type_id_col_name": {
+          "default": "output_type_id",
+          "title": "Output Type Id Col Name",
+          "type": "string"
+        },
+        "value_col_name": {
+          "default": "value",
+          "title": "Value Col Name",
+          "type": "string"
+        }
+      },
+      "title": "ModelOutputHeaderMapping",
+      "type": "object"
+    },
+    "PredictionIntervalConfig": {
+      "description": "Configuration for a prediction interval",
+      "properties": {
+        "level": {
+          "description": "Prediction interval level (1-99)",
+          "maximum": 99,
+          "minimum": 1,
+          "title": "Level",
+          "type": "integer"
+        },
+        "uses_output_type_ids": {
+          "description": "Quantile values for lower and upper bounds",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Uses Output Type Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "level",
+        "uses_output_type_ids"
+      ],
+      "title": "PredictionIntervalConfig",
+      "type": "object"
+    },
+    "SpatialDataConfig": {
+      "description": "Spatial/location data configuration",
+      "properties": {
+        "disable_map_in_dashboard": {
+          "default": false,
+          "title": "Disable Map In Dashboard",
+          "type": "boolean"
+        },
+        "custom_shape_file_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Custom Shape File Name"
+        },
+        "custom_location_mapping_file_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Custom Location Mapping File Name"
+        },
+        "location_code_col_header_name": {
+          "default": "location",
+          "title": "Location Code Col Header Name",
+          "type": "string"
+        },
+        "location_name_col_header_name": {
+          "default": "location_name",
+          "title": "Location Name Col Header Name",
+          "type": "string"
+        }
+      },
+      "title": "SpatialDataConfig",
+      "type": "object"
+    },
+    "SpecialForecastPeriodConfig": {
+      "description": "Configuration for special/dynamic forecast periods",
+      "properties": {
+        "special_period_id": {
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Special Period Id",
+          "type": "string"
+        },
+        "display_string": {
+          "minLength": 1,
+          "title": "Display String",
+          "type": "string"
+        },
+        "time_anchor": {
+          "$ref": "#/$defs/TimeAnchorConfig"
+        }
+      },
+      "required": [
+        "special_period_id",
+        "display_string",
+        "time_anchor"
+      ],
+      "title": "SpecialForecastPeriodConfig",
+      "type": "object"
+    },
+    "TargetConfig": {
+      "description": "Configuration for a forecasting target/task",
+      "properties": {
+        "target_id": {
+          "description": "Unique identifier for this target",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "task_display_string": {
+          "description": "Display name in dashboard",
+          "minLength": 1,
+          "title": "Task Display String",
+          "type": "string"
+        },
+        "target_key_in_data": {
+          "description": "Key to match in target/output_type column",
+          "title": "Target Key In Data",
+          "type": "string"
+        },
+        "for_forecast_periods": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Forecast period IDs to use (null = all periods)",
+          "title": "For Forecast Periods"
+        },
+        "is_default_selected": {
+          "default": false,
+          "description": "Whether this target is selected by default (only one allowed)",
+          "title": "Is Default Selected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "target_id",
+        "task_display_string",
+        "target_key_in_data"
+      ],
+      "title": "TargetConfig",
+      "type": "object"
+    },
+    "TargetDataHeaderMapping": {
+      "description": "Column name mappings for target data",
+      "properties": {
+        "date_col_name": {
+          "default": "date",
+          "title": "Date Col Name",
+          "type": "string"
+        },
+        "observation_col_name": {
+          "default": "observation",
+          "title": "Observation Col Name",
+          "type": "string"
+        },
+        "location_col_name": {
+          "default": "location",
+          "title": "Location Col Name",
+          "type": "string"
+        },
+        "location_name_col_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "location_name",
+          "title": "Location Name Col Name"
+        },
+        "target_col_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "target",
+          "title": "Target Col Name"
+        },
+        "as_of_col_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "As Of Col Name"
+        }
+      },
+      "title": "TargetDataHeaderMapping",
+      "type": "object"
+    },
+    "TimeAnchorConfig": {
+      "description": "Time anchor configuration for special forecast periods",
+      "properties": {
+        "anchor_on": {
+          "description": "ID of forecast period to anchor to",
+          "title": "Anchor On",
+          "type": "string"
+        },
+        "anchor_mode": {
+          "description": "What data to use for calculating current date",
+          "enum": [
+            "target-data",
+            "model-output"
+          ],
+          "title": "Anchor Mode",
+          "type": "string"
+        },
+        "range_calculation": {
+          "description": "Number of time units backwards (must be negative)",
+          "exclusiveMaximum": 0,
+          "title": "Range Calculation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "anchor_on",
+        "anchor_mode",
+        "range_calculation"
+      ],
+      "title": "TimeAnchorConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Main configuration for Hubverse Dashboard\n\nThis model validates all dashboard configuration options and provides\nhelpful error messages for common mistakes.",
+  "properties": {
+    "link_to_hubverse_compatible_data": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set to null for local data",
+      "title": "Link To Hubverse Compatible Data"
+    },
+    "target_data_link": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "maxLength": 2083,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Data Link"
+    },
+    "model_output_link": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "maxLength": 2083,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Output Link"
+    },
+    "forecast_periods": {
+      "description": "At least one forecast period required",
+      "items": {
+        "$ref": "#/$defs/ForecastPeriodConfig"
+      },
+      "minItems": 1,
+      "title": "Forecast Periods",
+      "type": "array"
+    },
+    "special_forecast_periods": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/SpecialForecastPeriodConfig"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Special Forecast Periods"
+    },
+    "is_single_location_forecast": {
+      "default": false,
+      "title": "Is Single Location Forecast",
+      "type": "boolean"
+    },
+    "single_location_mapping": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Single Location Mapping"
+    },
+    "spatial_config": {
+      "$ref": "#/$defs/SpatialDataConfig"
+    },
+    "is_single_forecast_target": {
+      "default": false,
+      "title": "Is Single Forecast Target",
+      "type": "boolean"
+    },
+    "targets": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/TargetConfig"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Targets"
+    },
+    "time_unit": {
+      "description": "Time unit in days (typically 1 or 7)",
+      "maximum": 365,
+      "minimum": 1,
+      "title": "Time Unit",
+      "type": "integer"
+    },
+    "target_data_file_format": {
+      "default": "csv",
+      "enum": [
+        "csv",
+        "parquet"
+      ],
+      "title": "Target Data File Format",
+      "type": "string"
+    },
+    "parquet_partitioned_by_as_of": {
+      "default": false,
+      "title": "Parquet Partitioned By As Of",
+      "type": "boolean"
+    },
+    "single_target_data_file_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Single Target Data File Name"
+    },
+    "target_data_header_mapping": {
+      "$ref": "#/$defs/TargetDataHeaderMapping"
+    },
+    "target_data_observation_format": {
+      "default": "float",
+      "enum": [
+        "integer",
+        "float"
+      ],
+      "title": "Target Data Observation Format",
+      "type": "string"
+    },
+    "available_models": {
+      "items": {
+        "$ref": "#/$defs/ModelConfig"
+      },
+      "minItems": 1,
+      "title": "Available Models",
+      "type": "array"
+    },
+    "model_output_data_file_naming_standard": {
+      "default": "ISODate",
+      "enum": [
+        "ISODate",
+        "Alphanumeric"
+      ],
+      "title": "Model Output Data File Naming Standard",
+      "type": "string"
+    },
+    "model_output_data_header_mapping": {
+      "$ref": "#/$defs/ModelOutputHeaderMapping"
+    },
+    "prediction_intervals": {
+      "items": {
+        "$ref": "#/$defs/PredictionIntervalConfig"
+      },
+      "title": "Prediction Intervals",
+      "type": "array"
+    },
+    "horizons": {
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 1,
+      "title": "Horizons",
+      "type": "array"
+    },
+    "evaluations_prediction_intervals": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/PredictionIntervalConfig"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evaluations Prediction Intervals"
+    },
+    "baseline_model_for_relative_WIS": {
+      "title": "Baseline Model For Relative Wis",
+      "type": "string"
+    },
+    "default_selected_location": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default location code or dict mapping",
+      "title": "Default Selected Location"
+    },
+    "default_selected_prediction_intervals": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default prediction interval levels",
+      "title": "Default Selected Prediction Intervals"
+    },
+    "default_selected_horizon": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default horizon value",
+      "title": "Default Selected Horizon"
+    },
+    "default_selected_prediction_intervals_for_evaluations": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default evaluation prediction interval levels",
+      "title": "Default Selected Prediction Intervals For Evaluations"
+    }
+  },
+  "required": [
+    "forecast_periods",
+    "time_unit",
+    "available_models",
+    "prediction_intervals",
+    "horizons",
+    "baseline_model_for_relative_WIS"
+  ],
+  "title": "DashboardConfig",
+  "type": "object"
+}

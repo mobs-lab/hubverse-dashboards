@@ -469,11 +469,20 @@ class DataProcessor:
                     if "location_name" in row and pd.notna(row["location_name"]):
                         data_entry["location_name"] = str(row["location_name"])
 
-                    # Add target if available, mapping to target_id for consistency
+                    # IMPORTANT: Add target field - required for multi-target scenarios
+                    # Map raw target key to target_id for consistency with config
                     if "target" in row and pd.notna(row["target"]):
                         raw_target_key = str(row["target"])
                         target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
                         data_entry["target"] = target_id
+                    elif len(self.config.targets) == 1:
+                        # Single target scenario: use the only available target_id
+                        data_entry["target"] = self.config.targets[0].target_id
+                    else:
+                        # Multi-target scenario but target column missing/null - this is an error
+                        logger.warning(f"Historical data row missing target field in multi-target config at {as_of_iso}/{date_iso}/{location_key}")
+                        # Skip this row or use a default - for now we'll skip
+                        continue
 
                     location_map[location_key] = data_entry
 
@@ -536,6 +545,8 @@ class DataProcessor:
         target_locations = pd.DataFrame()
         if "location" in target_data_df.columns and "location_name" in target_data_df.columns:
             target_locations = target_data_df[["location", "location_name"]].drop_duplicates()
+            # Ensure location is string type to handle mixed int/str from raw data
+            target_locations["location"] = target_locations["location"].astype(str)
 
         model_locations = pd.DataFrame()
         if "location" in model_output_df.columns:
@@ -545,12 +556,16 @@ class DataProcessor:
             # Create a dataframe to merge with target locations
             model_locations_list = []
             for loc_id in model_loc_ids:
-                loc_name = self.config.location_mapping.get(str(loc_id), "Unknown")
-                model_locations_list.append({"location": loc_id, "location_name": loc_name})
+                # Convert to string to ensure consistent type (preserves leading zeros in FIPS codes)
+                loc_id_str = str(loc_id)
+                loc_name = self.config.location_mapping.get(loc_id_str, "Unknown")
+                model_locations_list.append({"location": loc_id_str, "location_name": loc_name})
             model_locations = pd.DataFrame(model_locations_list)
 
         # Combine and deduplicate
         all_locations_df = pd.concat([target_locations, model_locations], ignore_index=True)
+        # Ensure location column is string type before deduplication and sorting
+        all_locations_df["location"] = all_locations_df["location"].astype(str)
         all_locations_df.drop_duplicates(subset=["location"], keep="first", inplace=True)
         all_locations_df.sort_values(by="location", inplace=True)
 
@@ -607,6 +622,7 @@ class DataProcessor:
 
         # Build targets info
         targets_info = []
+        default_target_id = None
         for target in self.config.targets:
             targets_info.append(
                 {
@@ -614,14 +630,22 @@ class DataProcessor:
                     "targetKeyInData": target.target_key_in_data,
                     "displayString": target.task_display_string,
                     "forecastPeriods": target.forecast_periods,
+                    "isDefaultSelected": target.is_default_selected,
                 }
             )
+            # Track default target
+            if target.is_default_selected:
+                default_target_id = target.target_id
+        
+        # If no default target specified, use the first one
+        if not default_target_id and targets_info:
+            default_target_id = targets_info[0]["targetId"]
 
         prediction_intervals_info = []
         for interval in self.config.prediction_intervals:
             prediction_intervals_info.append(
                 {
-                    "level": interval.level,
+                    "level": str(interval.level),  # Convert to string for frontend consistency
                     "quantiles": interval.output_type_ids,
                 }
             )
@@ -669,12 +693,19 @@ class DataProcessor:
             "targets": {
                 "list": targets_info,
                 "isSingleTarget": self.config.is_single_target,
-                "defaultTargetId": targets_info[0]["targetId"] if targets_info else None,
+                "defaultTargetId": default_target_id,
             },
             # === PREDICTION INTERVALS ===
             "predictionIntervals": {
                 "available": prediction_intervals_info,
-                "defaults": ["90"],  # Could make this configurable in the future
+                "defaults": self.config.default_selected_prediction_intervals if self.config.default_selected_prediction_intervals else [str(pi.level) for pi in self.config.prediction_intervals],
+            },
+            # === DEFAULT SELECTIONS ===
+            "defaults": {
+                "location": self.config.default_selected_location,
+                "horizon": self.config.default_selected_horizon if self.config.default_selected_horizon is not None else (self.config.horizons[-1] if self.config.horizons else None),
+                "predictionIntervals": self.config.default_selected_prediction_intervals if self.config.default_selected_prediction_intervals else [str(pi.level) for pi in self.config.prediction_intervals],
+                "predictionIntervalsForEvaluations": self.config.default_selected_prediction_intervals_for_evaluations if self.config.default_selected_prediction_intervals_for_evaluations else [str(pi.level) for pi in self.config.evaluation_intervals],
             },
             # === DATA FILES MANIFEST ===
             "dataManifest": {
