@@ -59,64 +59,33 @@ const ForecastChart: React.FC = () => {
   const allModelPredictions = useAppSelector(selectModelOutputFiltered);
   const historicalTargetData = useAppSelector(selectHistoricalTargetData);
 
-  console.log('[ForecastChart] allModelPredictions from selector:', allModelPredictions);
-
   /**
    * Helper function to get historical data point for a specific date
    * Backend structure: as_of -> date -> location -> {observation, target}
    */
   const getHistoricalDataPoint = useCallback(
     (date: Date): number | null => {
-      console.debug('[ForecastChart.getHistoricalDataPoint] Called with:', {
-        date: date.toISOString(),
-        hasHistoricalTargetData: !!historicalTargetData,
-        selectedHistoricalAsOfDate,
-        selectedLocationCode,
-        selectedTargetId,
-        historicalDataKeys: historicalTargetData ? Object.keys(historicalTargetData) : [],
-      });
-
       if (!historicalTargetData || !selectedHistoricalAsOfDate) {
-        console.debug('[ForecastChart.getHistoricalDataPoint] Missing data or asOfDate');
         return null;
       }
 
       const dateStr = date.toISOString().split('T')[0];
       const asOfData = historicalTargetData[selectedHistoricalAsOfDate];
 
-      console.debug('[ForecastChart.getHistoricalDataPoint] As-of data:', {
-        dateStr,
-        hasAsOfData: !!asOfData,
-        asOfDataKeys: asOfData ? Object.keys(asOfData).slice(0, 10) : [],
-      });
-
       const dateData = asOfData?.[dateStr];
-      console.debug('[ForecastChart.getHistoricalDataPoint] Date data:', {
-        hasDateData: !!dateData,
-        dateDataKeys: dateData ? Object.keys(dateData) : [],
-      });
 
       const locationData = dateData?.[selectedLocationCode];
-      console.debug('[ForecastChart.getHistoricalDataPoint] Location data:', {
-        hasLocationData: !!locationData,
-        locationData,
-      });
 
       if (!locationData) {
-        console.debug('[ForecastChart.getHistoricalDataPoint] No location data found');
         return null;
       }
 
       if (locationData.target !== selectedTargetId) {
-        console.debug('[ForecastChart.getHistoricalDataPoint] Target mismatch (filtering out):', {
-          expectedTarget: selectedTargetId,
-          actualTarget: locationData.target,
-        });
         return null;
       }
 
       const observation = locationData.observation ?? null;
-      console.debug('[ForecastChart.getHistoricalDataPoint] Returning observation:', observation);
+
       return observation;
     },
     [historicalTargetData, selectedHistoricalAsOfDate, selectedLocationCode, selectedTargetId]
@@ -431,7 +400,6 @@ const ForecastChart: React.FC = () => {
       marginTop: number
     ) => {
       if (!historicalData || historicalData.length === 0) {
-        console.debug('[ForecastChart.renderHistoricalData] No historical data to render.');
         return;
       }
 
@@ -440,13 +408,6 @@ const ForecastChart: React.FC = () => {
       const historicalDataBeforeSelected = historicalData.filter(
         (d) => d.date < userSelectedDate && d.date >= timeFilterRangeStart
       );
-
-      console.debug('[ForecastChart.renderHistoricalData] Filtered data:', {
-        originalCount: historicalData.length,
-        filteredCount: historicalDataBeforeSelected.length,
-        validObservations: historicalDataBeforeSelected.filter((d) => d.observation !== null)
-          .length,
-      });
 
       /*Ensure the historical data to be drawn is cutoff before dateStart and the user selected date*/
       const historicalDataToDraw = historicalDataBeforeSelected;
@@ -1263,14 +1224,6 @@ const ForecastChart: React.FC = () => {
         const date = xScale.invert(mouseX - marginLeft);
         const closestData = findNearestDataPoint(combinedData, date);
 
-        console.debug(
-          'ForecastChart handleClick: Raw inverted date from chart:',
-          date.toISOString()
-        );
-        console.debug(
-          'ForecastChart handleClick: Snapped to closest data point date:',
-          closestData.date.toISOString()
-        );
 
         bubbleUserSelectedWeek(closestData.date);
         updateVerticalIndicator(
@@ -1353,7 +1306,6 @@ const ForecastChart: React.FC = () => {
 
   /* Main useEffect() */
   useEffect(() => {
-    console.debug('ForecastChart.tsx: UseEffect triggered!');
     if (svgRef.current) {
       const svg = d3.select(svgRef.current);
       svg.selectAll('*').remove();
