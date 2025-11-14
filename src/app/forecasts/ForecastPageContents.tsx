@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { useDataContext } from '@/providers/DataProvider';
+import { useAppSelector } from '@/store/hooks';
 import ForecastChart from './forecasts-components/ForecastChart';
 import SettingsPanel from './forecasts-components/SettingsPanel';
 import ForecastChartHeader from './forecasts-components/ForecastChartHeader';
@@ -13,14 +14,18 @@ import '../css/component_styles/forecast-page.css';
 
 const ForecastPage: React.FC = () => {
   const { loadingStates, isFullyLoaded } = useDataContext();
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const showLocationHeader = !uiConfig?.forecastPage.disableLocationInfo;
 
   return (
     <div className="layout-grid-forecasts-page w-full h-full pl-4">
       {!loadingStates.locations && (
         <>
-          <div className="location-header">
-            <ForecastLocationHeader />
-          </div>
+          {showLocationHeader && (
+            <div className="location-header">
+              <ForecastLocationHeader />
+            </div>
+          )}
           <div className="settings-panel">
             <SettingsPanel />
           </div>

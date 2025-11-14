@@ -166,6 +166,61 @@ class ModelOutputHeaderMapping(BaseModel):
     value_col_name: str = Field(default="value")
 
 
+class InfoButtonContent(BaseModel):
+    """Configuration for InfoButton popup content"""
+
+    title: str = Field(..., min_length=1, max_length=100, description="InfoButton dialog title")
+    content: str = Field(..., min_length=1, description="InfoButton dialog content (supports markdown/HTML)")
+
+
+class NavButtonConfig(BaseModel):
+    """Configuration for header navigation buttons"""
+
+    button_text: str = Field(..., min_length=1, max_length=50)
+    nav_to_page: Optional[Literal["Forecast", "Evaluation"]] = None
+    nav_to_external: bool = Field(default=False)
+    nav_to_link: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_navigation(self):
+        """Ensure either page or external link is provided"""
+        if self.nav_to_external and not self.nav_to_link:
+            raise ValueError("nav_to_link is required when nav_to_external is True")
+        if not self.nav_to_external and not self.nav_to_page:
+            raise ValueError("Either nav_to_page or nav_to_external must be provided")
+        return self
+
+
+class UICustomizationConfig(BaseModel):
+    """
+    All UI customization options for the dashboard
+    TODO: Add Evaluation Page Customization Support
+    """
+
+    # Header customization
+    ui_header_title_name: str = Field(default="FluForecast", min_length=1, max_length=100, description="Dashboard header title")
+    ui_header_nav_btn: Optional[List[NavButtonConfig]] = Field(default=None, description="Navigation buttons configuration")
+
+    # Forecast page customizations
+    ui_forecast_header_chart_name: Optional[str] = Field(default="Weekly Hospital Admissions Forecast", max_length=200)
+    ui_forecast_header_hist_td_toggle_text: Optional[str] = Field(default="Show Admissions at Time of Forecast", max_length=200)
+    disable_location_info_display: bool = Field(default=False)
+
+    # InfoButton content customizations
+    ui_forecast_header_infobutton_content: Optional[InfoButtonContent] = None
+    ui_forecast_settings_horizon_infobutton_content: Optional[InfoButtonContent] = None
+
+    @model_validator(mode="after")
+    def validate_nav_buttons_no_duplicates(self):
+        """Ensure no duplicate internal page links in navigation"""
+        if self.ui_header_nav_btn:
+            internal_pages = [btn.nav_to_page for btn in self.ui_header_nav_btn if btn.nav_to_page]
+            if len(internal_pages) != len(set(internal_pages)):
+                duplicates = [page for page in internal_pages if internal_pages.count(page) > 1]
+                raise ValueError(f"Duplicate internal navigation pages found: {set(duplicates)}. Each page ('Forecast', 'Evaluation') can only appear once. ")
+        return self
+
+
 # =============================================================================
 # Main Dashboard Configuration
 # =============================================================================
@@ -228,15 +283,37 @@ class DashboardConfig(BaseModel):
         default=None, description="Default evaluation prediction interval levels"
     )
 
+    # UI Customizations
+    ui_customization: UICustomizationConfig = Field(default_factory=UICustomizationConfig)
+
     # ==========================================================================
     # Cross-Field Validators
     # ==========================================================================
+
+    @model_validator(mode="after")
+    def ensure_targets_is_list(self):
+        """Ensure targets is always a list, never None (for compatibility)"""
+        # Only convert None to [] if in single-target mode
+        if self.targets is None and self.is_single_forecast_target:
+            object.__setattr__(self, 'targets', [])
+        return self
 
     @model_validator(mode="after")
     def validate_single_location_requires_mapping(self):
         """Ensure single_location_mapping provided when in single-location mode"""
         if self.is_single_location_forecast and not self.single_location_mapping:
             raise ValueError("single_location_mapping is REQUIRED when is_single_location_forecast is True")
+        return self
+
+    @model_validator(mode="after")
+    def populate_target_forecast_periods(self):
+        """Populate for_forecast_periods with all period IDs when None"""
+        if self.targets:
+            all_period_ids = self.get_all_period_ids()
+            for target in self.targets:
+                if target.for_forecast_periods is None:
+                    # Use object.__setattr__ to bypass frozen/validation
+                    object.__setattr__(target, 'for_forecast_periods', all_period_ids)
         return self
 
     @model_validator(mode="after")
@@ -271,6 +348,31 @@ class DashboardConfig(BaseModel):
             default_targets = [t.target_id for t in self.targets if t.is_default_selected]
             if len(default_targets) > 1:
                 raise ValueError(f"Only one target can be default. Found: {', '.join(default_targets)}")
+        return self
+
+    @model_validator(mode="after")
+    def assign_model_colors(self):
+        """Assign colors to models that don't have one"""
+        default_palette = [
+            "#9ceb94", "#3fc49e", "#45cded", "#0292d1", "#7bb1ff",
+            "#5f5fd6", "#d36f54", "#e89c31", "#a855f7", "#ec4899",
+            "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4",
+        ]
+        
+        assigned_colors = {m.color_hex.lower() for m in self.available_models if m.color_hex}
+        palette_idx = 0
+        
+        for model in self.available_models:
+            if not model.color_hex:
+                # Find next available color
+                while palette_idx < len(default_palette):
+                    color = default_palette[palette_idx]
+                    palette_idx += 1
+                    if color.lower() not in assigned_colors:
+                        object.__setattr__(model, 'color_hex', color)
+                        assigned_colors.add(color.lower())
+                        break
+        
         return self
 
     @model_validator(mode="after")
@@ -343,12 +445,21 @@ class DashboardConfig(BaseModel):
         return period_ids
 
     def get_default_location(self) -> Optional[str]:
-        """Extract default location code from config"""
+        """
+        Extract default location CODE from config.
+        Handles both dict format {"US": "US"} and string format "US"
+        Returns location code as string or None if not configured
+        """
         if not self.default_selected_location:
             return None
         if isinstance(self.default_selected_location, dict):
-            return list(self.default_selected_location.keys())[0]
-        return self.default_selected_location
+            # Extract first key from dict
+            return list(self.default_selected_location.keys())[0] if self.default_selected_location else None
+        return str(self.default_selected_location)
+
+    def get_location_mapping(self) -> Dict[str, str]:
+        """Get location mapping (loaded at runtime)"""
+        return getattr(self, "_location_mapping", {})
 
 
 # =============================================================================
@@ -427,6 +538,29 @@ def flatten_yaml_list_structure(raw_config: List[Dict]) -> Dict[str, Any]:
                         if isinstance(mapping, dict):
                             mapping_dict.update(mapping)
                     flat_config["model_output_data_header_mapping"] = mapping_dict
+            # Handle UI customization - navigation buttons
+            elif key == "ui_header_nav_btn":
+                if isinstance(value, list):
+                    nav_buttons = []
+                    for btn_item in value:
+                        if isinstance(btn_item, dict):
+                            # Extract button text from key
+                            for btn_text, btn_config_list in btn_item.items():
+                                btn_config = {"button_text": btn_text}
+                                if isinstance(btn_config_list, list):
+                                    for config_dict in btn_config_list:
+                                        if isinstance(config_dict, dict):
+                                            btn_config.update(config_dict)
+                                nav_buttons.append(btn_config)
+                    flat_config[key] = nav_buttons
+            # Handle UI customization - InfoButton content (flatten list of dicts to single dict)
+            elif key in ["ui_forecast_header_infobutton_content", "ui_forecast_settings_horizon_infobutton_content"]:
+                if isinstance(value, list):
+                    content_dict = {}
+                    for content_item in value:
+                        if isinstance(content_item, dict):
+                            content_dict.update(content_item)
+                    flat_config[key] = content_dict
             else:
                 flat_config[key] = value
 
@@ -445,7 +579,100 @@ def flatten_yaml_list_structure(raw_config: List[Dict]) -> Dict[str, Any]:
     if spatial_config:
         flat_config["spatial_config"] = spatial_config
 
+    # Extract UI customization fields
+    ui_fields = [
+        "ui_header_title_name",
+        "ui_header_nav_btn",
+        "ui_forecast_header_chart_name",
+        "ui_forecast_header_hist_td_toggle_text",
+        "disable_location_info_display",
+        "ui_forecast_header_infobutton_content",
+        "ui_forecast_settings_horizon_infobutton_content",
+    ]
+    ui_customization = {}
+    for field in ui_fields:
+        if field in flat_config:
+            ui_customization[field] = flat_config.pop(field)
+    if ui_customization:
+        flat_config["ui_customization"] = ui_customization
+
     return flat_config
+
+
+def _load_us_state_fips_mapping() -> Dict[str, str]:
+    """Load US state FIPS code to name mapping from reference file"""
+    reference_path = Path(__file__).parent / "us_state_fips_mapping.json"
+    
+    try:
+        with open(reference_path, "r") as f:
+            mapping = json.load(f)
+            logger.info(f"  [OK] Loaded US state FIPS mapping ({len(mapping)} locations)")
+            return mapping
+    except FileNotFoundError:
+        logger.warning(f"  [!] US state FIPS mapping file not found at {reference_path}")
+        return {}
+    except json.JSONDecodeError as e:
+        logger.warning(f"  [!] Error parsing US state FIPS mapping: {e}")
+        return {}
+
+
+def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode: bool) -> Dict[str, str]:
+    """
+    Load location mapping with precedence:
+    1. Custom location mapping file (highest priority)
+    2. Default US FIPS mapping (fallback)
+    
+    Note: Locations from target-data/model-output are detected at runtime by data_processor
+    """
+    # Determine base path
+    project_root = config_path.parent
+    data_base_path = project_root / "test-data-input" if dev_mode else project_root
+    auxiliary_data_dir = data_base_path / "auxiliary-data"
+    
+    # Check if custom location mapping is specified
+    custom_location_file = config.spatial_config.custom_location_mapping_file_name
+    
+    if custom_location_file:
+        mapping_path = auxiliary_data_dir / custom_location_file
+        if mapping_path.exists():
+            try:
+                import pandas as pd
+                
+                # Read location code as string to preserve leading zeros (e.g., "01" for Alabama)
+                mapping_df = pd.read_csv(
+                    mapping_path,
+                    dtype={config.spatial_config.location_code_col_header_name: str}
+                )
+                
+                # Validate required columns exist
+                code_col = config.spatial_config.location_code_col_header_name
+                name_col = config.spatial_config.location_name_col_header_name
+                
+                if code_col not in mapping_df.columns:
+                    logger.error(f"  [X] Column '{code_col}' not found in {custom_location_file}")
+                    logger.warning(f"  [!] Falling back to default US FIPS mapping")
+                    return _load_us_state_fips_mapping()
+                
+                if name_col not in mapping_df.columns:
+                    logger.error(f"  [X] Column '{name_col}' not found in {custom_location_file}")
+                    logger.warning(f"  [!] Falling back to default US FIPS mapping")
+                    return _load_us_state_fips_mapping()
+                
+                location_mapping = dict(
+                    zip(
+                        mapping_df[code_col].astype(str),
+                        mapping_df[name_col].astype(str)
+                    )
+                )
+                
+                logger.info(f"  [OK] Loaded custom location mapping with {len(location_mapping)} entries from {custom_location_file}")
+                return location_mapping
+            except Exception as e:
+                logger.warning(f"  [!] Failed to load custom location mapping: {e}")
+                logger.warning(f"  [!] Falling back to default US FIPS mapping")
+    
+    # Use default US FIPS mapping as fallback
+    return _load_us_state_fips_mapping()
 
 
 def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode: bool = False) -> DashboardConfig:
@@ -483,20 +710,24 @@ def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode
         # Validate with Pydantic
         config = DashboardConfig(**flat_config)
 
-        logger.info("✓ Configuration validated successfully with Pydantic!")
-        logger.info(f"✓ Found {len(config.forecast_periods)} forecast periods")
-        logger.info(f"✓ Found {len(config.targets or [])} target(s)")
-        logger.info(f"✓ Found {len(config.available_models)} model(s)")
-        logger.info(f"✓ Time unit: {config.time_unit} days")
-        logger.info(f"✓ Horizons: {config.horizons}")
+        logger.info("[OK] Configuration validated successfully with Pydantic!")
+        logger.info(f"[OK] Found {len(config.forecast_periods)} forecast periods")
+        logger.info(f"[OK] Found {len(config.targets or [])} target(s)")
+        logger.info(f"[OK] Found {len(config.available_models)} model(s)")
+        logger.info(f"[OK] Time unit: {config.time_unit} days")
+        logger.info(f"[OK] Horizons: {config.horizons}")
+
+        # Load location mapping (bypass Pydantic's extra="forbid" with object.__setattr__)
+        location_mapping = _load_location_mapping(config, config_path, dev_mode)
+        object.__setattr__(config, '_location_mapping', location_mapping)
 
         # Display default selections
         logger.info("\nDefault Selections:")
-        logger.info(f"  • Location: {config.get_default_location()}")
-        logger.info(f"  • Horizon: {config.default_selected_horizon}")
-        logger.info(f"  • Prediction Intervals: {config.default_selected_prediction_intervals}")
+        logger.info(f"  - Location: {config.get_default_location()}")
+        logger.info(f"  - Horizon: {config.default_selected_horizon}")
+        logger.info(f"  - Prediction Intervals: {config.default_selected_prediction_intervals}")
         default_target = next((t.target_id for t in (config.targets or []) if t.is_default_selected), None)
-        logger.info(f"  • Target: {default_target}")
+        logger.info(f"  - Target: {default_target}")
 
         return config
 
@@ -506,9 +737,9 @@ def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode
         print("=" * 80)
         for error in e.errors():
             field = " -> ".join(str(loc) for loc in error["loc"])
-            print(f"✗ [{field}] {error['msg']}")
+            print(f"[X] [{field}] {error['msg']}")
             if "ctx" in error:
-                print(f"   Context: {error['ctx']}")
+                print(f"    Context: {error['ctx']}")
         print("=" * 80 + "\n")
         raise
     except Exception as e:
@@ -523,7 +754,7 @@ def export_json_schema(output_path: str = "config_schema.json"):
     with open(output_path, "w") as f:
         json.dump(schema, f, indent=2)
 
-    logger.info(f"✓ JSON Schema exported to: {output_path}")
+    logger.info(f"[OK] JSON Schema exported to: {output_path}")
     logger.info(f"  Schema contains {len(schema.get('properties', {}))} top-level properties")
 
 
@@ -556,7 +787,7 @@ def test_pydantic_config():
         return True
 
     except Exception as e:
-        print(f"\n✗ Error: {e}\n")
+        print(f"\n[X] Error: {e}\n")
         return False
 
 

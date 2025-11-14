@@ -353,7 +353,17 @@ export const selectLocationData = createSelector([selectLocationList], (location
 export const selectSelectedLocationName = createSelector(
   [selectForecastSettings, selectLocationMapping],
   (forecastSettings, locationMapping): string => {
-    const locationCode = forecastSettings.selectedLocationCode;
+    let locationCode = forecastSettings.selectedLocationCode;
+    
+    // Safety: If locationCode is somehow an object (like {"US": "US"}), extract the key
+    if (typeof locationCode === 'object' && locationCode !== null) {
+      console.warn('[selectSelectedLocationName] Location code is an object, extracting key:', locationCode);
+      locationCode = Object.keys(locationCode)[0];
+    }
+    
+    // Ensure it's a string
+    locationCode = String(locationCode || 'US');
+    
     return locationMapping[locationCode]?.locationName || locationCode;
   }
 );

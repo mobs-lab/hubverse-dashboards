@@ -6,7 +6,7 @@ to help users verify their data format matches expectations.
 
 from typing import Any, Dict, List
 from datetime import datetime, timedelta
-from yaml_config_processor import DashboardConfig
+from yaml_config_processor_pydantic import DashboardConfig
 
 class CSVShapeGenerator:
     """Generates sample CSV structures for validation"""
@@ -41,9 +41,10 @@ class CSVShapeGenerator:
         sample_rows = []
 
         # Required columns
+        target_mapping = self.config.target_data_header_mapping
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.date_col,
+                "user_name": target_mapping.date_col_name,
                 "description": "Date of observation",
                 "example": "2024-08-03",
             }
@@ -51,52 +52,49 @@ class CSVShapeGenerator:
 
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.observation_col,
+                "user_name": target_mapping.observation_col_name,
                 "description": "Observation value",
                 "example": "125.5",
             }
         )
 
         # Location column (required unless single-location mode)
-        if not self.config.is_single_location:
-            if self.config.column_mapping.location_col:
+        if not self.config.is_single_location_forecast:
+            if target_mapping.location_col_name:
                 required_cols.append(
                     {
-                        "user_name": self.config.column_mapping.location_col,
+                        "user_name": target_mapping.location_col_name,
                         "description": "Location code",
                         "example": "01",
                     }
                 )
 
         # Target column (required unless single-target mode)
-        if not self.config.is_single_target:
-            if self.config.column_mapping.target_col:
+        targets = self.config.targets or []
+        if not self.config.is_single_forecast_target:
+            if target_mapping.target_col_name:
                 required_cols.append(
                     {
-                        "user_name": self.config.column_mapping.target_col,
+                        "user_name": target_mapping.target_col_name,
                         "description": "Target identifier",
-                        "example": self.config.targets[
-                            0
-                        ].target_key_in_data
-                        if self.config.targets
-                        else "target_value",
+                        "example": targets[0].target_key_in_data if targets else "target_value",
                     }
                 )
 
         # Optional columns
-        if self.config.column_mapping.location_name_col:
+        if target_mapping.location_name_col_name:
             optional_cols.append(
                 {
-                    "user_name": self.config.column_mapping.location_name_col,
+                    "user_name": target_mapping.location_name_col_name,
                     "description": "Location name (optional)",
                     "example": "Alabama",
                 }
             )
 
-        if self.config.column_mapping.as_of_col:
+        if target_mapping.as_of_col_name:
             optional_cols.append(
                 {
-                    "user_name": self.config.column_mapping.as_of_col,
+                    "user_name": target_mapping.as_of_col_name,
                     "description": "As-of date for historical data (optional)",
                     "example": "2024-08-05",
                 }
@@ -120,44 +118,44 @@ class CSVShapeGenerator:
 
         # Sample row 1
         sample_row_1 = {
-            self.config.column_mapping.date_col: self._format_date(date1),
-            self.config.column_mapping.observation_col: "125.5",
+            target_mapping.date_col_name: self._format_date(date1),
+            target_mapping.observation_col_name: "125.5",
         }
 
         # Sample row 2
         sample_row_2 = {
-            self.config.column_mapping.date_col: self._format_date(date1),
-            self.config.column_mapping.observation_col: "43.2",
+            target_mapping.date_col_name: self._format_date(date1),
+            target_mapping.observation_col_name: "43.2",
         }
 
         # Sample row 3
         sample_row_3 = {
-            self.config.column_mapping.date_col: self._format_date(date2),
-            self.config.column_mapping.observation_col: "132.1",
+            target_mapping.date_col_name: self._format_date(date2),
+            target_mapping.observation_col_name: "132.1",
         }
 
         if (
-            not self.config.is_single_location
-            and self.config.column_mapping.location_col
+            not self.config.is_single_location_forecast
+            and target_mapping.location_col_name
         ):
-            sample_row_1[self.config.column_mapping.location_col] = "01"
-            sample_row_2[self.config.column_mapping.location_col] = "02"
-            sample_row_3[self.config.column_mapping.location_col] = "01"
+            sample_row_1[target_mapping.location_col_name] = "01"
+            sample_row_2[target_mapping.location_col_name] = "02"
+            sample_row_3[target_mapping.location_col_name] = "01"
 
-            if self.config.column_mapping.location_name_col:
-                sample_row_1[self.config.column_mapping.location_name_col] = "Alabama"
-                sample_row_2[self.config.column_mapping.location_name_col] = "Alaska"
-                sample_row_3[self.config.column_mapping.location_name_col] = "Alabama"
+            if target_mapping.location_name_col_name:
+                sample_row_1[target_mapping.location_name_col_name] = "Alabama"
+                sample_row_2[target_mapping.location_name_col_name] = "Alaska"
+                sample_row_3[target_mapping.location_name_col_name] = "Alabama"
 
-        if not self.config.is_single_target and self.config.column_mapping.target_col:
+        if not self.config.is_single_forecast_target and target_mapping.target_col_name:
             target_value = (
-                self.config.targets[0].target_key_in_data
-                if self.config.targets
+                targets[0].target_key_in_data
+                if targets
                 else "target_value"
             )
-            sample_row_1[self.config.column_mapping.target_col] = target_value
-            sample_row_2[self.config.column_mapping.target_col] = target_value
-            sample_row_3[self.config.column_mapping.target_col] = target_value
+            sample_row_1[target_mapping.target_col_name] = target_value
+            sample_row_2[target_mapping.target_col_name] = target_value
+            sample_row_3[target_mapping.target_col_name] = target_value
 
         sample_rows = [sample_row_1, sample_row_2, sample_row_3]
 
@@ -173,9 +171,12 @@ class CSVShapeGenerator:
         sample_rows = []
 
         # Required columns
+        model_mapping = self.config.model_output_data_header_mapping
+        targets = self.config.targets or []
+        
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.reference_date_col,
+                "user_name": model_mapping.reference_date_col_name,
                 "description": "Reference date (forecast made on)",
                 "example": "2024-08-03",
             }
@@ -183,7 +184,7 @@ class CSVShapeGenerator:
 
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.target_end_date_col,
+                "user_name": model_mapping.target_end_date_col_name,
                 "description": "Target end date (forecast for)",
                 "example": "2024-08-10",
             }
@@ -191,17 +192,15 @@ class CSVShapeGenerator:
 
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.model_target_col,
+                "user_name": model_mapping.target_col_name,
                 "description": "Target identifier",
-                "example": self.config.targets[0].target_key_in_data
-                if self.config.targets
-                else "target_value",
+                "example": targets[0].target_key_in_data if targets else "target_value",
             }
         )
 
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.horizon_col,
+                "user_name": model_mapping.horizon_col_name,
                 "description": "Forecast horizon",
                 "example": "0"
                 if 0 in self.config.horizons
@@ -209,10 +208,10 @@ class CSVShapeGenerator:
             }
         )
 
-        if not self.config.is_single_location:
+        if not self.config.is_single_location_forecast:
             required_cols.append(
                 {
-                    "user_name": self.config.column_mapping.location_col,
+                    "user_name": model_mapping.location_col_name,
                     "description": "Location code",
                     "example": "01",
                 }
@@ -220,7 +219,7 @@ class CSVShapeGenerator:
 
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.output_type_col,
+                "user_name": model_mapping.output_type_col_name,
                 "description": 'Output type (should be "quantile")',
                 "example": "quantile",
             }
@@ -228,7 +227,7 @@ class CSVShapeGenerator:
 
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.output_type_id_col,
+                "user_name": model_mapping.output_type_id_col_name,
                 "description": "Quantile level",
                 "example": "0.5",
             }
@@ -236,7 +235,7 @@ class CSVShapeGenerator:
 
         required_cols.append(
             {
-                "user_name": self.config.column_mapping.value_col,
+                "user_name": model_mapping.value_col_name,
                 "description": "Predicted value",
                 "example": "125.0",
             }
@@ -244,7 +243,7 @@ class CSVShapeGenerator:
 
         # Get expected values
         expected_targets = [
-            t.target_key_in_data for t in self.config.targets
+            t.target_key_in_data for t in targets
         ]
         expected_horizons = self.config.horizons
         expected_quantiles = self.config.get_all_quantiles()
@@ -298,10 +297,10 @@ class CSVShapeGenerator:
         demo_quantiles = demo_quantiles[:2]
 
         # Location value for demos
-        location_value = "01" if not self.config.is_single_location else None
+        location_value = "01" if not self.config.is_single_location_forecast else None
 
         # Generate 4 rows for EACH target
-        for target in self.config.targets:
+        for target in targets:
             target_value = target.target_key_in_data
 
             # Generate 4 diverse sample rows for this target
@@ -315,16 +314,16 @@ class CSVShapeGenerator:
                 target_end_date = reference_date + timedelta(days=horizon * self.config.time_unit)
 
                 row = {
-                    self.config.column_mapping.reference_date_col: self._format_date(reference_date),
-                    self.config.column_mapping.target_end_date_col: self._format_date(target_end_date),
-                    self.config.column_mapping.model_target_col: target_value,
-                    self.config.column_mapping.horizon_col: str(horizon),
-                    self.config.column_mapping.output_type_col: "quantile",
-                    self.config.column_mapping.output_type_id_col: quantile,
-                    self.config.column_mapping.value_col: "120.5",
+                    model_mapping.reference_date_col_name: self._format_date(reference_date),
+                    model_mapping.target_end_date_col_name: self._format_date(target_end_date),
+                    model_mapping.target_col_name: target_value,
+                    model_mapping.horizon_col_name: str(horizon),
+                    model_mapping.output_type_col_name: "quantile",
+                    model_mapping.output_type_id_col_name: quantile,
+                    model_mapping.value_col_name: "120.5",
                 }
-                if not self.config.is_single_location:
-                    row[self.config.column_mapping.location_col] = location_value
+                if not self.config.is_single_location_forecast:
+                    row[model_mapping.location_col_name] = location_value
                 rows_for_target.append(row)
 
             # Row 2: First horizon, second quantile (or same if only one)
@@ -334,16 +333,16 @@ class CSVShapeGenerator:
                 target_end_date = reference_date + timedelta(days=horizon * self.config.time_unit)
 
                 row = {
-                    self.config.column_mapping.reference_date_col: self._format_date(reference_date),
-                    self.config.column_mapping.target_end_date_col: self._format_date(target_end_date),
-                    self.config.column_mapping.model_target_col: target_value,
-                    self.config.column_mapping.horizon_col: str(horizon),
-                    self.config.column_mapping.output_type_col: "quantile",
-                    self.config.column_mapping.output_type_id_col: quantile,
-                    self.config.column_mapping.value_col: "125.0",
+                    model_mapping.reference_date_col_name: self._format_date(reference_date),
+                    model_mapping.target_end_date_col_name: self._format_date(target_end_date),
+                    model_mapping.target_col_name: target_value,
+                    model_mapping.horizon_col_name: str(horizon),
+                    model_mapping.output_type_col_name: "quantile",
+                    model_mapping.output_type_id_col_name: quantile,
+                    model_mapping.value_col_name: "125.0",
                 }
-                if not self.config.is_single_location:
-                    row[self.config.column_mapping.location_col] = location_value
+                if not self.config.is_single_location_forecast:
+                    row[model_mapping.location_col_name] = location_value
                 rows_for_target.append(row)
 
             # Row 3: Second horizon (if available), first quantile
@@ -353,16 +352,16 @@ class CSVShapeGenerator:
                 target_end_date = reference_date + timedelta(days=horizon * self.config.time_unit)
 
                 row = {
-                    self.config.column_mapping.reference_date_col: self._format_date(reference_date),
-                    self.config.column_mapping.target_end_date_col: self._format_date(target_end_date),
-                    self.config.column_mapping.model_target_col: target_value,
-                    self.config.column_mapping.horizon_col: str(horizon),
-                    self.config.column_mapping.output_type_col: "quantile",
-                    self.config.column_mapping.output_type_id_col: quantile,
-                    self.config.column_mapping.value_col: "130.2",
+                    model_mapping.reference_date_col_name: self._format_date(reference_date),
+                    model_mapping.target_end_date_col_name: self._format_date(target_end_date),
+                    model_mapping.target_col_name: target_value,
+                    model_mapping.horizon_col_name: str(horizon),
+                    model_mapping.output_type_col_name: "quantile",
+                    model_mapping.output_type_id_col_name: quantile,
+                    model_mapping.value_col_name: "130.2",
                 }
-                if not self.config.is_single_location:
-                    row[self.config.column_mapping.location_col] = location_value
+                if not self.config.is_single_location_forecast:
+                    row[model_mapping.location_col_name] = location_value
                 rows_for_target.append(row)
 
             # Row 4: Third horizon (if available), second quantile
@@ -372,16 +371,16 @@ class CSVShapeGenerator:
                 target_end_date = reference_date + timedelta(days=horizon * self.config.time_unit)
 
                 row = {
-                    self.config.column_mapping.reference_date_col: self._format_date(reference_date),
-                    self.config.column_mapping.target_end_date_col: self._format_date(target_end_date),
-                    self.config.column_mapping.model_target_col: target_value,
-                    self.config.column_mapping.horizon_col: str(horizon),
-                    self.config.column_mapping.output_type_col: "quantile",
-                    self.config.column_mapping.output_type_id_col: quantile,
-                    self.config.column_mapping.value_col: "132.0",
+                    model_mapping.reference_date_col_name: self._format_date(reference_date),
+                    model_mapping.target_end_date_col_name: self._format_date(target_end_date),
+                    model_mapping.target_col_name: target_value,
+                    model_mapping.horizon_col_name: str(horizon),
+                    model_mapping.output_type_col_name: "quantile",
+                    model_mapping.output_type_id_col_name: quantile,
+                    model_mapping.value_col_name: "132.0",
                 }
-                if not self.config.is_single_location:
-                    row[self.config.column_mapping.location_col] = location_value
+                if not self.config.is_single_location_forecast:
+                    row[model_mapping.location_col_name] = location_value
                 rows_for_target.append(row)
             elif len(demo_horizons) >= 2:
                 # If no third horizon, use second horizon with different quantile
@@ -390,16 +389,16 @@ class CSVShapeGenerator:
                 target_end_date = reference_date + timedelta(days=horizon * self.config.time_unit)
 
                 row = {
-                    self.config.column_mapping.reference_date_col: self._format_date(reference_date),
-                    self.config.column_mapping.target_end_date_col: self._format_date(target_end_date),
-                    self.config.column_mapping.model_target_col: target_value,
-                    self.config.column_mapping.horizon_col: str(horizon),
-                    self.config.column_mapping.output_type_col: "quantile",
-                    self.config.column_mapping.output_type_id_col: quantile,
-                    self.config.column_mapping.value_col: "128.5",
+                    model_mapping.reference_date_col_name: self._format_date(reference_date),
+                    model_mapping.target_end_date_col_name: self._format_date(target_end_date),
+                    model_mapping.target_col_name: target_value,
+                    model_mapping.horizon_col_name: str(horizon),
+                    model_mapping.output_type_col_name: "quantile",
+                    model_mapping.output_type_id_col_name: quantile,
+                    model_mapping.value_col_name: "128.5",
                 }
-                if not self.config.is_single_location:
-                    row[self.config.column_mapping.location_col] = location_value
+                if not self.config.is_single_location_forecast:
+                    row[model_mapping.location_col_name] = location_value
                 rows_for_target.append(row)
 
             # Ensure we have exactly 4 rows by padding if necessary
@@ -408,8 +407,8 @@ class CSVShapeGenerator:
                 if rows_for_target:
                     last_row = rows_for_target[-1].copy()
                     # Vary the value slightly
-                    current_val = float(last_row[self.config.column_mapping.value_col])
-                    last_row[self.config.column_mapping.value_col] = str(current_val + 5.0)
+                    current_val = float(last_row[model_mapping.value_col_name])
+                    last_row[model_mapping.value_col_name] = str(current_val + 5.0)
                     rows_for_target.append(last_row)
 
             # Add these 4 rows to the main sample_rows
@@ -542,33 +541,37 @@ class CSVShapeGenerator:
         print("Configuration Summary")
         print("=" * 80)
 
-        print(f"\n✓ Time Unit: {self.config.time_unit} days")
-        print(f"✓ Horizons: {self.config.horizons}")
+        targets = self.config.targets or []
+        special_periods = self.config.special_forecast_periods or []
+        
+        print(f"\n[OK] Time Unit: {self.config.time_unit} days")
+        print(f"[OK] Horizons: {self.config.horizons}")
         print(
-            f"✓ Forecast Periods: {len(self.config.forecast_periods)} standard period(s)"
+            f"[OK] Forecast Periods: {len(self.config.forecast_periods)} standard period(s)"
         )
-        if self.config.dynamic_periods:
+        if special_periods:
             print(
-                f"✓ Special Periods: {len(self.config.dynamic_periods)} special period(s)"
+                f"[OK] Special Periods: {len(special_periods)} special period(s)"
             )
-        print(f"✓ Targets: {len(self.config.targets)} modelling task(s)")
-        for target in self.config.targets:
+        print(f"[OK] Targets: {len(targets)} modelling task(s)")
+        for target in targets:
             print(
-                f"    - ({target.task_display_string}) → {target.target_key_in_data}"
+                f"    - ({target.task_display_string}) -> {target.target_key_in_data}"
             )
-        print(f"✓ Models: {len(self.config.models)} model(s) configured")
-        for model in self.config.models:
+        print(f"[OK] Models: {len(self.config.available_models)} model(s) configured")
+        for model in self.config.available_models:
             print(f"    - {model.model_name}")
         print(
-            f"✓ Prediction Intervals: {len(self.config.prediction_intervals)} level(s)"
+            f"[OK] Prediction Intervals: {len(self.config.prediction_intervals)} level(s)"
         )
         for interval in self.config.prediction_intervals:
-            print(f"    - {interval.level}% (quantiles: {interval.output_type_ids})")
+            print(f"    - {interval.level}% (quantiles: {interval.uses_output_type_ids})")
         print(
-            f"✓ Single Location Mode: {'Yes' if self.config.is_single_location else 'No'}"
+            f"[OK] Single Location Mode: {'Yes' if self.config.is_single_location_forecast else 'No'}"
         )
-        if self.config.is_single_location:
-            location_name = self.config.location_mapping.get(
+        if self.config.is_single_location_forecast:
+            location_mapping = self.config.get_location_mapping()
+            location_name = location_mapping.get(
                 self.config.single_location_mapping, "Unknown"
             )
             print(
@@ -580,7 +583,7 @@ class CSVShapeGenerator:
             )
 
         print(
-            f"✓ Single Target Mode: {'Yes' if self.config.is_single_target else 'No'}"
+            f"[OK] Single Target Mode: {'Yes' if self.config.is_single_forecast_target else 'No'}"
         )
 
         print("\n" + "=" * 80)
@@ -596,5 +599,4 @@ def generate_and_print_samples(config: DashboardConfig):
     # Print model-output sample
     generator.print_model_output_sample()
 
-    # Print configuration summary
-    generator.print_configuration_summary()
+    

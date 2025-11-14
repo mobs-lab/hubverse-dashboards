@@ -44,6 +44,7 @@ const SettingsPanel: React.FC = () => {
   const targets = useAppSelector(selectTargets);
   const config = useAppSelector(selectConfig);
   const { earliestDate, latestDate } = useAppSelector(selectDateConstraints);
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
 
   // Get current settings from Redux
   const {
@@ -416,7 +417,16 @@ const SettingsPanel: React.FC = () => {
           <Typography variant="h6" className="text-white flex-shrink" placeholder="">
             Horizon
           </Typography>
-          <InfoButton content={horizonSelectorsInfo} title={'Forecast Horizons'}></InfoButton>
+          <InfoButton
+            content={
+              uiConfig?.forecastPage.infoButtons.horizonInfo?.content ? (
+                <div dangerouslySetInnerHTML={{ __html: uiConfig.forecastPage.infoButtons.horizonInfo.content }} />
+              ) : (
+                horizonSelectorsInfo
+              )
+            }
+            title={uiConfig?.forecastPage.infoButtons.horizonInfo?.title || 'Forecast Horizons'}
+          />
         </div>
 
         <select

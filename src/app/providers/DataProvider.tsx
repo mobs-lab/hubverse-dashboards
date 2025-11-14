@@ -175,12 +175,40 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Parse default selections from metadata
     const defaults = metadata.defaults || {};
-    const defaultLocation = defaults.location || (metadata.spatial?.isSingleLocation ? metadata.spatial?.singleLocationCode : 'US');
+    
+    // Extract default location (handle dict or string format for safety)
+    let defaultLocation = defaults.location;
+    if (typeof defaultLocation === 'object' && defaultLocation !== null) {
+      // If it's a dict like {"US": "US"}, extract the key
+      defaultLocation = Object.keys(defaultLocation)[0];
+    }
+    // Fallback to single location code or "US"
+    if (!defaultLocation) {
+      defaultLocation = metadata.spatial?.isSingleLocation ? metadata.spatial?.singleLocationCode : 'US';
+    }
+    
     const defaultHorizon = defaults.horizon !== undefined ? defaults.horizon : (metadata.temporal?.horizons?.[metadata.temporal.horizons.length - 1] || 1);
     // Ensure all prediction interval values are strings for consistency
     const defaultPredictionIntervals = defaults.predictionIntervals 
       ? defaults.predictionIntervals.map((pi: any) => String(pi))
       : predictionIntervals.map((pi: any) => String(pi.level));
+
+    // Parse UI customization from metadata
+    const uiCustomization = metadata.uiCustomization || {
+      header: {
+        titleName: 'FluForecast',
+        navButtons: [],
+      },
+      forecastPage: {
+        chartHeaderName: 'Weekly Hospital Admissions Forecast',
+        histTdToggleText: 'Show Admissions at Time of Forecast',
+        disableLocationInfo: false,
+        infoButtons: {
+          headerInfo: undefined,
+          horizonInfo: undefined,
+        },
+      },
+    };
 
     return {
       // Feature flags from metadata.features
@@ -222,6 +250,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Default selections
       defaultLocation,
       defaultHorizon,
+
+      // UI Customization
+      uiCustomization,
     };
   };
 

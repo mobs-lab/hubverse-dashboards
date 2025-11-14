@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 try:
-    from yaml_config_processor_v2 import DashboardConfig, export_json_schema
+    from yaml_config_processor_pydantic import DashboardConfig, export_json_schema
 except ImportError:
-    print("Error: Could not import yaml_config_processor_v2.")
+    print("Error: Could not import yaml_config_processor_pydantic.")
     print("Make sure pydantic is installed: pip install pydantic")
     sys.exit(1)
 
@@ -47,13 +47,13 @@ def main():
     for prop_name, prop_data in sorted(schema.get("properties", {}).items()):
         prop_type = prop_data.get("type", prop_data.get("anyOf", [{}])[0].get("type", "complex"))
         description = prop_data.get("description", "")
-        required = "✓" if prop_name in schema.get("required", []) else " "
+        required = "*" if prop_name in schema.get("required", []) else " "
         print(f"  [{required}] {prop_name:40s} {prop_type:15s}")
         if description:
-            print(f"      → {description[:70]}...")
+            print(f"      -> {description[:70]}...")
     print("=" * 80 + "\n")
 
-    print("✓ JSON Schema generated successfully!")
+    print("[OK] JSON Schema generated successfully!")
     print("\n")
 
 

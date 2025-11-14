@@ -18,6 +18,34 @@ export interface TargetConfig {
   displayString: string;
 }
 
+export interface InfoButtonContentConfig {
+  title: string;
+  content: string;
+}
+
+export interface NavButtonConfig {
+  text: string;
+  navToPage?: 'Forecast' | 'Evaluation';
+  navToExternal: boolean;
+  navToLink?: string;
+}
+
+export interface UICustomizationConfig {
+  header: {
+    titleName: string;
+    navButtons: NavButtonConfig[];
+  };
+  forecastPage: {
+    chartHeaderName: string;
+    histTdToggleText: string;
+    disableLocationInfo: boolean;
+    infoButtons: {
+      headerInfo?: InfoButtonContentConfig;
+      horizonInfo?: InfoButtonContentConfig;
+    };
+  };
+}
+
 export interface DashboardConfig {
   // Feature flags
   evaluationsEnabled: boolean;
@@ -60,6 +88,9 @@ export interface DashboardConfig {
   // Default selections for UI initialization
   defaultLocation?: string;
   defaultHorizon?: number;
+
+  // UI Customization
+  uiCustomization: UICustomizationConfig;
 }
 
 interface ConfigState {

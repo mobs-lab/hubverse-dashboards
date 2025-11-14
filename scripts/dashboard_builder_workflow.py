@@ -30,7 +30,7 @@ from typing import Optional
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from yaml_config_processor import load_config, DashboardConfig
+from yaml_config_processor_pydantic import load_config_pydantic, DashboardConfig
 from csv_shape_generator import generate_and_print_samples
 from data_processor import process_data
 
@@ -57,23 +57,17 @@ class DashboardBuilder:
 
     def run_config_validation(self) -> bool:
         """
-        Phase 1: Load configuration and show CSV samples for user validation
+        Load configuration and show CSV samples for user validation
 
         Returns:
             bool: True if user confirms to proceed, False otherwise
         """
         print("\n" + "=" * 80)
-        print("HUBVERSE DASHBOARD BUILDER - Phase 1: Configuration Validation")
+        print("HUBVERSE DASHBOARD BUILDER - Configuration Validation")
         print("=" * 80)
 
         # Step 1: Load and validate configuration
         if not self._load_configuration():
-            return False
-
-        self._prompt_to_continue()
-
-        # Step 2: Check configuration completeness
-        if not self._check_configuration_requirements():
             return False
 
         self._prompt_to_continue()
@@ -86,15 +80,15 @@ class DashboardBuilder:
 
     def _load_configuration(self) -> bool:
         """Load and validate the configuration file"""
-        print("\n[Step 1/4] Loading configuration file...")
+        print("\n[Step 1/3] Loading configuration file...")
         print(f"Config path: {self.config_path}")
         if self.dev_mode:
             print("Dev mode: ON - will check for data in test-data-input/")
 
         # Call the YAML config processor's load_config method
         try:
-            self.config = load_config(self.config_path, dev_mode=self.dev_mode)
-            print("✓ Configuration loaded and validated successfully\n")
+            self.config = load_config_pydantic(self.config_path, dev_mode=self.dev_mode)
+            print("[OK] Configuration loaded and validated successfully\n")
             return True
 
         except FileNotFoundError:
@@ -116,39 +110,9 @@ class DashboardBuilder:
         """Pauses execution and waits for user to press Enter."""
         input(f"\n{message}")
 
-    def _check_configuration_requirements(self) -> bool:
-        """
-        Display configuration summary (validation already done by yaml_config_processor).
-        This step shows the user key configuration details before proceeding.
-        """
-        print("[Step 2/4] Configuration Summary...")
-        print()
-
-        # Display key configuration information
-        print(f"  ✓ Forecast periods: {len(self.config.forecast_periods)} standard period(s)")
-        if self.config.dynamic_periods:
-            print(f"  ✓ Special periods: {len(self.config.dynamic_periods)} dynamic period(s)")
-
-        print(f"  ✓ Modelling tasks: {len(self.config.targets)} target(s)")
-        print(f"  ✓ Models configured: {len(self.config.models)}")
-        print(f"  ✓ Time unit: {self.config.time_unit} day(s)")
-        print(f"  ✓ Horizons: {self.config.horizons}")
-
-        if self.config.is_single_location:
-            location_name = self.config.location_mapping.get(
-                self.config.single_location_mapping, "Unknown"
-            )
-            print(f"  ✓ Single-location mode: {self.config.single_location_mapping} ({location_name})")
-        else:
-            print(f"  ✓ Multi-location mode (auto-detect from data)")
-
-        print()
-        print("✓ All configuration requirements validated\n")
-        return True
-
     def _display_csv_samples(self):
         """Generate and display expected CSV structures"""
-        print("[Step 3/4] Generating expected CSV structures...\n")
+        print("[Step 2/3] Generating expected CSV structures...\n")
 
         try:
             generate_and_print_samples(self.config)
@@ -158,7 +122,7 @@ class DashboardBuilder:
 
     def _get_user_confirmation(self) -> bool:
         """Ask user to confirm before proceeding"""
-        print("\n[Step 4/4] User Confirmation Required")
+        print("\n[Step 3/3] User Confirmation Required")
         print("=" * 80)
         print("\nPlease review the expected CSV structures above and compare with")
         print("your actual data files to ensure they match.\n")
@@ -173,10 +137,10 @@ class DashboardBuilder:
             response = input("Do you want to proceed with data processing? (Yes/No): ").strip().lower()
 
             if response in ["yes", "y"]:
-                print("\n✓ User confirmed. Proceeding to data processing...\n")
+                print("\n[OK] User confirmed. Proceeding to data processing...\n")
                 return True
             elif response in ["no", "n"]:
-                print("\n✗ User cancelled. Please review your data and configuration.")
+                print("\n[X] User cancelled. Please review your data and configuration.")
                 print("  Update config.yaml if needed, then run this script again.\n")
                 return False
             else:
@@ -184,7 +148,7 @@ class DashboardBuilder:
 
     def run_data_processing(self):
         """
-        Phase 2: Data Processing
+        Data Processing
 
         This part of workflow handles:
         - Loading raw CSV files from `target-data/` and `model-output/`
@@ -194,16 +158,16 @@ class DashboardBuilder:
         - Exporting to frontend JSON format
         """
         print("\n" + "=" * 80)
-        print("PHASE 2: Data Processing")
+        print("Data Processing")
         print("=" * 80)
 
         if self.skip_evaluations:
-            print("\n⚠ Evaluations DISABLED - skipping evaluation calculation")
+            print("\n[!] Evaluations DISABLED - skipping evaluation calculation")
             print("  The dashboard will not include evaluation metrics (WIS, Coverage, MAPE)")
 
         try:
             process_data(self.config, dev_mode=self.dev_mode, skip_evaluations=self.skip_evaluations)
-            print("\n✓ Data processing core logic completed successfully.")
+            print("\n[OK] Data processing core logic completed successfully.")
         except Exception as e:
             logger.error(f"Data processing failed: {e}")
             # Re-raise the exception to be caught by the main function
@@ -235,11 +199,7 @@ def main():
     args = parser.parse_args()
 
     # Create builder instance
-    builder = DashboardBuilder(
-        config_path=args.config,
-        dev_mode=args.dev,
-        skip_evaluations=args.skip_evaluations
-    )
+    builder = DashboardBuilder(config_path=args.config, dev_mode=args.dev, skip_evaluations=args.skip_evaluations)
 
     if not builder.run_config_validation():
         sys.exit(1)
