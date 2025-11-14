@@ -295,7 +295,7 @@ class DashboardConfig(BaseModel):
         """Ensure targets is always a list, never None (for compatibility)"""
         # Only convert None to [] if in single-target mode
         if self.targets is None and self.is_single_forecast_target:
-            object.__setattr__(self, 'targets', [])
+            object.__setattr__(self, "targets", [])
         return self
 
     @model_validator(mode="after")
@@ -313,7 +313,7 @@ class DashboardConfig(BaseModel):
             for target in self.targets:
                 if target.for_forecast_periods is None:
                     # Use object.__setattr__ to bypass frozen/validation
-                    object.__setattr__(target, 'for_forecast_periods', all_period_ids)
+                    object.__setattr__(target, "for_forecast_periods", all_period_ids)
         return self
 
     @model_validator(mode="after")
@@ -354,14 +354,26 @@ class DashboardConfig(BaseModel):
     def assign_model_colors(self):
         """Assign colors to models that don't have one"""
         default_palette = [
-            "#9ceb94", "#3fc49e", "#45cded", "#0292d1", "#7bb1ff",
-            "#5f5fd6", "#d36f54", "#e89c31", "#a855f7", "#ec4899",
-            "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4",
+            "#9ceb94",
+            "#3fc49e",
+            "#45cded",
+            "#0292d1",
+            "#7bb1ff",
+            "#5f5fd6",
+            "#d36f54",
+            "#e89c31",
+            "#a855f7",
+            "#ec4899",
+            "#22c55e",
+            "#f59e0b",
+            "#ef4444",
+            "#8b5cf6",
+            "#06b6d4",
         ]
-        
+
         assigned_colors = {m.color_hex.lower() for m in self.available_models if m.color_hex}
         palette_idx = 0
-        
+
         for model in self.available_models:
             if not model.color_hex:
                 # Find next available color
@@ -369,10 +381,10 @@ class DashboardConfig(BaseModel):
                     color = default_palette[palette_idx]
                     palette_idx += 1
                     if color.lower() not in assigned_colors:
-                        object.__setattr__(model, 'color_hex', color)
+                        object.__setattr__(model, "color_hex", color)
                         assigned_colors.add(color.lower())
                         break
-        
+
         return self
 
     @model_validator(mode="after")
@@ -602,7 +614,7 @@ def flatten_yaml_list_structure(raw_config: List[Dict]) -> Dict[str, Any]:
 def _load_us_state_fips_mapping() -> Dict[str, str]:
     """Load US state FIPS code to name mapping from reference file"""
     reference_path = Path(__file__).parent / "us_state_fips_mapping.json"
-    
+
     try:
         with open(reference_path, "r") as f:
             mapping = json.load(f)
@@ -621,56 +633,48 @@ def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode:
     Load location mapping with precedence:
     1. Custom location mapping file (highest priority)
     2. Default US FIPS mapping (fallback)
-    
+
     Note: Locations from target-data/model-output are detected at runtime by data_processor
     """
     # Determine base path
     project_root = config_path.parent
     data_base_path = project_root / "test-data-input" if dev_mode else project_root
     auxiliary_data_dir = data_base_path / "auxiliary-data"
-    
+
     # Check if custom location mapping is specified
     custom_location_file = config.spatial_config.custom_location_mapping_file_name
-    
+
     if custom_location_file:
         mapping_path = auxiliary_data_dir / custom_location_file
         if mapping_path.exists():
             try:
                 import pandas as pd
-                
+
                 # Read location code as string to preserve leading zeros (e.g., "01" for Alabama)
-                mapping_df = pd.read_csv(
-                    mapping_path,
-                    dtype={config.spatial_config.location_code_col_header_name: str}
-                )
-                
+                mapping_df = pd.read_csv(mapping_path, dtype={config.spatial_config.location_code_col_header_name: str})
+
                 # Validate required columns exist
                 code_col = config.spatial_config.location_code_col_header_name
                 name_col = config.spatial_config.location_name_col_header_name
-                
+
                 if code_col not in mapping_df.columns:
                     logger.error(f"  [X] Column '{code_col}' not found in {custom_location_file}")
                     logger.warning(f"  [!] Falling back to default US FIPS mapping")
                     return _load_us_state_fips_mapping()
-                
+
                 if name_col not in mapping_df.columns:
                     logger.error(f"  [X] Column '{name_col}' not found in {custom_location_file}")
                     logger.warning(f"  [!] Falling back to default US FIPS mapping")
                     return _load_us_state_fips_mapping()
-                
-                location_mapping = dict(
-                    zip(
-                        mapping_df[code_col].astype(str),
-                        mapping_df[name_col].astype(str)
-                    )
-                )
-                
-                logger.info(f"  [OK] Loaded custom location mapping with {len(location_mapping)} entries from {custom_location_file}")
+
+                location_mapping = dict(zip(mapping_df[code_col].astype(str), mapping_df[name_col].astype(str)))
+
+                logger.info(f" [OK] Loaded custom location mapping with {len(location_mapping)} entries from {custom_location_file}")
                 return location_mapping
             except Exception as e:
                 logger.warning(f"  [!] Failed to load custom location mapping: {e}")
                 logger.warning(f"  [!] Falling back to default US FIPS mapping")
-    
+
     # Use default US FIPS mapping as fallback
     return _load_us_state_fips_mapping()
 
@@ -719,7 +723,7 @@ def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode
 
         # Load location mapping (bypass Pydantic's extra="forbid" with object.__setattr__)
         location_mapping = _load_location_mapping(config, config_path, dev_mode)
-        object.__setattr__(config, '_location_mapping', location_mapping)
+        object.__setattr__(config, "_location_mapping", location_mapping)
 
         # Display default selections
         logger.info("\nDefault Selections:")

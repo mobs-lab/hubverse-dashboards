@@ -9,7 +9,7 @@
 #   [CONDITIONAL]  - Required only if certain other options are set
 #   [OPTIONAL]     - Has default value or can be omitted
 #
-# For detailed documentation and examples, see: DOCUMENTATION.md
+# See full documentation: TODO
 #==============================================================================
 
 #==============================================================================
@@ -29,12 +29,12 @@
 - link_to_hubverse_compatible_data: null
 
 # Example remote configuration (currently commented out):
-# - links_to_hubverse_compatible_data: "https://github.com/your-org/your-forecast-hub/"
+# - links_to_hubverse_compatible_data: "https://github.com/test-user/test-forecasting-hub/"
 
 #==============================================================================
 # FORECAST PERIODS DEFINITIONS
 #==============================================================================
-# [REQUIRED] At least one. Define time ranges for your forecasting data.
+# [REQUIRED] at least one. Define time ranges for your forecasting data.
 #
 # Each forecast period represents a distinct time range (e.g., a season).
 # Periods can overlap or have gaps. Data is filtered by these date ranges.
@@ -118,7 +118,8 @@
 
 # [RECOMMENDED] Location mapping file (CSV format in /auxiliary-data/)
 # Maps location codes to human-readable names
-# If null: Uses default US State FIPS mapping
+# If null, will resort to detecting from target-data
+# If still not found there, will default back to US FIPS mapping list
 - custom_location_mapping_file_name: "locations.csv"
 
 # [REQUIRED if above (custom location mapping file) provided]
@@ -126,10 +127,10 @@
 - location_code_col_header_name: "location" # Column with location codes
 - location_name_col_header_name: "location_name" # Column with location names
 
-# [OPTIONAL] Default selected location for the dashboard to display on initial load
-# Can be a string ("US") or dict ({"US":"US"})
-# If not specified, defaults to first location in mapping or "US"
-- default_selected_location: {"US":"US"}
+# [OPTIONAL] Default selected location, for the dashboard to display
+# Must be a code-name pair that actually exist in custom mapping file/target-data/US FIPS list
+# If null, will use the first found in custom file/target-data/"US"
+- default_selected_location: { "US": "US" }
 
 #==============================================================================
 # MODELLING TASKS / TARGETS DEFINITIONS
@@ -156,7 +157,7 @@
         - task_display_string: "COVID19 Admissions" # [REQUIRED] Display name
         - target_key_in_data: "wk inc covid hosp" # [REQUIRED] Key in data files
         - for_forecast_periods: ["season-2024-2025"] # [OPTIONAL] Defaults to all
-        - is_default_selected: True # [OPTIONAL, unique] Only one target can be default
+        - is_default_selected: True # [OPTIONAL, unique] Will become default selected in dashboard
 
     - "COVID19 Test 2nd Target":
         - target_id: "covid19-test-target"
@@ -228,7 +229,16 @@
         - color_hex: null
     - "CovidHub-ensemble":
         - color_hex: null
-    # Add more models as needed...
+    - "NEU_ISI-AdaptiveEnsemble":
+        - color_hex: null
+    - "TEST1":
+        - color_hex: "#abcabc"
+    - "TEST2":
+        - color_hex: "#888888"
+    - "TEST3":
+        - color_hex: "#329abc"
+    - "NON-EXISTENT-MODEL": # Will show warning if directory not found
+        - color_hex: "#000000"
 
 #------------------------------------------------------------------------------
 # Model Output File Structure
@@ -277,7 +287,7 @@
     - "90":
         - uses_output_type_ids: ["0.05", "0.95"]
 
-# [OPTIONAL] Default selected prediction intervals to display on dashboard initial load
+# [OPTIONAL] Default selected PIs to display when dashboard first loads.
 # Enter them into a list, using the same string you specified above.
 # If null or commented out, will default to using all provided prediction_intervals.
 - default_selected_prediction_intervals: ["50", "90"]
@@ -288,9 +298,8 @@
 # Positive = future forecasting
 - horizons: [-1, 0, 1, 2, 3]
 
-# [OPTIONAL] Default selected horizon for dashboard initial load
-# If not specified, defaults to the last (furthest) horizon
-- default_selected_horizon: 3
+# [OPTIONAL] Default selected horizon.
+- default_selected_horizon: 3 # Single Choice Selection.
 
 #==============================================================================
 # MODEL EVALUATION CONFIGURATION
@@ -310,7 +319,7 @@
     - "90":
         - uses_output_type_ids: ["0.05", "0.95"]
 
-# [OPTIONAL] Default selected prediction intervals for Evaluations page
+# [OPTIONAL] Default selected PIs to display when dashboard first loads, in Evaluations page.
 # Enter them into a list, using the same string you specified above.
 - default_selected_prediction_intervals_for_evaluations: ["50", "90"]
 
@@ -321,6 +330,54 @@
 #==============================================================================
 # DASHBOARD DISPLAY SETTINGS
 #==============================================================================
-# [OPTIONAL] Future: Custom text, tooltips, help content
-# Currently reserved for future enhancements
--
+# [OPTIONAL] Change dashboard's UI elements, displays and information pop-ups here.
+# A detailed illustration on what each configuration option controls, can be found in documentation at https://github.com/mobs-lab/hubverse-dashboard/wiki
+
+# Change Header and Navigation Buttons
+# ------------------------------------
+# Note: this component will be changed for both Forecast and Evaluation page.
+# Special Note: If your header title naming follows the convention "XxxxForecast", the dashboard supports selectively bolding the "Xxxx" part for you.
+#               Any other kind of naming will just be all bold.
+- ui_header_title_name: "COVID-19Forecast"
+
+# Declare and change navigation buttons UI and behaviour
+# [Recommended] to have one button each for Forecast and Evaluation page.
+# Support external hyperlink option that may help directing to documentation, further resources, etc.
+- ui_header_nav_btn:
+    # Order of these options below will be preserved
+    # An button can only direct to either external or Forecast/Evaluation, cannot be both
+    - "About Epistorm": # This will become the display text
+        - nav_to_external: True
+        - nav_to_link: "https://www.epistorm.org/flu-forecast-about"
+    - "COVID Forecast":
+        - nav_to_page: "Forecast" # Can only be "Forecast" or "Evaluation"
+    - "Evaluation":
+        - nav_to_page: "Evaluation" # Note this will still be hidden if no-evalution mode is used
+    - "TestExternal-Hubverse":
+        - nav_to_external: True
+        - nav_to_link: "https://hubverse.io"
+
+# Forecast Page Visualization Components Customizations
+# -----------------------------------------------------
+# [OPTIONAL] Changes chart header title for the main line chart visualization.
+- ui_forecast_header_chart_name: "Weekly Hospital COVID-19 Admissions Forecast"
+
+# [OPTIONAL] Change chart header historical target data toggle text display.
+# Note this will still be hidden when no-historical-target-data mode is turned on.
+- ui_forecast_header_hist_td_toggle_text: "Show COVID-19 Admissions at Time of Forecast"
+
+# [OPTIONAL] Disables the location name display on top of chart header.
+- disable_location_info_display: False
+
+# [OPTIONAL]
+# Changes the infobutton title and text, for 2 located in Forecast page
+- ui_forecast_header_infobutton_content:
+    - title: "Test infobutton title"
+    - content: "A very, very long test string. Dorum Ipsum ..."
+- ui_forecast_settings_horizon_infobutton_content:
+    - title: "Test About Horizon"
+    - content: "Horizon Horizon Horizon Horizon Horizon"
+# TODO: Evaluation Page Visualization Components Customizations
+# -------------------------------------------------------------
+
+# - ui_evaluation_header_name: "something soemething"

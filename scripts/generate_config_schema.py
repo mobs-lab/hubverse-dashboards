@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 try:
-    from yaml_config_processor_pydantic import DashboardConfig, export_json_schema
+    from yaml_config_processor_pydantic import export_json_schema
 except ImportError:
     print("Error: Could not import yaml_config_processor_pydantic.")
     print("Make sure pydantic is installed: pip install pydantic")
