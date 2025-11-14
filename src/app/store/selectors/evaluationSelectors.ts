@@ -4,7 +4,7 @@ import { RootState } from "../index";
 
 // Selector for checking if JSON data is available
 export const selectIsJsonDataLoaded = (state: RootState) => {
-  const isLoaded = state.evaluationData.isJsonDataLoaded;
+  const isLoaded = state.evaluationDataStore.isJsonDataLoaded;
   return isLoaded;
 };
 
@@ -16,7 +16,7 @@ export const selectSeasonOverviewData = createSelector(
     (state: RootState) => state.evaluationsSeasonOverviewSettings.evalSOTimeRangeOptions,
     (state: RootState) => state.evaluationsSeasonOverviewSettings.evaluationSeasonOverviewHorizon,
     (state: RootState) => state.evaluationsSeasonOverviewSettings.evaluationSeasonOverviewSelectedModels,
-    (state: RootState) => state.evaluationData.precalculated,
+    (state: RootState) => state.evaluationDataStore.precalculated,
   ],
   (isJsonLoaded, selectedPeriodName, evalSOTimeRangeOptions, horizons, selectedModels, precalculatedData) => {
     // Always return a valid structure, even if data is not loaded

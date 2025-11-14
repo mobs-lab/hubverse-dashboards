@@ -1,6 +1,6 @@
 // src/app/store/forecastSettingsSlice.ts
 import {createSlice, PayloadAction} from '@reduxjs/toolkit';
-import { SeasonOption } from '@/types/domains/forecasting';
+import { ForecastPeriodOption } from '@/types/domains/forecasting';
 import {parseISO} from "date-fns";
 
 interface EvaluationsSettingsState {
@@ -17,7 +17,7 @@ interface EvaluationsSettingsState {
     evaluationsSingleModelViewDateStart: Date;
     evaluationSingleModelViewDateEnd: Date;
     evaluationsSingleModelViewSeasonId: string;
-    evaluationSingleModelViewSeasonOptions: SeasonOption[];
+    evaluationSingleModelViewSeasonOptions: ForecastPeriodOption[];
 }
 
 const initialState: EvaluationsSettingsState = {
@@ -54,7 +54,7 @@ const evaluationsSingleModelSettingsSlice = createSlice({
         updateEvaluationSingleModelViewHorizon: (state, action: PayloadAction<number>) => {
             state.evaluationSingleModelViewHorizon = action.payload;
         },
-        updateEvaluationSingleModelViewSeasonOptions: (state, action: PayloadAction<SeasonOption[]>) => {
+        updateEvaluationSingleModelViewSeasonOptions: (state, action: PayloadAction<ForecastPeriodOption[]>) => {
             state.evaluationSingleModelViewSeasonOptions = action.payload;
         },
         updateEvaluationSingleModelViewDateStart: (state, action: PayloadAction<Date>) => {

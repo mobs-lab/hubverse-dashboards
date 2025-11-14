@@ -1,8 +1,7 @@
-import { useDataContext } from "@/providers/DataProvider";
 import { updateEvaluationSingleModelViewSelectedState } from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
-import { updateSelectedState } from "@/store/data-slices/settings/SettingsSliceForecastNowcast";
+import { updateSelectedLocation } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectLocationData } from "@/store/selectors/forecastSelectors";
+import { selectLocationData, selectMapData, selectSelectedLocationName } from "@/store/selectors/forecastSelectors";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import * as d3 from "d3";
 import { zoom, ZoomBehavior, zoomIdentity } from "d3-zoom";
@@ -18,17 +17,21 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
 
-  const { mapData } = useDataContext();
-
   const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const initialTransformRef = useRef<d3.ZoomTransform | null>(null);
 
   const [isMapReady, setIsMapReady] = useState(false);
 
   const dispatch = useAppDispatch();
-  const { selectedStateName } = useAppSelector((state) => state.forecastSettings);
-  const { evaluationsSingleModelViewSelectedStateName } = useAppSelector((state) => state.evaluationsSingleModelSettings);
+
+  // Get data from Redux selectors
+  const mapData = useAppSelector(selectMapData);
   const locationData = useAppSelector(selectLocationData);
+  const { selectedLocationCode } = useAppSelector((state) => state.forecastSettings);
+  const selectedStateName = useAppSelector(selectSelectedLocationName);
+  const { evaluationsSingleModelViewSelectedStateName } = useAppSelector(
+    (state) => state.evaluationsSingleModelSettings
+  );
 
   const initializeZoom = useCallback(() => {
     if (!svgRef.current || !gRef.current) return;
@@ -48,7 +51,11 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   // Wrapper to update respective page's state selection via the map
   const updateRespectivePageState = useCallback(
     (arg0: { stateName: any; stateNum: any }) => {
-      pageSelected === "forecast" ? dispatch(updateSelectedState(arg0)) : dispatch(updateEvaluationSingleModelViewSelectedState(arg0));
+      if (pageSelected === 'forecast') {
+        dispatch(updateSelectedLocation(arg0.stateNum));
+      } else {
+        dispatch(updateEvaluationSingleModelViewSelectedState(arg0));
+      }
     },
     [pageSelected, dispatch]
   );
@@ -149,19 +156,27 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
     if (!gRef.current || !isMapReady) return; // Now checks if map is ready
 
     const g = d3.select(gRef.current);
-    const paths = g.selectAll("path");
+    const paths = g.selectAll('path');
 
     // Resets all state color before highlighting the newly selected one
-    paths.transition().style("fill", "#252a33");
+    paths.transition().style('fill', '#252a33');
 
     // Determine which state name to use based on pageSelected
-    const currentSelectedStateName = pageSelected === "forecast" ? selectedStateName : evaluationsSingleModelViewSelectedStateName;
+    const currentSelectedStateCode =
+      pageSelected === 'forecast'
+        ? selectedLocationCode
+        : evaluationsSingleModelViewSelectedStateName;
 
-    if (currentSelectedStateName) {
-      const selectedState = paths.filter((d: any) => d && d.properties && d.properties.name === currentSelectedStateName);
-      selectedState.transition().style("fill", "white");
+    if (currentSelectedStateCode) {
+      const selectedState = paths.filter((d: any) => d && d.id === currentSelectedStateCode);
+      selectedState.transition().style('fill', 'white');
     }
-  }, [pageSelected, selectedStateName, evaluationsSingleModelViewSelectedStateName, isMapReady]);
+  }, [
+    pageSelected,
+    selectedLocationCode,
+    evaluationsSingleModelViewSelectedStateName,
+    isMapReady,
+  ]);
 
   // Direct forecast/evalutions state to change for corresponding page's map component instance
   useEffect(() => {

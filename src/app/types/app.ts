@@ -1,14 +1,14 @@
 export interface LoadingStates {
-  groundTruth: boolean;
-  predictions: boolean;
+  targetData: boolean;
+  modelOutput: boolean;
   locations: boolean;
-  nowcastTrends: boolean;
-  thresholds: boolean;
-  historicalGroundTruth: boolean;
-  seasonOptions: boolean;
+  historicalTargetData: boolean;
+  forecastPeriodOptions: boolean;
   evaluationScores: boolean;
   evaluationDetailedCoverage: boolean;
-  mapData: boolean;
+  locationShapeData: boolean;
 }
 
-
+export type locationCode = string; // "US" or "01".."56"
+export type IsoDate = string; // "YYYY-MM-DD"
+export type forecastPeriodId = string; // "season-2023-2024" | "last-2-weeks" etc.

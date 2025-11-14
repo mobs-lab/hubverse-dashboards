@@ -25,7 +25,7 @@ interface UseEvaluationsDataReturn {
 export const useEvaluationsData = (): UseEvaluationsDataReturn => {
   const dispatch = useAppDispatch();
   const { updateLoadingState, currentSeasonId } = useDataContext();
-  const { isJsonDataLoaded, loadedPeriods, loadedRawScoreSeasons } = useAppSelector((state) => state.evaluationData);
+  const { isJsonDataLoaded, loadedPeriods, loadedRawScoreSeasons } = useAppSelector((state) => state.evaluationDataStore);
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

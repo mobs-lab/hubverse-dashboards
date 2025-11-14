@@ -1,128 +1,106 @@
-export interface SurveillanceSingleWeekDataPoint {
-  date: Date;
-  stateNum: string;
-  stateName: string;
-  admissions: number;
-  weeklyRate: number;
+// Forecast Periods Interfaces
+// ---------------------------
+
+// Coming from user-specified forecast periods, the options available for selecting,
+// Filtering data to be within the time range.
+export interface ForecastPeriodOptions {
+  [forecastPeriodId: string]: ForecastPeriod;
 }
 
-export interface PredictionSingleWeekDataPoint {
-  referenceDate: Date;
-  targetEndDate: Date;
-  stateNum: string;
-  confidence025: number;
-  confidence050: number;
-  confidence250: number;
-  confidence500: number;
-  confidence750: number;
-  confidence950: number;
-  confidence975: number;
-  confidence_low: number;
-  confidence_high: number;
-}
-
-export interface PredictionDataGroupedByModel {
-  modelName: string;
-  predictionData: PredictionSingleWeekDataPoint[];
-}
-
-export interface SeasonOption {
-  index: number;
-  seasonId: string;
+export interface ForecastPeriod {
+  forecastPeriodId: string; // Redundantly stored for data selector to use
+  isDefaultSelected?: boolean;
   displayString: string;
   timeValue: string;
   startDate: Date;
   endDate: Date;
 }
 
-export interface HistoricalDataCollectionByDate {
-  associatedDate: Date;
-  historicalData: SurveillanceSingleWeekDataPoint[];
-}
-
-export interface LocationData {
-  stateNum: string;
-  state: string;
-  stateName: string;
-  population: number;
-}
-
-export interface StateThresholds {
-  location: string;
-  medium: number;
-  high: number;
-  veryHigh: number;
-}
-
-// Dictionary format for thresholds as provided by the backend
-export interface StateThresholdsDict {
-  [stateNum: string]: {
-    medium: number;
-    high: number;
-    veryHigh: number;
+// Location (Spatial) Data Interfaces
+// ---------------------------------------
+export interface LocationMappingData {
+  [locationCode: string]: {
+    locationNameAlt?: string;
+    locationName: string;
   };
 }
 
-// Following interfaces are for Redux Data Slice to validate fetched JSON data
-export interface GroundTruthData {
-  [seasonId: string]: {
-    [referenceDateISO: string]: {
-      [stateNum: string]: { admissions: number; weeklyRate: number };
+// Modelling Task Target Interfaces
+// ---------------------------------
+export interface ModellingTaskTarget {
+  [targetId: string]: {
+    taskTargetDisplayString: string;
+  };
+}
+
+// Target-Data Interfaces
+// ---------------------------
+export interface TargetData {
+  [locationCode: string]: {
+    [date: string]: {
+      [targetId: string]: {
+        observation: number | null;
+        location_name?: string;
+      };
     };
   };
 }
 
-export interface ModelPredictionData {
-  firstPredRefDate?: string;
-  lastPredRefDate?: string;
-  lastPredTargetDate?: string;
-  partitions: {
-    "pre-forecast": TimeSeriesPartition;
-    "full-forecast": TimeSeriesPartition;
-    "forecast-tail": TimeSeriesPartition;
-    "post-forecast": TimeSeriesPartition;
+// Target Data Collection partitioned by forecast period
+export interface TargetDataCollection {
+  [forecastPeriodId: string]: TargetData;
+}
+
+// Historical Target-Data: Entire Collection organized by as_of date
+// Structure: as_of -> date -> location -> {observation, target}
+// 
+// IMPORTANT: The 'target' field should contain the target_id (e.g., "covid19-admission")
+// that matches the target_id in the config, NOT the raw target key from source data.
+// The Python processor maps raw target keys to target_ids using target_key_to_id_map.
+export interface HistoricalTargetDataCollection {
+  [asOfDate: string]: {
+    [date: string]: {
+      [locationCode: string]: {
+        observation: number | null;
+        location_name?: string;
+        target: string; // Required - the target_id this observation belongs to
+      };
+    };
   };
 }
 
-export interface PredictionData {
-  [seasonId: string]: {
-    firstPredRefDate?: string;
-    lastPredRefDate?: string;
-    lastPredTargetDate?: string;
-  } & {
-    [modelName: string]: ModelPredictionData;
+// Model Output Interfaces
+// ---------------------------
+
+// A single prediction data point from a model
+export interface PredictionPointInterval {
+  horizon: number | null;
+  targetId?: string;
+  value_median: number; // The median value, always needed, calculated by Python using quantiles and put directly here
+  prediction_intervals: {
+    [
+      prediction_interval_name: string // "25", "50", "75", "90", used to display the PI level name in the visualization
+    ]: SinglePredictionIntervalInfo;
   };
 }
 
-export interface TimeSeriesPartition {
-  [referenceDateISO: string]: {
-    [stateNum: string]: {
-      predictions?: {
-        [targetEndDateISO: string]: {
-          horizon: number;
-          median: number;
-          q25: number;
-          q75: number;
-          q05: number;
-          q95: number;
+// Collection of all model output data, structured for the frontend
+export interface ModelOutputCollection {
+  [forecastPeriodId: string]: {
+    [modelName: string]: {
+      [locationCode: string]: {
+        [referenceDate: string]: {
+          predictions: {
+            // Each date's prediction contains that day's median and the available PI information.
+            [targetDate: string]: PredictionPointInterval;
+          };
         };
       };
     };
   };
 }
 
-export interface NowcastTrendsData {
-  [modelName: string]: {
-    [isoDate: string]: {
-      [stateNum: string]: { decrease: number; increase: number; stable: number };
-    };
-  };
-}
-
-export interface HistoricalDataMap {
-  [isoDateMatchingUserSelected: string]: {
-    [referenceDateHistorical: string]: {
-      [stateNum: string]: { admissions: number; weeklyRate: number };
-    };
-  };
+export interface SinglePredictionIntervalInfo {
+  pi_value_high: number; // The high value of the PI, upper bound for the shaded interval regions in visualizations
+  pi_value_low: number; // The low value of the PI, lower bound for the same
 }

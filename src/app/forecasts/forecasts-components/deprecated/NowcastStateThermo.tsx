@@ -134,7 +134,7 @@ const NowcastStateThermo: React.FC = () => {
 
   const { mapData } = useDataContext();
 
-  const { selectedStateName, USStateNum, userSelectedRiskLevelModel, userSelectedWeek } = useAppSelector((state) => state.forecastSettings);
+  const { selectedLocationName: selectedStateName, selectedLocationCode: USStateNum, userSelectedRiskLevelModel, userSelectedDate: userSelectedWeek } = useAppSelector((state) => state.forecastSettings);
 
   const [currentWeek, setCurrentWeek] = useState("");
   const [previousWeek, setPreviousWeek] = useState("");
@@ -261,7 +261,7 @@ const NowcastStateThermo: React.FC = () => {
     ];
 
     // Get ground truth value
-    const groundTruthEntry = groundTruthData.find((d) => d.stateNum === USStateNum && isUTCDateEqual(d.date, relativeLastWeek));
+    const groundTruthEntry = groundTruthData.find((d) => d.locationNum === USStateNum && isUTCDateEqual(d.date, relativeLastWeek));
     const groundTruthValue = groundTruthEntry ? groundTruthEntry.weeklyRate : 0;
 
     // Get predicted value, always the 0-horizon forecast but matching selected date-location-NowcastModel.
@@ -273,7 +273,7 @@ const NowcastStateThermo: React.FC = () => {
       const prediction = predictionsData[targetDateISO];
 
       if (prediction && prediction.horizon === 0) {
-        const statePopulation = locationData.find((l) => l.stateNum === USStateNum)?.population;
+        const statePopulation = locationData.find((l) => l.locationCode === USStateNum)?.population;
         if (statePopulation) {
           predictedValue = (prediction.median / statePopulation) * 100000;
         }

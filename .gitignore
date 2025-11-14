@@ -5,6 +5,7 @@
 # Jetbrain ide settings
 .idea
 
+.vscode
 
 # User-specific stuff
 .idea/**/workspace.xml
@@ -329,9 +330,16 @@ cython_debug/
 .demo-env
 *.demo.env
 
-.prettierrc
+
 package-lock.json
 
 
 # config.yaml should be ignored.
 config.yaml
+config.yaml.*
+
+# Unignore the example file for users.
+!config.yaml.example
+
+/test-data-input
+/public/test-data-output

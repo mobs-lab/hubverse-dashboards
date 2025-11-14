@@ -1,7 +1,6 @@
 // src/app/store/forecastSettingsSlice.ts
-import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { EvaluationSeasonOverviewTimeRangeOption } from "@/types/domains/evaluations";
-import { modelNames } from "@/types/common";
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { EvaluationSeasonOverviewTimeRangeOption } from '@/types/domains/evaluations';
 
 interface EvaluationsSeasonOverviewSettingsState {
   /* Model Related*/
@@ -14,39 +13,43 @@ interface EvaluationsSeasonOverviewSettingsState {
 
   /* Map selection panel related */
   mapSelectedModel: string;
-  mapSelectedScoringOption: "WIS/Baseline" | "MAPE" | "Coverage";
+  mapSelectedScoringOption: 'WIS/Baseline' | 'MAPE' | 'Coverage';
   useLogColorScale: boolean;
 
   /* For Aggregated Box Plots, toggling linear/log mode display */
-  wisChartScaleType: "linear" | "log";
-  mapeChartScaleType: "linear" | "log";
+  wisChartScaleType: 'linear' | 'log';
+  mapeChartScaleType: 'linear' | 'log';
 }
 
 const initialState: EvaluationsSeasonOverviewSettingsState = {
   /* Model Defaults*/
   evaluationSeasonOverviewHorizon: [0, 1],
-  evaluationSeasonOverviewSelectedModels: [...modelNames],
+  // evaluationSeasonOverviewSelectedModels: [...modelNames],
+  evaluationSeasonOverviewSelectedModels: [],
 
   /* Time Range Defaults*/
   evalSOTimeRangeOptions: [],
-  selectedDynamicTimePeriod: "last-2-weeks",
+  selectedDynamicTimePeriod: 'last-2-weeks',
 
-  mapSelectedModel: modelNames[0], // Set default to first model
-  mapSelectedScoringOption: "WIS/Baseline", // Default scoring option
+  mapSelectedModel: 'null', // Set default to first model
+  mapSelectedScoringOption: 'WIS/Baseline', // Default scoring option
   useLogColorScale: false,
 
-  wisChartScaleType: "linear",
-  mapeChartScaleType: "linear",
+  wisChartScaleType: 'linear',
+  mapeChartScaleType: 'linear',
 };
 
 const evaluationsSeasonOverviewSettingsSlice = createSlice({
-  name: "evaluations-season-overview-settings-slice",
+  name: 'evaluations-season-overview-settings-slice',
   initialState,
   reducers: {
     setEvaluationSeasonOverviewHorizon: (state, action: PayloadAction<number[]>) => {
       state.evaluationSeasonOverviewHorizon = action.payload;
     },
-    updateEvaluationSeasonOverviewTimeRangeOptions: (state, action: PayloadAction<EvaluationSeasonOverviewTimeRangeOption[]>) => {
+    updateEvaluationSeasonOverviewTimeRangeOptions: (
+      state,
+      action: PayloadAction<EvaluationSeasonOverviewTimeRangeOption[]>
+    ) => {
       state.evalSOTimeRangeOptions = action.payload;
     },
     updateSelectedDynamicTimePeriod: (state, action: PayloadAction<string>) => {
@@ -55,7 +58,10 @@ const evaluationsSeasonOverviewSettingsSlice = createSlice({
     setMapSelectedModel: (state, action: PayloadAction<string>) => {
       state.mapSelectedModel = action.payload;
     },
-    setMapSelectedScoringOption: (state, action: PayloadAction<"WIS/Baseline" | "MAPE" | "Coverage">) => {
+    setMapSelectedScoringOption: (
+      state,
+      action: PayloadAction<'WIS/Baseline' | 'MAPE' | 'Coverage'>
+    ) => {
       state.mapSelectedScoringOption = action.payload;
     },
     setUseLogColorScale: (state, action: PayloadAction<boolean>) => {
@@ -73,12 +79,12 @@ const evaluationsSeasonOverviewSettingsSlice = createSlice({
       }
     },
     selectAllModels: (state) => {
-      state.evaluationSeasonOverviewSelectedModels = [...modelNames];
+      state.evaluationSeasonOverviewSelectedModels = [];
     },
-    setWisChartScaleType: (state, action: PayloadAction<"linear" | "log">) => {
+    setWisChartScaleType: (state, action: PayloadAction<'linear' | 'log'>) => {
       state.wisChartScaleType = action.payload;
     },
-    setMapeChartScaleType: (state, action: PayloadAction<"linear" | "log">) => {
+    setMapeChartScaleType: (state, action: PayloadAction<'linear' | 'log'>) => {
       state.mapeChartScaleType = action.payload;
     },
   },

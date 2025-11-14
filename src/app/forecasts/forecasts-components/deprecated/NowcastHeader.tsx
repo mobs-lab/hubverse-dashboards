@@ -1,19 +1,19 @@
-import { updateUserSelectedRiskLevelModel } from "@/store/data-slices/settings/SettingsSliceForecastNowcast";
+import { updateUserSelectedRiskLevelModel } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectLocationData } from "@/store/selectors/forecastSelectors";
-import { modelNames } from "@/types/common";
+import { selectLocationData, selectModelNames } from "@/store/selectors/forecastSelectors";
 import React from "react";
 import { activityLevelsInfo } from "types/infobutton-content";
-import InfoButton from "../../components/InfoButton";
+import InfoButton from "../../../components/InfoButton";
 
 const NowcastHeader: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { USStateNum, userSelectedRiskLevelModel } = useAppSelector((state) => state.forecastSettings);
+  const { selectedLocationCode: USStateNum, userSelectedRiskLevelModel } = useAppSelector((state) => state.forecastSettings);
   const locationData = useAppSelector(selectLocationData);
+  const modelNames = useAppSelector(selectModelNames);
 
-  const selectedState = locationData.find((location) => location.stateNum === USStateNum);
+  const selectedState = locationData.find((location) => location.locationCode === USStateNum);
   const stateName = selectedState
-    ? selectedState.stateName
+    ? selectedState.locationName
         .split(" ")
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
         .join(" ")

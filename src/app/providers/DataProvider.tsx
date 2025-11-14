@@ -1,248 +1,367 @@
-"use client";
+'use client';
 
-import { clearAuxiliaryData, setAuxiliaryJsonData } from "@/store/data-slices/domains/auxiliaryDataSlice";
-import { addSeasonData, clearCoreData } from "@/store/data-slices/domains/coreDataSlice";
-import { updateEvaluationSeasonOverviewTimeRangeOptions } from "@/store/data-slices/settings/SettingsSliceEvaluationSeasonOverview";
-import {
-  updateEvaluationSingleModelViewDateEnd,
-  updateEvaluationSingleModelViewDateStart,
-  updateEvaluationSingleModelViewSeasonOptions,
-  updateEvaluationsSingleModelViewSeasonId,
-} from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
-import {
-  setSeasonOptions,
-  updateDateEnd,
-  updateDateRange,
-  updateDateStart,
-  updateUserSelectedWeek,
-} from "@/store/data-slices/settings/SettingsSliceForecastNowcast";
-import { useAppDispatch } from "@/store/hooks";
-import { LoadingStates } from "@/types/app";
-import { EvaluationSeasonOverviewTimeRangeOption } from "@/types/domains/evaluations";
-import { SeasonOption } from "@/types/domains/forecasting";
-import { determineCurrentSeasonId, fetchAuxiliaryData, fetchSeasonData } from "@/utils/dataLoader";
-import { loadUSMapData } from "@/utils/mapDataLoader";
-import { parseISO } from "date-fns";
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { getDataPath, initializeDevMode } from '@/config/devMode';
+import { setMapData } from '@/store/data-slices/domains/auxiliaryDataSlice';
+import { DashboardConfig, setDashboardConfig } from '@/store/data-slices/domains/configSlice';
+import { setAllCoreData } from '@/store/data-slices/domains/coreDataSlice';
+import { setHistoricalTargetData } from '@/store/data-slices/domains/historicalTargetDataSlice';
+import { initializeForecastSettings } from '@/store/data-slices/settings/SettingsSliceForecastPage';
+import { useAppDispatch } from '@/store/hooks';
+import { LoadingStates } from '@/types/app';
+import { ForecastPeriodOptions } from '@/types/domains/forecasting';
+import { logger } from '@/utils/logger';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 interface DataContextType {
   loadingStates: LoadingStates;
   isFullyLoaded: boolean;
   updateLoadingState: (key: keyof LoadingStates, value: boolean) => void;
-  currentSeasonId: string | null;
   initializationError: string | null;
-  mapData: any | null;
+  loadHistoricalDataIfNeeded: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const dispatch = useAppDispatch();
-  const [currentSeasonId, setCurrentSeasonId] = useState<string | null>(null);
   const [initializationError, setInitializationError] = useState<string | null>(null);
   const initStartedRef = useRef(false);
-  const backgroundLoadStartedRef = useRef(false);
-  const [mapData, setMapData] = useState<any | null>(null);
 
   const [loadingStates, setLoadingStates] = useState<LoadingStates>({
-    // Auxiliary Data States
-    seasonOptions: true,
+    forecastPeriodOptions: true,
     locations: true,
-    thresholds: true,
-    mapData: true,
-
-    // Default current season states
-    groundTruth: true,
-    predictions: true,
-    nowcastTrends: true,
-
-    // These are lazy-loaded
-    evaluationScores: false,
-    evaluationDetailedCoverage: false,
-    historicalGroundTruth: false,
+    targetData: true,
+    modelOutput: true,
+    locationShapeData: true,
+    historicalTargetData: false, // Lazy load
+    evaluationScores: false, // Lazy load
+    evaluationDetailedCoverage: false, // Lazy load
   });
 
   const updateLoadingState = useCallback((key: keyof LoadingStates, value: boolean) => {
     setLoadingStates((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const loadMapData = useCallback(async () => {
-    try {
-      console.log("Loading US map data...");
-      const data = await loadUSMapData();
-      setMapData(data);
-      updateLoadingState("mapData", false);
-      console.log("US map data loaded successfully");
-    } catch (error) {
-      console.error("Failed to load US map data:", error);
-      updateLoadingState("mapData", false); // Still set to false to not block UI
+  /**
+   * Lazy load historical target data when toggle is enabled
+   */
+  const loadHistoricalDataIfNeeded = useCallback(async () => {
+    // Check if already loaded
+    if (loadingStates.historicalTargetData) {
+      logger.info('Historical data is already loading...');
+      return;
     }
-  }, [updateLoadingState]);
 
-  // Background loading function
-  const loadBackgroundSeasons = useCallback(
-    async (currentSeasonId: string, metadata: any) => {
-      if (backgroundLoadStartedRef.current) return;
-      backgroundLoadStartedRef.current = true;
+    try {
+      updateLoadingState('historicalTargetData', true);
+      logger.info('Loading historical target data...');
+      
+      const historicalData = await loadHistoricalTargetData();
+      dispatch(setHistoricalTargetData(historicalData));
+      
+      logger.info('Historical target data loaded successfully');
+      updateLoadingState('historicalTargetData', false);
+    } catch (error) {
+      logger.error('Failed to load historical target data:', error);
+      updateLoadingState('historicalTargetData', false);
+      // Don't throw error - historical data is optional
+    }
+  }, [dispatch, loadingStates.historicalTargetData, updateLoadingState]);
 
-      console.log("Starting background season loading...");
+  /**
+   * Load and parse dashboard metadata from Python processor
+   */
+  const loadMetadata = async (): Promise<any> => {
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/auxiliary/metadata.json`);
+    if (!response.ok) {
+      throw new Error(`Failed to load metadata: ${response.statusText}`);
+    }
+    return response.json();
+  };
 
-      try {
-        if (metadata?.fullRangeSeasons) {
-          const previousSeasons = metadata.fullRangeSeasons.filter((s: any) => s.seasonId !== currentSeasonId);
+  /**
+   * Load map shape data (TopoJSON/GeoJSON)
+   */
+  const loadMapShapeData = async (shapeFileName?: string): Promise<any> => {
+    const fileName = shapeFileName || 'states-10m.json';
+    const response = await fetch(`/${fileName}`);
+    if (!response.ok) {
+      logger.warn(`Failed to load map data: ${response.statusText}`);
+      return null;
+    }
+    return response.json();
+  };
 
-          for (const season of previousSeasons) {
-            try {
-              const seasonData = await fetchSeasonData(season.seasonId, false, ["groundTruthData", "predictionsData", "nowcastTrendsData"]);
+  /**
+   * Load target data for a forecast period
+   */
+  const loadTargetData = async (forecastPeriodId: string): Promise<any> => {
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/${forecastPeriodId}/targetData.json`);
+    if (!response.ok) {
+      throw new Error(`Failed to load target data for ${forecastPeriodId}`);
+    }
+    return response.json();
+  };
 
-              dispatch(
-                addSeasonData({
-                  seasonId: season.seasonId,
-                  ...seasonData,
-                })
-              );
+  /**
+   * Load model output for a forecast period
+   */
+  const loadModelOutput = async (forecastPeriodId: string): Promise<any> => {
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/${forecastPeriodId}/modelOutputData.json`);
+    if (!response.ok) {
+      throw new Error(`Failed to load model output for ${forecastPeriodId}`);
+    }
+    return response.json();
+  };
 
-              console.log(`Background loaded season: ${season.seasonId}`);
-            } catch (error) {
-              console.warn(`Failed to background load season ${season.seasonId}:`, error);
-            }
-          }
+  /**
+   * Load historical target data (lazy loaded when toggle is enabled)
+   */
+  const loadHistoricalTargetData = async (): Promise<any> => {
+    const dataPath = getDataPath();
+    const response = await fetch(`${dataPath}/historical-target-data/historical-target-data.json`);
+    if (!response.ok) {
+      throw new Error(`Failed to load historical target data: ${response.statusText}`);
+    }
+    return response.json();
+  };
+
+  /**
+   * Build config object from metadata
+   */
+  const buildConfigFromMetadata = (metadata: any): DashboardConfig => {
+    // Parse forecast periods
+    const forecastPeriodOptions: ForecastPeriodOptions = {};
+    let defaultForecastPeriodId = '';
+
+    if (metadata.forecastPeriods) {
+      metadata.forecastPeriods.forEach((period: any) => {
+        forecastPeriodOptions[period.forecastPeriodId] = {
+          forecastPeriodId: period.forecastPeriodId,
+          displayString: period.displayString,
+          timeValue: period.timeValue,
+          startDate: new Date(period.startDate),
+          endDate: new Date(period.endDate),
+          isDefaultSelected: period.isDefaultSelected,
+        };
+
+        if (period.isDefaultSelected) {
+          defaultForecastPeriodId = period.forecastPeriodId;
         }
-      } catch (error) {
-        console.error("Error in background season loading:", error);
-      }
+      });
+    }
 
-      console.log("Background loading complete");
-    },
-    [dispatch]
-  );
+    // Parse model configurations with colors from new nested structure
+    const models = metadata.models?.list || [];
+    const modelColorMap: Record<string, string> = metadata.models?.colors || {};
 
-  // Main initialization function - called once
+    // Parse targets from new nested structure
+    const targets =
+      metadata.targets?.list?.map((t: any) => ({
+        targetId: t.targetId,
+        targetKeyInData: t.targetKeyInData,
+        displayString: t.displayString,
+      })) || [];
+
+    // Parse prediction intervals from new nested structure
+    const predictionIntervals =
+      metadata.predictionIntervals?.available?.map((pi: any) => ({
+        level: String(pi.level),  // Ensure level is a string for consistency
+        quantiles: pi.quantiles,
+      })) || [];
+
+    // Parse default selections from metadata
+    const defaults = metadata.defaults || {};
+    
+    // Extract default location (handle dict or string format for safety)
+    let defaultLocation = defaults.location;
+    if (typeof defaultLocation === 'object' && defaultLocation !== null) {
+      // If it's a dict like {"US": "US"}, extract the key
+      defaultLocation = Object.keys(defaultLocation)[0];
+    }
+    // Fallback to single location code or "US"
+    if (!defaultLocation) {
+      defaultLocation = metadata.spatial?.isSingleLocation ? metadata.spatial?.singleLocationCode : 'US';
+    }
+    
+    const defaultHorizon = defaults.horizon !== undefined ? defaults.horizon : (metadata.temporal?.horizons?.[metadata.temporal.horizons.length - 1] || 1);
+    // Ensure all prediction interval values are strings for consistency
+    const defaultPredictionIntervals = defaults.predictionIntervals 
+      ? defaults.predictionIntervals.map((pi: any) => String(pi))
+      : predictionIntervals.map((pi: any) => String(pi.level));
+
+    // Parse UI customization from metadata
+    const uiCustomization = metadata.uiCustomization || {
+      header: {
+        titleName: 'FluForecast',
+        navButtons: [],
+      },
+      forecastPage: {
+        chartHeaderName: 'Weekly Hospital Admissions Forecast',
+        histTdToggleText: 'Show Admissions at Time of Forecast',
+        disableLocationInfo: false,
+        infoButtons: {
+          headerInfo: undefined,
+          horizonInfo: undefined,
+        },
+      },
+    };
+
+    return {
+      // Feature flags from metadata.features
+      evaluationsEnabled: metadata.features?.evaluationsEnabled ?? false,
+      historicalTargetDataEnabled: metadata.features?.historicalTargetDataEnabled ?? false,
+      nowcastEnabled: false, // Explicitly disabled for generalized version
+
+      // Spatial configuration from metadata.spatial
+      isSingleLocation: metadata.spatial?.isSingleLocation ?? false,
+      singleLocationCode: metadata.spatial?.singleLocationCode,
+      disableMapInDashboard: metadata.spatial?.disableMapInDashboard ?? false,
+
+      // Temporal configuration from metadata.temporal
+      timeUnit: metadata.temporal?.timeUnit || 7,
+      horizons: metadata.temporal?.horizons || [],
+      defaultSelectedDate: metadata.temporal?.defaultSelectedDate,
+      earliestDate: metadata.temporal?.earliestDate,
+      latestDate: metadata.temporal?.latestDate,
+
+      // Forecast periods
+      forecastPeriodOptions,
+      defaultForecastPeriodId,
+
+      // Location mapping - will be loaded separately
+      locationMapping: {},
+
+      // Models from metadata.models
+      models,
+      modelColorMap,
+
+      // Targets from metadata.targets
+      targets,
+      defaultTargetId: metadata.targets?.defaultTargetId || targets[0]?.targetId || '',
+
+      // Prediction intervals from metadata.predictionIntervals
+      predictionIntervals,
+      defaultPredictionIntervals,
+      
+      // Default selections
+      defaultLocation,
+      defaultHorizon,
+
+      // UI Customization
+      uiCustomization,
+    };
+  };
+
+  /**
+   * Main initialization function
+   */
   const initializeData = useCallback(async () => {
     if (initStartedRef.current) return;
     initStartedRef.current = true;
 
     try {
-      console.log("Starting data initialization...");
+      logger.info('Starting data initialization...');
 
-      // Step 1: Load auxiliary data
-      const auxiliaryData = await fetchAuxiliaryData();
-      dispatch(setAuxiliaryJsonData(auxiliaryData));
+      // Step 1: Load metadata
+      logger.log('Loading metadata...');
+      const metadata = await loadMetadata();
 
-      // Step 2: Determine current season ID using the helper function
-      const detectedSeasonId = determineCurrentSeasonId(auxiliaryData.metadata);
+      // Step 1.5: Initialize development mode from metadata
+      initializeDevMode(metadata);
+      logger.info('Development mode initialized:', metadata.features?.developmentMode ?? false);
+      logger.info('Using data path:', getDataPath());
 
-      if (!detectedSeasonId) {
-        throw new Error("Could not determine current season ID from metadata");
-      }
+      // Step 2: Build config from metadata
+      logger.log('Building configuration...');
+      const config = buildConfigFromMetadata(metadata);
 
-      console.log(`Detected current season: ${detectedSeasonId}`);
-      setCurrentSeasonId(detectedSeasonId);
+      // Step 3: Load location mapping
+      logger.log('Loading locations...');
+      // Convert locationMappingList array to LocationMappingData object
+      const locationMappingList = metadata.spatial?.locationMappingList || [];
+      const locationMapping: any = {};
+      locationMappingList.forEach((loc: any) => {
+        locationMapping[loc.location] = {
+          locationName: loc.location_name,
+          locationNameAlt: loc.location_name_alt,
+        };
+      });
+      config.locationMapping = locationMapping;
 
-      // Step 3: Process and dispatch metadata
-      if (auxiliaryData.metadata) {
-        const { metadata } = auxiliaryData;
+      // Step 4: Dispatch config to Redux
+      dispatch(setDashboardConfig(config));
+      logger.debug('Config loaded:', config);
+      updateLoadingState('forecastPeriodOptions', false);
+      updateLoadingState('locations', false);
 
-        // Process season options
-        if (metadata.fullRangeSeasons) {
-          const seasonOptions = metadata.fullRangeSeasons.map((season: any) => ({
-            ...season,
-            startDate: parseISO(season.startDate),
-            endDate: parseISO(season.endDate),
-          }));
-
-          dispatch(setSeasonOptions(seasonOptions));
-          dispatch(updateEvaluationSingleModelViewSeasonOptions(seasonOptions));
-
-          // Process evaluation time range options
-          const evalSOTimeRangeOptions: EvaluationSeasonOverviewTimeRangeOption[] = [
-            ...seasonOptions.map((season: SeasonOption) => ({
-              name: season.seasonId,
-              displayString: season.displayString,
-              isDynamic: false,
-              startDate: season.startDate,
-              endDate: season.endDate,
-              subDisplayValue: undefined,
-            })),
-            ...(metadata.dynamicTimePeriod?.map((tp: any) => ({
-              name: tp.label,
-              displayString: tp.displayString,
-              isDynamic: tp.isDynamic,
-              subDisplayValue: tp.subDisplayValue,
-              startDate: parseISO(tp.startDate),
-              endDate: parseISO(tp.endDate),
-            })) || []),
-          ];
-
-          dispatch(updateEvaluationSeasonOverviewTimeRangeOptions(evalSOTimeRangeOptions));
-        }
-
-        // Set default date range
-        if (metadata.defaultSeasonTimeValue && metadata.fullRangeSeasons) {
-          const defaultOption = metadata.fullRangeSeasons.find((s: any) => s.timeValue === metadata.defaultSeasonTimeValue);
-
-          if (defaultOption) {
-            dispatch(updateDateRange(defaultOption.timeValue));
-            dispatch(updateDateStart(parseISO(defaultOption.startDate)));
-            dispatch(updateDateEnd(parseISO(defaultOption.endDate)));
-            dispatch(updateEvaluationsSingleModelViewSeasonId(defaultOption.seasonId));
-            dispatch(updateEvaluationSingleModelViewDateStart(parseISO(defaultOption.startDate)));
-            dispatch(updateEvaluationSingleModelViewDateEnd(parseISO(defaultOption.endDate)));
-          }
-        }
-
-        // Set default selected week
-        if (metadata.defaultSelectedDate) {
-          dispatch(updateUserSelectedWeek(new Date(metadata.defaultSelectedDate)));
+      // Step 5: Load map data (if not disabled)
+      if (!config.disableMapInDashboard) {
+        logger.log('Loading map data...');
+        const mapData = await loadMapShapeData(metadata.spatial?.customShapeFileName);
+        if (mapData) {
+          dispatch(setMapData(mapData));
         }
       }
+      updateLoadingState('locationShapeData', false);
 
-      // Update loading states for auxiliary data
-      updateLoadingState("locations", false);
-      updateLoadingState("thresholds", false);
-      updateLoadingState("seasonOptions", false);
+      // Step 6: Load data for default forecast period
+      const defaultPeriod = config.forecastPeriodOptions[config.defaultForecastPeriodId];
+      if (defaultPeriod) {
+        logger.log(`Loading data for period: ${config.defaultForecastPeriodId}`);
 
-      // Step 4: Load current season data AND us states map data in parallel
-      const seasonDataPromise = fetchSeasonData(
-        detectedSeasonId,
-        true, // It's the current season
-        ["groundTruthData", "predictionsData", "nowcastTrendsData"]
-      );
-      
-      const seasonData = await seasonDataPromise;
+        const [targetData, modelOutput] = await Promise.all([
+          loadTargetData(config.defaultForecastPeriodId),
+          loadModelOutput(config.defaultForecastPeriodId),
+        ]);
 
-      loadMapData();
+        // Dispatch to Redux
+        dispatch(
+          setAllCoreData({
+            targetData: {
+              [config.defaultForecastPeriodId]: targetData,
+            },
+            modelOutput: {
+              [config.defaultForecastPeriodId]: modelOutput,
+            },
+          })
+        );
 
-      dispatch(
-        addSeasonData({
-          seasonId: detectedSeasonId,
-          ...seasonData,
-        })
-      );
+        updateLoadingState('targetData', false);
+        updateLoadingState('modelOutput', false);
 
-      // Update loading states for season data
-      updateLoadingState("groundTruth", false);
-      updateLoadingState("predictions", false);
-      updateLoadingState("nowcastTrends", false);
+        // Step 7: Initialize forecast settings with config defaults
+        logger.log('Initializing forecast settings...');
+        dispatch(
+          initializeForecastSettings({
+            locationCode: config.defaultLocation || (config.isSingleLocation ? config.singleLocationCode : '25'),
+            models: config.models.map((m) => m.modelName),
+            target: config.defaultTargetId,
+            horizon: config.defaultHorizon !== undefined ? config.defaultHorizon : config.horizons[config.horizons.length - 1],
+            forecastPeriod: defaultPeriod,
+            predictionIntervals: config.defaultPredictionIntervals,
+            selectedDate: config.defaultSelectedDate
+              ? new Date(config.defaultSelectedDate)
+              : new Date(),
+          })
+        );
+      }
 
-      console.log("Initial Critical data load complete");
-
-      // Step 5: Start background loading of other seasons
-      setTimeout(() => {
-        loadBackgroundSeasons(detectedSeasonId, auxiliaryData.metadata);
-      }, 1);
+      logger.info('Initialization complete!');
     } catch (error) {
-      console.error("Failed to initialize data:", error);
-      setInitializationError(error instanceof Error ? error.message : "Unknown error");
+      logger.error('Failed to initialize data:', error);
+      setInitializationError(error instanceof Error ? error.message : 'Unknown error');
 
       // Reset loading states on error
       Object.keys(loadingStates).forEach((key) => {
         updateLoadingState(key as keyof LoadingStates, false);
       });
     }
-  }, [dispatch, updateLoadingState, loadMapData, loadBackgroundSeasons, loadingStates]);
+  }, [dispatch, updateLoadingState]);
 
-  // Single initialization effect
   useEffect(() => {
     initializeData();
   }, [initializeData]);
@@ -255,16 +374,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loadingStates,
         isFullyLoaded,
         updateLoadingState,
-        currentSeasonId,
         initializationError,
-        mapData,
-      }}>
+        loadHistoricalDataIfNeeded,
+      }}
+    >
+      {/* Show error message about initialization process and offer for user to reload */}
       {initializationError ? (
-        <div className='flex items-center justify-center h-screen text-white'>
-          <div className='text-center'>
-            <h2 className='text-xl mb-2'>Failed to load application data</h2>
-            <p className='text-sm text-gray-400'>{initializationError}</p>
-            <button onClick={() => window.location.reload()} className='mt-4 px-4 py-2 bg-blue-500 rounded hover:bg-blue-600'>
+        <div className="flex items-center justify-center h-screen text-white">
+          <div className="text-center">
+            <h2 className="text-xl mb-2">Failed to load application data</h2>
+            <p className="text-sm text-gray-400">{initializationError}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 bg-blue-500 rounded hover:bg-blue-600"
+            >
               Reload Page
             </button>
           </div>
@@ -279,7 +402,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export const useDataContext = () => {
   const context = useContext(DataContext);
   if (context === undefined) {
-    throw new Error("useDataContext must be used within a DataProvider");
+    throw new Error('useDataContext must be used within a DataProvider');
   }
   return context;
 };

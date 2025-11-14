@@ -12,7 +12,6 @@ import InfoButton from "@/shared-components/InfoButton";
 import { setMapeChartScaleType, setWisChartScaleType } from "@/store/data-slices/settings/SettingsSliceEvaluationSeasonOverview";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { Card } from "@/styles/material-tailwind-wrapper";
-import { isFeatureEnabled } from "@/utils/featureFlag";
 import React, { useEffect, useRef, useState } from "react";
 import { seasonOverviewInfo, singleModelInfo } from "types/infobutton-content";
 import SeasonOverviewLocationAggregatedScoreChart from "./evaluations-components/SeasonOverview/SeasonOverviewLocationAggregatedScoreChart";
@@ -28,7 +27,7 @@ const SeasonOverviewContent: React.FC = () => {
   const { loadingStates } = useDataContext();
   const { wisChartScaleType, mapeChartScaleType } = useAppSelector((state) => state.evaluationsSeasonOverviewSettings);
 
-  if (loadingStates.groundTruth || loadingStates.predictions) {
+  if (loadingStates.targetData || loadingStates.modelOutput) {
     return (
       <div className='flex items-center justify-center h-full'>
         <p className='text-white'>Loading data...</p>
@@ -121,7 +120,7 @@ const SingleModelContent = () => {
     }
   }, [evaluationsSingleModelViewSeasonId, loadSingleModelData]);
 
-  if (loadingStates.groundTruth || loadingStates.predictions) {
+  if (loadingStates.targetData || loadingStates.modelOutput) {
     return (
       <div className='flex items-center justify-center h-full'>
         <p className='text-white'>Loading data...</p>
@@ -154,14 +153,44 @@ const SingleModelContent = () => {
   );
 };
 
-// Downstream usage of Feature Flag check: whether the season overview tab should be enabled
-const isSeasonOverviewEnabled = isFeatureEnabled("seasonOverviewTab");
-
 const EvaluationsPage = () => {
+  const evaluationsEnabled = useAppSelector((state) => state.configStore.config?.evaluationsEnabled ?? false);
+  const configLoaded = useAppSelector((state) => state.configStore.isLoaded);
+
+  // For now, disable season overview tab until it's fully refactored
+  const isSeasonOverviewEnabled = false;
   const defaultTab = isSeasonOverviewEnabled ? "season-overview" : "single-model";
   // const defaultTab = isSeasonOverviewEnabled ? "single-model" : "season-overview";
   const [activeTab, setActiveTab] = useState(defaultTab);
   const { loadingStates, isFullyLoaded } = useDataContext();
+
+  // Show loading while config is being loaded
+  if (!configLoaded) {
+    return (
+      <div className='flex items-center justify-center h-full'>
+        <div className='text-center p-8'>
+          <p className='text-white text-lg'>Loading configuration...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If evaluations are not enabled, show a message
+  if (!evaluationsEnabled) {
+    return (
+      <div className='flex items-center justify-center h-full'>
+        <div className='text-center p-8 max-w-2xl'>
+          <h2 className='text-3xl text-white font-semibold mb-4'>Evaluations Not Available</h2>
+          <p className='text-gray-300 mb-4 text-lg'>
+            This dashboard has been configured without evaluation features.
+          </p>
+          <p className='text-gray-400 text-sm mb-6'>
+            To enable evaluations, update your configuration YAML file with <code className='bg-gray-700 px-2 py-1 rounded'>skip_evaluations: false</code> and ensure evaluation data is being processed.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Initialize lazy loading for evaluations data
   const {
@@ -180,7 +209,7 @@ const EvaluationsPage = () => {
 
   // Determine which data-slices is needed for each tab
   const seasonOverviewReady = !loadingStates.evaluationDetailedCoverage && !loadingStates.evaluationScores;
-  const singleModelReady = !loadingStates.groundTruth && !loadingStates.predictions && !loadingStates.evaluationScores;
+  const singleModelReady = !loadingStates.targetData && !loadingStates.modelOutput && !loadingStates.evaluationScores;
 
   const renderContent = () => {
     // Show loading if evaluations data is still being fetched

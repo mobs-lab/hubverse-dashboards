@@ -13,6 +13,7 @@ Template for quickly spinning up Hubverse-standard-compatible dashboard, visuali
 ## How To Use This Dashboard:
 
 1. Install [Node.js (and npm)](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) Version 20+
+
 2. Clone the repository to your local machine:
    `git clone https://github.com/mobs-lab/hubverse-dashboards.git`
 
@@ -56,3 +57,12 @@ Then follow your Git Hosting Service's guide to push your new local repo to the 
 ## Example site running this template, for reference:
 
 <!--TODO: Add a demo site after finishing the configuration reading and changing the frontend code to work accordingly-->
+
+# Dev Mode Quick Start
+
+## How To Use
+
+Maintain the supposed structure of data (`/target-data`, `/model-output`, etc.), and put
+**Input Data In:** `/test-data-input/`
+
+And make sure to use the development mode when running dashboard builder script (Option 3 or 4).
