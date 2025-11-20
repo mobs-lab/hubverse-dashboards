@@ -53,6 +53,7 @@ class DataProcessor:
         # Create a mapping from the raw target key in data to the corresponding targetId
         targets = self.config.targets if self.config.targets else []
         self.target_key_to_id_map = {t.target_key_in_data: t.target_id for t in targets}
+        self.target_id_to_dvp_config = {t.target_id: t.data_value_processing for t in targets}
 
         # Initialize evaluation processor (only if evaluations are enabled)
         if not skip_evaluations:
@@ -106,12 +107,12 @@ class DataProcessor:
         locations = self._detect_locations(target_data_df, model_output_df)
         self.processing_stats["locations_detected"] = len(locations)
 
-        # 4: Process target data by forecast periods
-        target_data_by_period = self._process_target_data_by_forecast_periods(fixed_target_data_df, model_output_df)
+        # 4: Process all target data (periods are now frontend presets)
+        processed_target_data = self._process_target_data(fixed_target_data_df)
 
-        # 5: Process model output data by forecast periods
-        model_output_by_period = self._process_model_output_by_periods(model_output_df, fixed_target_data_df)
-        self.processing_stats["forecast_periods"] = len(model_output_by_period)
+        # 5: Process all model output data
+        processed_model_output = self._process_model_output_data(model_output_df)
+        self.processing_stats["forecast_periods"] = len(self.config.forecast_periods)
 
         # 6: Calculate evaluations (use unpivoted data for evaluations)
         if not self.skip_evaluations:
@@ -125,8 +126,8 @@ class DataProcessor:
 
         # 8: Write output files
         self._write_output_files(
-            target_data_by_period,
-            model_output_by_period,
+            processed_target_data,
+            processed_model_output,
             metadata,
             evaluations_by_period,
         )
@@ -472,19 +473,18 @@ class DataProcessor:
 
                     # IMPORTANT: Add target field - required for multi-target scenarios
                     # Map raw target key to target_id for consistency with config
-                    targets = self.config.targets or []
+
                     if "target" in row and pd.notna(row["target"]):
                         raw_target_key = str(row["target"])
                         target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
+
+                        # Apply scaling for target data
+                        dvp_config = self.target_id_to_dvp_config.get(target_id)
+                        if dvp_config and "observation" in data_entry and data_entry["observation"] is not None:
+                            scaling_factor = dvp_config.scaling_factor.target_data
+                            data_entry["observation"] *= scaling_factor
+
                         data_entry["target"] = target_id
-                    elif len(targets) == 1:
-                        # Single target scenario: use the only available target_id
-                        data_entry["target"] = targets[0].target_id
-                    else:
-                        # Multi-target scenario but target column missing/null - this is an error
-                        logger.warning(f"Historical data row missing target field in multi-target config at {as_of_iso}/{date_iso}/{location_key}")
-                        # Skip this row or use a default - for now we'll skip
-                        continue
 
                     location_map[location_key] = data_entry
 
@@ -549,32 +549,29 @@ class DataProcessor:
         4. Default US FIPS mapping
         """
         logger.info("Detecting locations from data...")
-        
+
         # Get the location mapping (custom or default FIPS)
         location_mapping = self.config.get_location_mapping()
         has_custom_mapping = self.config.spatial_config.custom_location_mapping_file_name is not None
-        
+
         # Priority 1: If custom mapping file exists, use ALL locations from it
         if has_custom_mapping and location_mapping:
             logger.info(f"  [OK] Using locations from custom mapping file: {len(location_mapping)} locations")
-            locations_list = [
-                {"location": loc_code, "location_name": loc_name}
-                for loc_code, loc_name in location_mapping.items()
-            ]
+            locations_list = [{"location": loc_code, "location_name": loc_name} for loc_code, loc_name in location_mapping.items()]
             # Sort by location code
             locations_list.sort(key=lambda x: x["location"])
             return locations_list
-        
+
         # Priority 2 & 3: Detect from data files (target-data first, then model-output)
         logger.info("  [OK] Auto-detecting locations from data files...")
-        
+
         detected_locations = {}  # Map of code -> name
-        
+
         # Check target-data first
         if "location" in target_data_df.columns and not target_data_df.empty:
             target_loc_codes = target_data_df["location"].unique()
             logger.info(f"  [OK] Found {len(target_loc_codes)} unique locations in target-data")
-            
+
             # Check if target-data has location_name column
             if "location_name" in target_data_df.columns:
                 # Use names from target-data
@@ -590,33 +587,30 @@ class DataProcessor:
                     loc_code_str = str(loc_code)
                     loc_name = location_mapping.get(loc_code_str, f"Location {loc_code_str}")
                     detected_locations[loc_code_str] = loc_name
-        
+
         # Check model-output (fills in any missing locations)
         if "location" in model_output_df.columns and not model_output_df.empty:
             model_loc_codes = model_output_df["location"].unique()
             new_locs = [loc for loc in model_loc_codes if str(loc) not in detected_locations]
-            
+
             if new_locs:
                 logger.info(f"  [OK] Found {len(new_locs)} additional locations in model-output")
-            
+
             for loc_code in model_loc_codes:
                 loc_code_str = str(loc_code)
                 if loc_code_str not in detected_locations:
                     # Use name from default mapping
                     loc_name = location_mapping.get(loc_code_str, f"Location {loc_code_str}")
                     detected_locations[loc_code_str] = loc_name
-        
+
         # Convert to list format
-        locations_list = [
-            {"location": loc_code, "location_name": loc_name}
-            for loc_code, loc_name in detected_locations.items()
-        ]
-        
+        locations_list = [{"location": loc_code, "location_name": loc_name} for loc_code, loc_name in detected_locations.items()]
+
         # Sort by location code
         locations_list.sort(key=lambda x: x["location"])
-        
+
         logger.info(f"  [OK] Total detected locations: {len(locations_list)}")
-        
+
         return locations_list
 
     def _extract_and_validate_default_location(self, locations_info: list, configured_default: any) -> str:
@@ -627,7 +621,7 @@ class DataProcessor:
         3. "US" as final fallback
         """
         available_location_codes = {loc["location"] for loc in locations_info}
-        
+
         # Extract location code from config (handle dict or string format)
         default_code = None
         if configured_default:
@@ -636,7 +630,7 @@ class DataProcessor:
                 default_code = list(configured_default.keys())[0] if configured_default else None
             elif isinstance(configured_default, str):
                 default_code = configured_default
-        
+
         # Validate the configured default exists in available locations
         if default_code and default_code in available_location_codes:
             logger.info(f"  [OK] Using configured default location: {default_code}")
@@ -644,13 +638,13 @@ class DataProcessor:
         elif default_code:
             logger.warning(f"  [!] Configured default location '{default_code}' not found in data")
             logger.warning(f"  [!] Available locations: {sorted(list(available_location_codes))[:5]}...")
-        
+
         # Fallback: Use first available location
         if locations_info:
             fallback_code = locations_info[0]["location"]
             logger.info(f"  [OK] Using first available location as default: {fallback_code}")
             return fallback_code
-        
+
         # Final fallback
         logger.warning(f"  [!] No locations detected, defaulting to 'US'")
         return "US"
@@ -715,12 +709,13 @@ class DataProcessor:
                     "displayString": target.task_display_string,
                     "forecastPeriods": target.for_forecast_periods or [],
                     "isDefaultSelected": target.is_default_selected,
+                    "dataValueProcessing": target.data_value_processing.model_dump() if target.data_value_processing else None,
                 }
             )
             # Track default target
             if target.is_default_selected:
                 default_target_id = target.target_id
-        
+
         # If no default target specified, use the first one
         if not default_target_id and targets_info:
             default_target_id = targets_info[0]["targetId"]
@@ -735,10 +730,8 @@ class DataProcessor:
             )
 
         model_configs = []
-        model_colors = {}
         for model in self.config.available_models:
             model_configs.append({"modelName": model.model_name, "color": model.color_hex})
-            model_colors[model.model_name] = model.color_hex
 
         # NOTE: Metadata design here
         metadata = {
@@ -770,30 +763,37 @@ class DataProcessor:
             # === MODELS ===
             "models": {
                 "list": model_configs,
-                "colors": model_colors,
                 "baselineModel": self.config.baseline_model_for_relative_wis if not self.skip_evaluations else None,
             },
             # === TARGETS ===
             "targets": {
                 "list": targets_info,
-                "isSingleTarget": self.config.is_single_forecast_target,
                 "defaultTargetId": default_target_id,
             },
             # === PREDICTION INTERVALS ===
             "predictionIntervals": {
                 "available": prediction_intervals_info,
-                "defaults": self.config.default_selected_prediction_intervals if self.config.default_selected_prediction_intervals else [str(pi.level) for pi in self.config.prediction_intervals],
+                "defaults": self.config.default_selected_prediction_intervals
+                if self.config.default_selected_prediction_intervals
+                else [str(pi.level) for pi in self.config.prediction_intervals],
             },
             # === DEFAULT SELECTIONS ===
             "defaults": {
                 "location": self.config.default_selected_location,
-                "horizon": self.config.default_selected_horizon if self.config.default_selected_horizon is not None else (self.config.horizons[-1] if self.config.horizons else None),
-                "predictionIntervals": self.config.default_selected_prediction_intervals if self.config.default_selected_prediction_intervals else [str(pi.level) for pi in self.config.prediction_intervals],
-                "predictionIntervalsForEvaluations": self.config.default_selected_prediction_intervals_for_evaluations if self.config.default_selected_prediction_intervals_for_evaluations else [str(pi.level) for pi in (self.config.evaluations_prediction_intervals or [])],
+                "horizon": self.config.default_selected_horizon
+                if self.config.default_selected_horizon is not None
+                else (self.config.horizons[-1] if self.config.horizons else None),
+                "predictionIntervals": self.config.default_selected_prediction_intervals
+                if self.config.default_selected_prediction_intervals
+                else [str(pi.level) for pi in self.config.prediction_intervals],
+                "predictionIntervalsForEvaluations": self.config.default_selected_prediction_intervals_for_evaluations
+                if self.config.default_selected_prediction_intervals_for_evaluations
+                else [str(pi.level) for pi in (self.config.evaluations_prediction_intervals or [])],
             },
             # === DATA FILES MANIFEST ===
             "dataManifest": {
-                "forecastPeriods": [p["forecastPeriodId"] for p in forecast_periods_info],
+                "hasTargetData": True,
+                "hasModelOutputData": True,
                 "hasHistoricalData": self.historical_target_data is not None,
                 "hasEvaluations": not self.skip_evaluations,
             },
@@ -869,7 +869,7 @@ class DataProcessor:
         # Validate and extract default location
         default_location_code = self._extract_and_validate_default_location(locations_info, metadata["defaults"]["location"])
         metadata["defaults"]["location"] = default_location_code
-        
+
         logger.info("Metadata generated.")
         # Only produce log for now for metadata.
         logger.info(f"Default selected date for frontend: {metadata['temporal']['defaultSelectedDate']}")
@@ -878,175 +878,111 @@ class DataProcessor:
         logger.info(f"UI customization: Header title = '{metadata['uiCustomization']['header']['titleName']}'")
         return metadata
 
-    def _process_target_data_by_forecast_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
+    def _process_target_data(self, target_data_df: pd.DataFrame) -> dict:
         """
-        Structure ground truth (target) data by forecast periods.
-        Returns: Map<period_id, Map<location, Map<date, Map<target, data>>>>
+        Structure all ground truth (target) data.
+        Returns: Map<location, Map<date, Map<target, data>>>
         """
-        logger.info("Processing ground truth data by forecast periods...")
-        ground_truth_by_period = {}
-        special_periods = self.config.special_forecast_periods or []
-        all_periods = list(self.config.forecast_periods) + list(special_periods)
+        logger.info("Processing all ground truth data...")
+        processed_data = {}
+        targets = self.config.targets or []
 
-        for period in all_periods:
-            date_range = self._get_period_date_range(period, target_data_df, model_output_df)
-            if not date_range:
-                continue
-            start, end = date_range
+        for _, row in target_data_df.iterrows():
+            location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
+            date_iso = pd.to_datetime(row["date"]).strftime("%Y-%m-%d")
 
-            period_id = period.forecast_period_id if hasattr(period, 'forecast_period_id') else period.special_period_id
-            logger.info(f"Processing ground truth for period: '{period_id}' ({start.date()} to {end.date()})")
+            data_entry = {
+                "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= 0 else None,
+            }
 
-            # Filter target data for this period
-            period_target_data = target_data_df[(target_data_df["date"] >= start) & (target_data_df["date"] <= end)].copy()
+            if "location_name" in row and pd.notna(row["location_name"]):
+                data_entry["location_name"] = str(row["location_name"])
 
-            # Structure as Map<location, Map<date, Map<target, data>>>
-            period_dict = {}
+            raw_target_key = str(row.get("target", targets[0].target_key_in_data if targets else "default"))
+            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
 
-            group_cols = []
-            if "location" in period_target_data.columns:
-                group_cols.append("location")
-            if "date" in period_target_data.columns:
-                group_cols.append("date")
-            if "target" in period_target_data.columns:
-                group_cols.append("target")
+            # Apply scaling
+            dvp_config = self.target_id_to_dvp_config.get(target_id)
+            if dvp_config and data_entry["observation"] is not None:
+                scaling_factor = dvp_config.scaling_factor.target_data
+                data_entry["observation"] *= scaling_factor
 
-            # Efficiently group and structure data
-            targets = self.config.targets or []
-            for _, row in period_target_data.iterrows():
-                location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
-                date_iso = pd.to_datetime(row["date"]).strftime("%Y-%m-%d")
-                target_key = str(row.get("target", targets[0].target_id if targets else "default"))
+            # Create nested dictionaries
+            if location_key not in processed_data:
+                processed_data[location_key] = {}
+            if date_iso not in processed_data[location_key]:
+                processed_data[location_key][date_iso] = {}
 
-                data_entry = {
-                    "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= 0 else None,
-                }
+            processed_data[location_key][date_iso][target_id] = data_entry
 
-                if "location_name" in row and pd.notna(row["location_name"]):
-                    data_entry["location_name"] = str(row["location_name"])
+        logger.info(f"Processed {len(target_data_df)} rows of target data.")
+        return processed_data
 
-                # Create nested dictionaries
-                if location_key not in period_dict:
-                    period_dict[location_key] = {}
-                if date_iso not in period_dict[location_key]:
-                    period_dict[location_key][date_iso] = {}
-
-                # Use the canonical targetId as the key
-                raw_target_key = str(
-                    row.get(
-                        "target",
-                        targets[0].target_key_in_data if targets else "default",
-                    )
-                )
-                target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
-
-                period_dict[location_key][date_iso][target_id] = data_entry
-
-            ground_truth_by_period[period_id] = period_dict
-
-        logger.info(f"Processed ground truth for {len(ground_truth_by_period)} periods.")
-        return ground_truth_by_period
-
-    def _process_model_output_by_periods(self, model_output_df: pd.DataFrame, target_data_df: pd.DataFrame) -> dict:
+    def _process_model_output_data(self, model_output_df: pd.DataFrame) -> dict:
         """
-        Structure model predictions output by forecast periods.
-        Returns: Map<period_id, Map<model, Map<location, Map<reference_date, Map<target_date, predictions>>>>>
+        Structure all model predictions output.
+        Returns: Map<model, Map<location, Map<reference_date, Map<target_date, predictions>>>>>
         """
-        logger.info("Processing predictions data by forecast periods...")
-        model_output_by_period = {}
-        special_periods = self.config.special_forecast_periods or []
-        all_periods = list(self.config.forecast_periods) + list(special_periods)
+        logger.info("Processing all predictions data...")
+        processed_data = {}
 
-        for period in all_periods:
-            date_range = self._get_period_date_range(period, target_data_df, model_output_df)
-            if not date_range:
-                continue
-            start, end = date_range
+        for model_name in model_output_df["model"].unique():
+            model_data = model_output_df[model_output_df["model"] == model_name]
+            model_dict = {}
 
-            period_id = period.forecast_period_id if hasattr(period, 'forecast_period_id') else period.special_period_id
-            logger.info(f"Processing predictions for period: '{period_id}' ({start.date()} to {end.date()})")
+            for location in model_data["location"].unique():
+                location_key = str(location).zfill(2)
+                location_data = model_data[model_data["location"] == location]
+                location_dict = {}
 
-            # Filter model output for this period
-            period_model_output = model_output_df[(model_output_df["reference_date"] >= start) & (model_output_df["reference_date"] <= end)].copy()
+                for ref_date in location_data["reference_date"].unique():
+                    ref_date_iso = pd.to_datetime(ref_date).strftime("%Y-%m-%d")
+                    ref_date_data = location_data[location_data["reference_date"] == ref_date]
+                    predictions_dict = {}
 
-            # Get valid targets for this period
-            valid_model_targets = []
-            targets = self.config.targets or []
-            for target in targets:
-                target_periods = target.for_forecast_periods or []
-                if period_id in target_periods:
-                    valid_model_targets.append(target.target_key_in_data)
+                    for _, row in ref_date_data.iterrows():
+                        target_date_iso = pd.to_datetime(row["target_end_date"]).strftime("%Y-%m-%d")
 
-            # Filter by valid targets if not single target mode
-            if not self.config.is_single_forecast_target and "target" in period_model_output.columns and valid_model_targets:
-                period_model_output = period_model_output[period_model_output["target"].isin(valid_model_targets)]
+                        pred_entry = {"horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None}
 
-            # Structure as Map<model, Map<location, Map<reference_date, Map<target_date, predictionPointInterval>>>>
-            # PredictionPointInterval is a custom type to contain single targetEndDate's median value and list of prediction intervals info depending on which ones user want
-            period_dict = {}
+                        if "target" in row and pd.notna(row["target"]):
+                            raw_target_key = str(row["target"])
+                            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
+                            pred_entry["targetId"] = target_id
 
-            for model_name in period_model_output["model"].unique():
-                model_data = period_model_output[period_model_output["model"] == model_name]
-                model_dict = {}
+                        dvp_config = self.target_id_to_dvp_config.get(target_id)
+                        scaling_factor = dvp_config.scaling_factor.model_output if dvp_config else 1.0
 
-                for location in model_data["location"].unique():
-                    location_key = str(location).zfill(2)
-                    location_data = model_data[model_data["location"] == location]
-                    location_dict = {}
+                        quantile_cols = [col for col in row.index if isinstance(col, float)]
 
-                    for ref_date in location_data["reference_date"].unique():
-                        ref_date_iso = pd.to_datetime(ref_date).strftime("%Y-%m-%d")
-                        ref_date_data = location_data[location_data["reference_date"] == ref_date]
-                        predictions_dict = {}
+                        for qc in quantile_cols:
+                            if str(qc) == "0.5" and pd.notna(row[qc]):
+                                pred_entry["value_median"] = row[qc] * scaling_factor
 
-                        for _, row in ref_date_data.iterrows():
-                            target_date_iso = pd.to_datetime(row["target_end_date"]).strftime("%Y-%m-%d")
+                        pred_intervals = {}
+                        for desired_PI in self.config.prediction_intervals:
+                            single_interval_info = {}
+                            for target_quantile in desired_PI.uses_output_type_ids:
+                                for qc in quantile_cols:
+                                    if str(qc) == target_quantile and pd.notna(row[qc]):
+                                        value = row[qc] * scaling_factor
+                                        if target_quantile == desired_PI.uses_output_type_ids[0]:
+                                            single_interval_info["pi_value_low"] = value
+                                        else:
+                                            single_interval_info["pi_value_high"] = value
+                            pred_intervals[str(desired_PI.level)] = single_interval_info
 
-                            # Add horizon field to each PredictionPointInterval
-                            pred_entry = {"horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None}
+                        pred_entry["prediction_intervals"] = pred_intervals
+                        predictions_dict[target_date_iso] = pred_entry
 
-                            # Add targetId info
-                            if "target" in row and pd.notna(row["target"]):
-                                raw_target_key = str(row["target"])
-                                target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
-                                pred_entry["targetId"] = target_id
+                    location_dict[ref_date_iso] = {"predictions": predictions_dict}
 
-                            # Add value_median and PIs to
-                            # Quantile columns start with "0".
-                            quantile_cols = [col for col in row.index if isinstance(col, float)]
+                model_dict[location_key] = location_dict
 
-                            # Assign the median value
-                            for qc in quantile_cols:
-                                if (str(qc) == "0.5") and (pd.notna(row[qc])):
-                                    pred_entry["value_median"] = row[qc]
+            processed_data[model_name] = model_dict
 
-                            # Iterate on user's wanted PIs and low-high end points
-                            pred_intervals = {}
-                            for desired_PI in self.config.prediction_intervals:
-                                single_interval_info = {}
-                                for target_quantile in desired_PI.uses_output_type_ids:
-                                    for qc in quantile_cols:
-                                        if (str(qc) == target_quantile) and pd.notna(row[qc]):
-                                            # Smaller value, pi_value_low
-                                            if target_quantile == desired_PI.uses_output_type_ids[0]:
-                                                single_interval_info["pi_value_low"] = row[qc]
-                                            else:
-                                                single_interval_info["pi_value_high"] = row[qc]
-                                pred_intervals[str(desired_PI.level)] = single_interval_info
-
-                            pred_entry["prediction_intervals"] = pred_intervals
-                            predictions_dict[target_date_iso] = pred_entry
-
-                        location_dict[ref_date_iso] = {"predictions": predictions_dict}
-
-                    model_dict[location_key] = location_dict
-
-                period_dict[model_name] = model_dict
-
-            model_output_by_period[period_id] = period_dict
-
-        logger.info(f"Processed predictions for {len(model_output_by_period)} periods.")
-        return model_output_by_period
+        logger.info(f"Processed predictions for {len(processed_data)} models.")
+        return processed_data
 
     def _process_evaluations_by_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
@@ -1064,7 +1000,7 @@ class DataProcessor:
                 continue
             start, end = date_range
 
-            period_id = period.forecast_period_id if hasattr(period, 'forecast_period_id') else period.special_period_id
+            period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
             logger.info(f"Calculating evaluations for period: '{period_id}' ({start.date()} to {end.date()})")
 
             # Filter data for this period
@@ -1113,194 +1049,61 @@ class DataProcessor:
 
     def _write_output_files(
         self,
-        target_data_by_period: dict,
-        model_output_by_period: dict,
+        target_data: dict,
+        model_output_data: dict,
         metadata: dict,
         evaluations_by_period: dict = None,
     ):
-        """Write all processed data to JSON files."""
-        logger.info("Writing output files...")
+        """Write all processed data to a single JSON files."""
+        logger.info("Writing unified output files...")
         logger.info(f"  → Output directory: {self.output_base_path}")
 
-        # Create directory structure
-        auxiliary_dir = self.output_base_path / "auxiliary"
-        auxiliary_dir.mkdir(exist_ok=True, parents=True)
+        self.output_base_path.mkdir(exist_ok=True, parents=True)
 
-        dynamic_dir = self.output_base_path / "dynamic-time-periods"
-        dynamic_dir.mkdir(exist_ok=True, parents=True)
-
-        historical_dir = self.output_base_path / "historical-target-data"
-        historical_dir.mkdir(exist_ok=True, parents=True)
-
-        # Write auxiliary data
-        logger.info("Writing auxiliary data files...")
-
-        # Write metadata data into one file
-        metadata_file = auxiliary_dir / "metadata.json"
+        # Write metadata
+        metadata_file = self.output_base_path / "metadata.json"
         with open(metadata_file, "w") as f:
             json.dump(metadata, f, cls=NpEncoder, separators=(",", ":"))
         self._track_file_written(metadata_file)
 
-        logger.info("  [OK] Written auxiliary data: metadata")
+        # Write target data
+        gt_file = self.output_base_path / "targetData.json"
+        with open(gt_file, "w") as f:
+            json.dump(target_data, f, cls=NpEncoder, separators=(",", ":"))
+        self._track_file_written(gt_file)
 
-        # Write historical ground truth data if available
+        # Write model output data
+        pred_file = self.output_base_path / "modelOutputData.json"
+        with open(pred_file, "w") as f:
+            json.dump(model_output_data, f, cls=NpEncoder, separators=(",", ":"))
+        self._track_file_written(pred_file)
+
+        # Write historical data if available
         if self.historical_target_data:
-            logger.info("Writing historical ground truth data...")
-            historical_file = historical_dir / "historical-target-data.json"
+            historical_file = self.output_base_path / "historical-target-data.json"
             with open(historical_file, "w") as f:
                 json.dump(self.historical_target_data, f, cls=NpEncoder, separators=(",", ":"))
             self._track_file_written(historical_file)
-            logger.info(f"  [OK] Written historical data: {len(self.historical_target_data)} snapshots")
 
-        # Write data for each forecast period
-        logger.info("Writing forecast period data...")
+        """ # Write evaluation data
+        if evaluations:
+            eval_dir = self.output_base_path / "evaluations"
+            eval_dir.mkdir(exist_ok=True, parents=True)
+            
+            if "wis" in evaluations and not evaluations["wis"].empty:
+                wis_file = eval_dir / "evaluationsRawScoresData.json"
+                evaluations["wis"].to_json(wis_file, orient="records")
+                self._track_file_written(wis_file)
+            
+            if "wis_ratio" in evaluations and not evaluations["wis_ratio"].empty:
+                wis_ratio_file = eval_dir / "evaluationsPrecalculatedData.json"
+                evaluations["wis_ratio"].to_json(wis_ratio_file, orient="records")
+                self._track_file_written(wis_ratio_file)
 
-        # Separate full range periods from dynamic periods
-        # Note: All self.config.forecast_periods are standard (not special)
-        full_range_periods = self.config.forecast_periods
-        special_periods = self.config.special_forecast_periods or []
-
-        # Write full range season data
-        for period in full_range_periods:
-            period_id = period.forecast_period_id
-            period_dir = self.output_base_path / period_id
-            period_dir.mkdir(exist_ok=True, parents=True)
-
-            logger.info(f"Writing data for period: {period_id}")
-
-            # Write ground truth data
-            if period_id in target_data_by_period:
-                gt_file = period_dir / "targetData.json"
-                with open(gt_file, "w") as f:
-                    json.dump(
-                        target_data_by_period[period_id],
-                        f,
-                        cls=NpEncoder,
-                        separators=(",", ":"),
-                    )
-                self._track_file_written(gt_file)
-
-            # Write predictions data
-            if period_id in model_output_by_period:
-                pred_file = period_dir / "modelOutputData.json"
-                with open(pred_file, "w") as f:
-                    json.dump(
-                        model_output_by_period[period_id],
-                        f,
-                        cls=NpEncoder,
-                        separators=(",", ":"),
-                    )
-                self._track_file_written(pred_file)
-
-            logger.info(f"  [OK] Written data files for {period_id}")
-
-        # Write dynamic period data
-        for period in special_periods:
-            period_id = period.special_period_id
-
-            logger.info(f"Writing data for dynamic period: {period_id}")
-
-            # Dynamic periods get a single combined JSON file
-            dynamic_data = {}
-
-            if period_id in target_data_by_period:
-                dynamic_data["groundTruth"] = target_data_by_period[period_id]
-
-            if period_id in model_output_by_period:
-                dynamic_data["predictions"] = model_output_by_period[period_id]
-
-            dynamic_file = dynamic_dir / f"{period_id}.json"
-            with open(dynamic_file, "w") as f:
-                json.dump(dynamic_data, f, cls=NpEncoder, separators=(",", ":"))
-            self._track_file_written(dynamic_file)
-
-            logger.info(f"  [OK] Written {period_id}.json")
-
-        # Write evaluation data if available
-        if evaluations_by_period:
-            logger.info("Writing evaluation data...")
-
-            for period in full_range_periods:
-                period_id = period.period_id
-
-                if period_id not in evaluations_by_period:
-                    continue
-
-                period_evaluations = evaluations_by_period[period_id]
-                period_dir = self.output_base_path / period_id
-                period_dir.mkdir(exist_ok=True, parents=True)
-
-                # Write WIS scores
-                if "wis" in period_evaluations and not period_evaluations["wis"].empty:
-                    wis_file = period_dir / "evaluationsRawScoresData.json"
-                    wis_data = period_evaluations["wis"].to_dict(orient="records")
-                    with open(wis_file, "w") as f:
-                        json.dump(wis_data, f, cls=NpEncoder, separators=(",", ":"))
-                    self._track_file_written(wis_file)
-
-                # Write WIS ratio (precalculated evaluations)
-                if "wis_ratio" in period_evaluations and not period_evaluations["wis_ratio"].empty:
-                    wis_ratio_file = period_dir / "evaluationsPrecalculatedData.json"
-                    wis_ratio_data = period_evaluations["wis_ratio"].to_dict(orient="records")
-                    with open(wis_ratio_file, "w") as f:
-                        json.dump(wis_ratio_data, f, cls=NpEncoder, separators=(",", ":"))
-                    self._track_file_written(wis_ratio_file)
-
-                # Write Coverage data
-                if "coverage" in period_evaluations and not period_evaluations["coverage"].empty:
-                    coverage_file = period_dir / "coverageData.json"
-                    coverage_data = period_evaluations["coverage"].to_dict(orient="records")
-                    with open(coverage_file, "w") as f:
-                        json.dump(coverage_data, f, cls=NpEncoder, separators=(",", ":"))
-                    self._track_file_written(coverage_file)
-
-                # Write MAPE data
-                if "mape" in period_evaluations and not period_evaluations["mape"].empty:
-                    mape_file = period_dir / "mapeData.json"
-                    mape_data = period_evaluations["mape"].to_dict(orient="records")
-                    with open(mape_file, "w") as f:
-                        json.dump(mape_data, f, cls=NpEncoder, separators=(",", ":"))
-                    self._track_file_written(mape_file)
-
-                logger.info(f"  [OK] Written evaluation data for {period_id}")
-
-            # Write dynamic period evaluations
-            for period in special_periods:
-                period_id = period.special_period_id
-
-                if period_id not in evaluations_by_period:
-                    continue
-
-                period_evaluations = evaluations_by_period[period_id]
-
-                # Append evaluation data to dynamic period JSON
-                dynamic_file = dynamic_dir / f"{period_id}.json"
-
-                # Read existing file if it exists
-                if dynamic_file.exists():
-                    with open(dynamic_file, "r") as f:
-                        dynamic_data = json.load(f)
-                else:
-                    dynamic_data = {}
-
-                # Add evaluation results
-                if "wis" in period_evaluations and not period_evaluations["wis"].empty:
-                    dynamic_data["evaluationsRawScores"] = period_evaluations["wis"].to_dict(orient="records")
-
-                if "wis_ratio" in period_evaluations and not period_evaluations["wis_ratio"].empty:
-                    dynamic_data["evaluationsPrecalculated"] = period_evaluations["wis_ratio"].to_dict(orient="records")
-
-                if "coverage" in period_evaluations and not period_evaluations["coverage"].empty:
-                    dynamic_data["coverage"] = period_evaluations["coverage"].to_dict(orient="records")
-
-                if "mape" in period_evaluations and not period_evaluations["mape"].empty:
-                    dynamic_data["mape"] = period_evaluations["mape"].to_dict(orient="records")
-
-                # Write updated file
-                with open(dynamic_file, "w") as f:
-                    json.dump(dynamic_data, f, cls=NpEncoder, separators=(",", ":"))
-
-                logger.info(f"  [OK] Updated {period_id}.json with evaluation data")
+            if "coverage" in evaluations and not evaluations["coverage"].empty:
+                coverage_file = eval_dir / "coverageData.json"
+                evaluations["coverage"].to_json(coverage_file, orient="records")
+                self._track_file_written(coverage_file) """
 
         logger.info("All output files written successfully!")
 
@@ -1361,31 +1164,6 @@ class DataProcessor:
             for file_path in self.processing_stats["output_files"]:
                 logger.info(f"  [OK] {file_path}")
 
-        # Data validation checks
-        logger.info("")
-        logger.info("VALIDATION CHECKS:")
-
-        # Check 1: Do we have output from all models?
-        configured_model_names = [m["modelName"] for m in metadata["models"]["list"]]
-        all_models_have_data = all(model_name in model_output_df["model"].unique() for model_name in configured_model_names)
-        logger.info(f"  - All configured models have data: {'Yes' if all_models_have_data else 'No'}")
-
-        # Check 2: Default selected date
-        if metadata["temporal"].get("defaultSelectedDate"):
-            logger.info(f"  - Default selected date: {metadata['defaultSelectedDate']}")
-        else:
-            logger.info("  - Default selected date: [!] Not set")
-
-        # Check 3: Date coverage
-        if "date" in target_data_df.columns and "target_end_date" in model_output_df.columns:
-            target_latest = target_data_df["date"].max()
-            model_latest = model_output_df["target_end_date"].max()
-            if target_latest < model_latest:
-                logger.info("  - Date coverage: [!] Model predictions extend beyond target data")
-                logger.info(f"    (Target: {target_latest.date()}, Model: {model_latest.date()})")
-            else:
-                logger.info("  - Date coverage: OK")
-
         logger.info("")
         logger.info("=" * 60)
 
@@ -1397,9 +1175,8 @@ class DataProcessor:
     ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
         """Determines the start and end date for a given forecast period."""
         # Check if this is a special period (has special_period_id attribute)
-        is_special = hasattr(period, 'special_period_id')
+        is_special = hasattr(period, "special_period_id")
         period_id = period.special_period_id if is_special else period.forecast_period_id
-        
         if is_special:
             anchor_config = period.time_anchor
             if not anchor_config:

@@ -48,17 +48,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadHistoricalDataIfNeeded = useCallback(async () => {
     // Check if already loaded
     if (loadingStates.historicalTargetData) {
-      logger.info('Historical data is already loading...');
       return;
     }
 
     try {
       updateLoadingState('historicalTargetData', true);
       logger.info('Loading historical target data...');
-      
+
       const historicalData = await loadHistoricalTargetData();
       dispatch(setHistoricalTargetData(historicalData));
-      
+
       logger.info('Historical target data loaded successfully');
       updateLoadingState('historicalTargetData', false);
     } catch (error) {
@@ -73,7 +72,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadMetadata = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/auxiliary/metadata.json`);
+    const response = await fetch(`${dataPath}/metadata.json`);
     if (!response.ok) {
       throw new Error(`Failed to load metadata: ${response.statusText}`);
     }
@@ -94,25 +93,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
-   * Load target data for a forecast period
+   * [UPDATED] Load target data (Monolithic)
    */
-  const loadTargetData = async (forecastPeriodId: string): Promise<any> => {
+  const loadTargetData = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/${forecastPeriodId}/targetData.json`);
+    // Fetch from root data directory, not forecastPeriod subdirectory
+    const response = await fetch(`${dataPath}/targetData.json`);
     if (!response.ok) {
-      throw new Error(`Failed to load target data for ${forecastPeriodId}`);
+      throw new Error(`Failed to load target data`);
     }
     return response.json();
   };
 
   /**
-   * Load model output for a forecast period
+   * [UPDATED] Load model output (Monolithic)
    */
-  const loadModelOutput = async (forecastPeriodId: string): Promise<any> => {
+  const loadModelOutput = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/${forecastPeriodId}/modelOutputData.json`);
+    const response = await fetch(`${dataPath}/modelOutputData.json`);
     if (!response.ok) {
-      throw new Error(`Failed to load model output for ${forecastPeriodId}`);
+      throw new Error(`Failed to load model output`);
     }
     return response.json();
   };
@@ -122,7 +122,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadHistoricalTargetData = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/historical-target-data/historical-target-data.json`);
+    const response = await fetch(`${dataPath}/historical-target-data.json`);
     if (!response.ok) {
       throw new Error(`Failed to load historical target data: ${response.statusText}`);
     }
@@ -154,9 +154,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     }
 
-    // Parse model configurations with colors from new nested structure
-    const models = metadata.models?.list || [];
-    const modelColorMap: Record<string, string> = metadata.models?.colors || {};
+    // Parse the list of model names and associated color into a mapping
+    const modelColorMap: Record<string, string> = {};
+    if (Array.isArray(metadata.models?.list)) {
+      metadata.models.list.forEach((m: { modelName: string; color: string }) => {
+        modelColorMap[m.modelName] = m.color;
+      });
+    }
 
     // Parse targets from new nested structure
     const targets =
@@ -164,18 +168,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         targetId: t.targetId,
         targetKeyInData: t.targetKeyInData,
         displayString: t.displayString,
+        dataValueProcessing: t.dataValueProcessing,
       })) || [];
 
     // Parse prediction intervals from new nested structure
     const predictionIntervals =
       metadata.predictionIntervals?.available?.map((pi: any) => ({
-        level: String(pi.level),  // Ensure level is a string for consistency
+        level: String(pi.level), // Ensure level is a string for consistency
         quantiles: pi.quantiles,
       })) || [];
 
     // Parse default selections from metadata
     const defaults = metadata.defaults || {};
-    
+
     // Extract default location (handle dict or string format for safety)
     let defaultLocation = defaults.location;
     if (typeof defaultLocation === 'object' && defaultLocation !== null) {
@@ -184,12 +189,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     // Fallback to single location code or "US"
     if (!defaultLocation) {
-      defaultLocation = metadata.spatial?.isSingleLocation ? metadata.spatial?.singleLocationCode : 'US';
+      defaultLocation = metadata.spatial?.isSingleLocation
+        ? metadata.spatial?.singleLocationCode
+        : 'US';
     }
-    
-    const defaultHorizon = defaults.horizon !== undefined ? defaults.horizon : (metadata.temporal?.horizons?.[metadata.temporal.horizons.length - 1] || 1);
+
+    const defaultHorizon =
+      defaults.horizon !== undefined
+        ? defaults.horizon
+        : metadata.temporal?.horizons?.[metadata.temporal.horizons.length - 1] || 1;
     // Ensure all prediction interval values are strings for consistency
-    const defaultPredictionIntervals = defaults.predictionIntervals 
+    const defaultPredictionIntervals = defaults.predictionIntervals
       ? defaults.predictionIntervals.map((pi: any) => String(pi))
       : predictionIntervals.map((pi: any) => String(pi.level));
 
@@ -236,7 +246,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       locationMapping: {},
 
       // Models from metadata.models
-      models,
       modelColorMap,
 
       // Targets from metadata.targets
@@ -246,7 +255,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Prediction intervals from metadata.predictionIntervals
       predictionIntervals,
       defaultPredictionIntervals,
-      
+
       // Default selections
       defaultLocation,
       defaultHorizon,
@@ -294,7 +303,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Step 4: Dispatch config to Redux
       dispatch(setDashboardConfig(config));
-      logger.debug('Config loaded:', config);
+
       updateLoadingState('forecastPeriodOptions', false);
       updateLoadingState('locations', false);
 
@@ -308,39 +317,43 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       updateLoadingState('locationShapeData', false);
 
-      // Step 6: Load data for default forecast period
+      // Step 6: Load all target-data and model-output
+      // [UPDATED] Load everything at once regardless of default period
+      logger.log('Loading all core data...');
+
+      const [targetData, modelOutput] = await Promise.all([
+        loadTargetData(),
+        loadModelOutput(),
+      ]);
+
+      // Dispatch to Redux
+      dispatch(
+        setAllCoreData({
+          targetData,
+          modelOutput,
+        })
+      );
+
+      updateLoadingState('targetData', false);
+      updateLoadingState('modelOutput', false);
+
+      // Step 7: Initialize forecast settings with config defaults
+      // Use the default period from config to set initial time filters
       const defaultPeriod = config.forecastPeriodOptions[config.defaultForecastPeriodId];
+      
       if (defaultPeriod) {
-        logger.log(`Loading data for period: ${config.defaultForecastPeriodId}`);
-
-        const [targetData, modelOutput] = await Promise.all([
-          loadTargetData(config.defaultForecastPeriodId),
-          loadModelOutput(config.defaultForecastPeriodId),
-        ]);
-
-        // Dispatch to Redux
-        dispatch(
-          setAllCoreData({
-            targetData: {
-              [config.defaultForecastPeriodId]: targetData,
-            },
-            modelOutput: {
-              [config.defaultForecastPeriodId]: modelOutput,
-            },
-          })
-        );
-
-        updateLoadingState('targetData', false);
-        updateLoadingState('modelOutput', false);
-
-        // Step 7: Initialize forecast settings with config defaults
         logger.log('Initializing forecast settings...');
         dispatch(
           initializeForecastSettings({
-            locationCode: config.defaultLocation || (config.isSingleLocation ? config.singleLocationCode : '25'),
-            models: config.models.map((m) => m.modelName),
+            locationCode:
+              config.defaultLocation ||
+              (config.isSingleLocation ? config.singleLocationCode : '25'),
+            models: Object.keys(config.modelColorMap),
             target: config.defaultTargetId,
-            horizon: config.defaultHorizon !== undefined ? config.defaultHorizon : config.horizons[config.horizons.length - 1],
+            horizon:
+              config.defaultHorizon !== undefined
+                ? config.defaultHorizon
+                : config.horizons[config.horizons.length - 1],
             forecastPeriod: defaultPeriod,
             predictionIntervals: config.defaultPredictionIntervals,
             selectedDate: config.defaultSelectedDate

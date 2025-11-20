@@ -46,11 +46,6 @@ export interface TargetData {
   };
 }
 
-// Target Data Collection partitioned by forecast period
-export interface TargetDataCollection {
-  [forecastPeriodId: string]: TargetData;
-}
-
 // Historical Target-Data: Entire Collection organized by as_of date
 // Structure: as_of -> date -> location -> {observation, target}
 // 
@@ -86,14 +81,12 @@ export interface PredictionPointInterval {
 
 // Collection of all model output data, structured for the frontend
 export interface ModelOutputCollection {
-  [forecastPeriodId: string]: {
-    [modelName: string]: {
-      [locationCode: string]: {
-        [referenceDate: string]: {
-          predictions: {
-            // Each date's prediction contains that day's median and the available PI information.
-            [targetDate: string]: PredictionPointInterval;
-          };
+  [modelName: string]: {
+    [locationCode: string]: {
+      [referenceDate: string]: {
+        predictions: {
+          // Each date's prediction contains that day's median and the available PI information.
+          [targetDate: string]: PredictionPointInterval;
         };
       };
     };

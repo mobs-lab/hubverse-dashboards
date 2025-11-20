@@ -27,7 +27,6 @@ interface ForecastSettingsState {
 
   // Historical data mode
   historicalTargetDataMode: boolean;
-  selectedHistoricalAsOfDate: string | null;
 
   // User interaction state
   userSelectedDate: Date;
@@ -45,7 +44,7 @@ const initialState: ForecastSettingsState = {
   yAxisScale: 'linear',
   selectedPredictionIntervals: [],
   historicalTargetDataMode: false,
-  selectedHistoricalAsOfDate: null,
+
   userSelectedDate: new Date(),
 };
 
@@ -66,8 +65,15 @@ const forecastSettingsSlice = createSlice({
         selectedDate?: Date;
       }>
     ) => {
-      const { locationCode, models, target, horizon, forecastPeriod, predictionIntervals, selectedDate } =
-        action.payload;
+      const {
+        locationCode,
+        models,
+        target,
+        horizon,
+        forecastPeriod,
+        predictionIntervals,
+        selectedDate,
+      } = action.payload;
 
       state.selectedLocationCode = locationCode || 'US';
       state.selectedModels = models;
@@ -95,9 +101,10 @@ const forecastSettingsSlice = createSlice({
     ) => {
       // In the new architecture, we use location codes (like FIPS codes)
       // The stateNum is the location code
-      const locationCode = typeof action.payload.stateNum === 'number'
-        ? String(action.payload.stateNum).padStart(2, '0')
-        : action.payload.stateNum;
+      const locationCode =
+        typeof action.payload.stateNum === 'number'
+          ? String(action.payload.stateNum).padStart(2, '0')
+          : action.payload.stateNum;
       state.selectedLocationCode = locationCode;
     },
 
@@ -143,9 +150,6 @@ const forecastSettingsSlice = createSlice({
     updateHistoricalDataMode: (state, action: PayloadAction<boolean>) => {
       state.historicalTargetDataMode = action.payload;
     },
-    updateSelectedHistoricalAsOfDate: (state, action: PayloadAction<string | null>) => {
-      state.selectedHistoricalAsOfDate = action.payload;
-    },
 
     // User interaction
     updateUserSelectedDate: (state, action: PayloadAction<Date>) => {
@@ -167,7 +171,7 @@ export const {
   updateYScale,
   updateSelectedPredictionIntervals,
   updateHistoricalDataMode,
-  updateSelectedHistoricalAsOfDate,
+
   updateUserSelectedDate,
 } = forecastSettingsSlice.actions;
 

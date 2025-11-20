@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 import yaml
 from pydantic import (
@@ -74,6 +74,28 @@ class SpecialForecastPeriodConfig(BaseModel):
     time_anchor: TimeAnchorConfig
 
 
+class ScalingFactorConfig(BaseModel):
+    """Configuration for scaling target and model output data values."""
+
+    target_data: float = Field(default=1.0)
+    model_output: float = Field(default=1.0)
+
+
+class RoundingDecimalsConfig(BaseModel):
+    """Configuration for rounding data values"""
+
+    # Can only be non-negative integer, representing number of decimals places
+    target_data: float = Field(default=2, ge=0)
+    model_output: float = Field(default=2, ge=0)
+
+
+class DataValueProcessingConfig(BaseModel):
+    """Configuration for processing data values (scaling and rounding)."""
+
+    scaling_factor: Optional[ScalingFactorConfig] = Field(default_factory=ScalingFactorConfig)
+    rounding_decimals: Optional[RoundingDecimalsConfig] = Field(default_factory=RoundingDecimalsConfig)
+
+
 class TargetConfig(BaseModel):
     """Configuration for a forecasting target/task"""
 
@@ -82,6 +104,7 @@ class TargetConfig(BaseModel):
     target_key_in_data: str = Field(..., description="Key to match in target/output_type column")
     for_forecast_periods: Optional[List[str]] = Field(default=None, description="Forecast period IDs to use (null = all periods)")
     is_default_selected: bool = Field(default=False, description="Whether this target is selected by default (only one allowed)")
+    data_value_processing: Optional[DataValueProcessingConfig] = Field(default_factory=DataValueProcessingConfig)
 
 
 class PredictionIntervalConfig(BaseModel):
@@ -95,7 +118,7 @@ class PredictionIntervalConfig(BaseModel):
         max_length=2,
     )
 
-    @field_validator("uses_output_type_ids")
+    @field_validator("uses_output_type_ids", mode="after")
     @classmethod
     def validate_quantiles(cls, v: List[str]) -> List[str]:
         """Ensure quantiles are valid and in ascending order"""
@@ -104,10 +127,10 @@ class PredictionIntervalConfig(BaseModel):
         except ValueError:
             raise ValueError("Quantiles must be numeric strings")
 
-        if not all(0 <= q <= 1 for q in quantiles):
+        if not all(0 <= float(q) <= 1 for q in quantiles):
             raise ValueError("Quantiles must be between 0 and 1")
 
-        if quantiles[0] >= quantiles[1]:
+        if float(quantiles[0]) >= float(quantiles[1]):
             raise ValueError("Quantiles must be in ascending order")
 
         return v
@@ -122,14 +145,6 @@ class ModelConfig(BaseModel):
         pattern=r"^#[0-9a-fA-F]{6}$",
         description="Hex color code for visualization",
     )
-    display_name: Optional[str] = Field(default=None, description="Display name (defaults to model_name)")
-
-    @model_validator(mode="after")
-    def set_display_name(self):
-        """Set display_name to model_name if not provided"""
-        if not self.display_name:
-            self.display_name = self.model_name
-        return self
 
 
 class SpatialDataConfig(BaseModel):
@@ -234,7 +249,8 @@ class DashboardConfig(BaseModel):
     helpful error messages for common mistakes.
     """
 
-    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
+    # Strip whitespace, re-evaluate when data change, and ignore unwarranted configurations
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="ignore")
 
     # Data Source
     link_to_hubverse_compatible_data: Optional[str] = Field(default=None, description="Set to null for local data")
@@ -251,8 +267,7 @@ class DashboardConfig(BaseModel):
     spatial_config: SpatialDataConfig = Field(default_factory=SpatialDataConfig)
 
     # Target Configuration
-    is_single_forecast_target: bool = Field(default=False)
-    targets: Optional[List[TargetConfig]] = None
+    targets: List[TargetConfig]
     time_unit: int = Field(..., ge=1, le=365, description="Time unit in days (typically 1 or 7)")
 
     # Target Data Configuration
@@ -291,38 +306,18 @@ class DashboardConfig(BaseModel):
     # ==========================================================================
 
     @model_validator(mode="after")
-    def ensure_targets_is_list(self):
-        """Ensure targets is always a list, never None (for compatibility)"""
-        # Only convert None to [] if in single-target mode
-        if self.targets is None and self.is_single_forecast_target:
-            object.__setattr__(self, "targets", [])
-        return self
-
-    @model_validator(mode="after")
     def validate_single_location_requires_mapping(self):
         """Ensure single_location_mapping provided when in single-location mode"""
         if self.is_single_location_forecast and not self.single_location_mapping:
             raise ValueError("single_location_mapping is REQUIRED when is_single_location_forecast is True")
         return self
 
-    @model_validator(mode="after")
-    def populate_target_forecast_periods(self):
-        """Populate for_forecast_periods with all period IDs when None"""
-        if self.targets:
-            all_period_ids = self.get_all_period_ids()
-            for target in self.targets:
-                if target.for_forecast_periods is None:
-                    # Use object.__setattr__ to bypass frozen/validation
-                    object.__setattr__(target, "for_forecast_periods", all_period_ids)
-        return self
-
-    @model_validator(mode="after")
-    def validate_multi_target_requires_targets(self):
-        """Ensure targets defined when not in single-target mode"""
-        if not self.is_single_forecast_target:
-            if not self.targets or len(self.targets) == 0:
-                raise ValueError("targets list is REQUIRED when is_single_forecast_target is False")
-        return self
+    # @model_validator(mode="after")
+    # def validate_multi_target_requires_targets(self):
+    #     """Ensure targets defined when not in single-target mode"""
+    #     if not self.targets or len(self.targets) == 0:
+    #         raise ValueError("At least one modelling task target is required.")
+    #     return self
 
     @model_validator(mode="after")
     def validate_single_file_name_required(self):
@@ -344,10 +339,9 @@ class DashboardConfig(BaseModel):
     @model_validator(mode="after")
     def validate_only_one_default_target(self):
         """Ensure only one target is default"""
-        if self.targets:
-            default_targets = [t.target_id for t in self.targets if t.is_default_selected]
-            if len(default_targets) > 1:
-                raise ValueError(f"Only one target can be default. Found: {', '.join(default_targets)}")
+        default_targets = [t.target_id for t in self.targets if t.is_default_selected]
+        if len(default_targets) > 1:
+            raise ValueError(f"Only one target can be default. Found: {', '.join(default_targets)}")
         return self
 
     @model_validator(mode="after")
@@ -479,136 +473,71 @@ class DashboardConfig(BaseModel):
 # =============================================================================
 
 
-def flatten_yaml_list_structure(raw_config: List[Dict]) -> Dict[str, Any]:
+def load_and_validate_config(config_path: Union[str, Path] = "config.yaml", dev_mode: bool = False) -> DashboardConfig:
     """
-    Flatten the YAML list-of-dicts structure to single dict.
-    Handles nested structures for forecast_periods, targets, etc.
+    Load and validate dashboard configuration using Pydantic from a structured YAML file.
+
+    Args:
+        config_path: Path to config.yaml file.
+        dev_mode: If True, look for data in test-data-input/ instead of project root.
+
+    Returns:
+        DashboardConfig: Validated configuration object.
     """
-    flat_config = {}
+    from pydantic import ValidationError
 
-    for item in raw_config:
-        if not isinstance(item, dict):
-            continue
+    logger.info("=" * 80)
+    logger.info("PYDANTIC-BASED CONFIG VALIDATION")
+    logger.info("=" * 80)
 
-        for key, value in item.items():
-            # Handle nested list structures (forecast_periods, targets, etc.)
-            if key in [
-                "forecast_periods",
-                "special_forecast_periods",
-                "targets",
-                "available_models",
-                "prediction_intervals",
-                "evaluations_prediction_intervals",
-            ]:
-                if isinstance(value, list):
-                    processed_list = []
-                    for list_item in value:
-                        if isinstance(list_item, dict):
-                            # Extract the nested structure
-                            for sub_key, sub_value in list_item.items():
-                                if isinstance(sub_value, list):
-                                    # Flatten nested list of dicts
-                                    flattened = {}
-                                    for prop in sub_value:
-                                        if isinstance(prop, dict):
-                                            # Handle time_anchor specially
-                                            if "time_anchor" in prop:
-                                                anchor_list = prop["time_anchor"]
-                                                anchor_dict = {}
-                                                for anchor_item in anchor_list:
-                                                    if isinstance(anchor_item, dict):
-                                                        anchor_dict.update(anchor_item)
-                                                flattened["time_anchor"] = anchor_dict
-                                            else:
-                                                flattened.update(prop)
+    config_path = Path(config_path)
 
-                                    # For models and intervals, preserve the name as key
-                                    if key in ["available_models", "prediction_intervals", "evaluations_prediction_intervals"]:
-                                        if key == "available_models":
-                                            flattened["model_name"] = sub_key
-                                        elif key in ["prediction_intervals", "evaluations_prediction_intervals"]:
-                                            flattened["level"] = int(sub_key)
+    try:
+        # 1. Load YAML file
+        with open(config_path, "r") as f:
+            raw_config = yaml.safe_load(f)
+            if not raw_config or not isinstance(raw_config, dict):
+                raise ValueError("Config file must be a dictionary (mapping) at the root level.")
 
-                                    processed_list.append(flattened)
-                    flat_config[key] = processed_list
-            elif key == "spatial_config":
-                # Flatten spatial config if it exists
-                continue  # Will be handled by extracting individual fields
-            elif key == "target_data_header_mapping":
-                # Flatten target data header mapping
-                if isinstance(value, list):
-                    mapping_dict = {}
-                    for mapping in value:
-                        if isinstance(mapping, dict):
-                            mapping_dict.update(mapping)
-                    flat_config["target_data_header_mapping"] = mapping_dict
-            elif key == "model_output_data_header_mapping":
-                # Flatten model output header mapping
-                if isinstance(value, list):
-                    mapping_dict = {}
-                    for mapping in value:
-                        if isinstance(mapping, dict):
-                            mapping_dict.update(mapping)
-                    flat_config["model_output_data_header_mapping"] = mapping_dict
-            # Handle UI customization - navigation buttons
-            elif key == "ui_header_nav_btn":
-                if isinstance(value, list):
-                    nav_buttons = []
-                    for btn_item in value:
-                        if isinstance(btn_item, dict):
-                            # Extract button text from key
-                            for btn_text, btn_config_list in btn_item.items():
-                                btn_config = {"button_text": btn_text}
-                                if isinstance(btn_config_list, list):
-                                    for config_dict in btn_config_list:
-                                        if isinstance(config_dict, dict):
-                                            btn_config.update(config_dict)
-                                nav_buttons.append(btn_config)
-                    flat_config[key] = nav_buttons
-            # Handle UI customization - InfoButton content (flatten list of dicts to single dict)
-            elif key in ["ui_forecast_header_infobutton_content", "ui_forecast_settings_horizon_infobutton_content"]:
-                if isinstance(value, list):
-                    content_dict = {}
-                    for content_item in value:
-                        if isinstance(content_item, dict):
-                            content_dict.update(content_item)
-                    flat_config[key] = content_dict
-            else:
-                flat_config[key] = value
+        # 2. Pre-process dictionary-based structures into lists for Pydantic
+        if "available_models" in raw_config and isinstance(raw_config.get("available_models"), dict):
+            raw_config["available_models"] = [{"model_name": name, **props} for name, props in raw_config["available_models"].items()]
 
-    # Extract spatial config fields
-    spatial_fields = [
-        "disable_map_in_dashboard",
-        "custom_shape_file_name",
-        "custom_location_mapping_file_name",
-        "location_code_col_header_name",
-        "location_name_col_header_name",
-    ]
-    spatial_config = {}
-    for field in spatial_fields:
-        if field in flat_config:
-            spatial_config[field] = flat_config.pop(field)
-    if spatial_config:
-        flat_config["spatial_config"] = spatial_config
+        for key in ["prediction_intervals", "evaluations_prediction_intervals"]:
+            if key in raw_config and isinstance(raw_config.get(key), dict):
+                raw_config[key] = [{"level": int(level), **props} for level, props in raw_config[key].items()]
 
-    # Extract UI customization fields
-    ui_fields = [
-        "ui_header_title_name",
-        "ui_header_nav_btn",
-        "ui_forecast_header_chart_name",
-        "ui_forecast_header_hist_td_toggle_text",
-        "disable_location_info_display",
-        "ui_forecast_header_infobutton_content",
-        "ui_forecast_settings_horizon_infobutton_content",
-    ]
-    ui_customization = {}
-    for field in ui_fields:
-        if field in flat_config:
-            ui_customization[field] = flat_config.pop(field)
-    if ui_customization:
-        flat_config["ui_customization"] = ui_customization
+        # 3. Validate with Pydantic
+        config = DashboardConfig(**raw_config)
 
-    return flat_config
+        # Load location mapping
+        location_mapping = _load_location_mapping(config, config_path, dev_mode)
+        object.__setattr__(config, "_location_mapping", location_mapping)
+
+        # Display default selections
+        logger.info("\nDefault Selections:")
+        logger.info(f"  - Location: {config.get_default_location()}")
+        logger.info(f"  - Horizon: {config.default_selected_horizon}")
+        logger.info(f"  - Prediction Intervals: {config.default_selected_prediction_intervals}")
+        default_target = next((t.target_id for t in (config.targets or []) if t.is_default_selected), None)
+        logger.info(f"  - Target: {default_target}")
+
+        return config
+
+    except ValidationError as e:
+        print("\n" + "=" * 80)
+        print("CONFIGURATION VALIDATION ERRORS")
+        print("=" * 80)
+        for error in e.errors():
+            field = " -> ".join(str(loc) for loc in error["loc"])
+            print(f"[X] [{field}] {error['msg']}")
+            if "ctx" in error:
+                print(f"    Context: {error['ctx']}")
+        print("=" * 80 + "\n")
+        raise
+    except Exception as e:
+        logger.error(f"Error loading configuration: {e}")
+        raise
 
 
 def _load_us_state_fips_mapping() -> Dict[str, str]:
@@ -659,12 +588,12 @@ def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode:
 
                 if code_col not in mapping_df.columns:
                     logger.error(f"  [X] Column '{code_col}' not found in {custom_location_file}")
-                    logger.warning(f"  [!] Falling back to default US FIPS mapping")
+                    logger.warning("  [!] Falling back to default US FIPS mapping")
                     return _load_us_state_fips_mapping()
 
                 if name_col not in mapping_df.columns:
                     logger.error(f"  [X] Column '{name_col}' not found in {custom_location_file}")
-                    logger.warning(f"  [!] Falling back to default US FIPS mapping")
+                    logger.warning("  [!] Falling back to default US FIPS mapping")
                     return _load_us_state_fips_mapping()
 
                 location_mapping = dict(zip(mapping_df[code_col].astype(str), mapping_df[name_col].astype(str)))
@@ -673,82 +602,10 @@ def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode:
                 return location_mapping
             except Exception as e:
                 logger.warning(f"  [!] Failed to load custom location mapping: {e}")
-                logger.warning(f"  [!] Falling back to default US FIPS mapping")
+                logger.warning("  [!] Falling back to default US FIPS mapping")
 
     # Use default US FIPS mapping as fallback
     return _load_us_state_fips_mapping()
-
-
-def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode: bool = False) -> DashboardConfig:
-    """
-    Load and validate dashboard configuration using Pydantic
-
-    Args:
-        config_path: Path to config.yaml file
-        dev_mode: If True, look for data in test-data-input/ instead of project root
-
-    Returns:
-        DashboardConfig: Validated configuration object
-
-    Raises:
-        ValidationError: If configuration is invalid
-    """
-    from pydantic import ValidationError
-
-    logger.info("=" * 80)
-    logger.info("PYDANTIC-BASED CONFIG VALIDATION")
-    logger.info("=" * 80)
-
-    config_path = Path(config_path)
-
-    try:
-        # Load YAML file
-        with open(config_path, "r") as f:
-            raw_config = yaml.safe_load(f)
-            if not raw_config or not isinstance(raw_config, list):
-                raise ValueError("Config file must have a list of dictionaries at root level")
-
-        # Flatten structure
-        flat_config = flatten_yaml_list_structure(raw_config)
-
-        # Validate with Pydantic
-        config = DashboardConfig(**flat_config)
-
-        logger.info("[OK] Configuration validated successfully with Pydantic!")
-        logger.info(f"[OK] Found {len(config.forecast_periods)} forecast periods")
-        logger.info(f"[OK] Found {len(config.targets or [])} target(s)")
-        logger.info(f"[OK] Found {len(config.available_models)} model(s)")
-        logger.info(f"[OK] Time unit: {config.time_unit} days")
-        logger.info(f"[OK] Horizons: {config.horizons}")
-
-        # Load location mapping (bypass Pydantic's extra="forbid" with object.__setattr__)
-        location_mapping = _load_location_mapping(config, config_path, dev_mode)
-        object.__setattr__(config, "_location_mapping", location_mapping)
-
-        # Display default selections
-        logger.info("\nDefault Selections:")
-        logger.info(f"  - Location: {config.get_default_location()}")
-        logger.info(f"  - Horizon: {config.default_selected_horizon}")
-        logger.info(f"  - Prediction Intervals: {config.default_selected_prediction_intervals}")
-        default_target = next((t.target_id for t in (config.targets or []) if t.is_default_selected), None)
-        logger.info(f"  - Target: {default_target}")
-
-        return config
-
-    except ValidationError as e:
-        print("\n" + "=" * 80)
-        print("CONFIGURATION VALIDATION ERRORS")
-        print("=" * 80)
-        for error in e.errors():
-            field = " -> ".join(str(loc) for loc in error["loc"])
-            print(f"[X] [{field}] {error['msg']}")
-            if "ctx" in error:
-                print(f"    Context: {error['ctx']}")
-        print("=" * 80 + "\n")
-        raise
-    except Exception as e:
-        logger.error(f"Error loading configuration: {e}")
-        raise
 
 
 def export_json_schema(output_path: str = "config_schema.json"):
@@ -774,7 +631,7 @@ def test_pydantic_config():
         print("Testing Pydantic YAML Config Processor...")
         print("=" * 80 + "\n")
 
-        config = load_config_pydantic()
+        config = load_and_validate_config()
 
         print("\n" + "=" * 80)
         print("CONFIGURATION SUMMARY")

@@ -17,6 +17,8 @@ import {
   selectPredictionIntervalOptions,
   selectTargetDataFiltered,
   selectTimeUnit,
+  selectCurrentTargetDataProcessing,
+  selectHistoricalTimeSeries,
 } from '@/store/selectors';
 import { useHistoricalTargetData } from '../hooks/useHistoricalTargetData';
 
@@ -38,6 +40,7 @@ const ForecastChart: React.FC = () => {
   // Get model color map from config
   const modelColorMap = useAppSelector(selectModelColorMap);
   const timeUnit = useAppSelector(selectTimeUnit);
+  const dataProcessingConfig = useAppSelector(selectCurrentTargetDataProcessing);
 
   // Get all settings variables from Redux
   const {
@@ -50,45 +53,23 @@ const ForecastChart: React.FC = () => {
     yAxisScale,
     selectedPredictionIntervals,
     historicalTargetDataMode,
-    selectedHistoricalAsOfDate,
     selectedTargetId,
   } = useAppSelector((state) => state.forecastSettings);
 
   // Get data using new selectors
   const groundTruthData = useAppSelector(selectTargetDataFiltered);
   const allModelPredictions = useAppSelector(selectModelOutputFiltered);
-  const historicalTargetData = useAppSelector(selectHistoricalTargetData);
 
-  /**
-   * Helper function to get historical data point for a specific date
-   * Backend structure: as_of -> date -> location -> {observation, target}
-   */
+  // Get pre-filtered historical series
+  const historicalTimeSeries = useAppSelector(selectHistoricalTimeSeries);
+
   const getHistoricalDataPoint = useCallback(
     (date: Date): number | null => {
-      if (!historicalTargetData || !selectedHistoricalAsOfDate) {
-        return null;
-      }
-
-      const dateStr = date.toISOString().split('T')[0];
-      const asOfData = historicalTargetData[selectedHistoricalAsOfDate];
-
-      const dateData = asOfData?.[dateStr];
-
-      const locationData = dateData?.[selectedLocationCode];
-
-      if (!locationData) {
-        return null;
-      }
-
-      if (locationData.target !== selectedTargetId) {
-        return null;
-      }
-
-      const observation = locationData.observation ?? null;
-
-      return observation;
+      if (!historicalTimeSeries.length) return null;
+      const point = historicalTimeSeries.find((d) => isUTCDateEqual(d.date, date));
+      return point ? point.observation : null;
     },
-    [historicalTargetData, selectedHistoricalAsOfDate, selectedLocationCode, selectedTargetId]
+    [historicalTimeSeries]
   );
 
   const createScalesAndAxes = useCallback(
@@ -258,12 +239,11 @@ const ForecastChart: React.FC = () => {
         .tickFormat((d) => {
           const val = d.valueOf();
           if (val === 0) return '0';
-          if (val >= 10000) return d3.format('.2~s')(val);
-          if (val >= 1000) return d3.format('.2~s')(val);
-          if (val >= 100) return d3.format('.0f')(val);
-          if (val >= 10) return d3.format('.0f')(val);
-          if (val >= 1) return d3.format('.0f')(val);
-          return d3.format('.1f')(val);
+
+          // Use a smart formatter that handles different magnitudes
+          if (Math.abs(val) < 1 && val !== 0) return d3.format('.2~f')(val); // e.g., 0.25
+          if (Math.abs(val) < 1000) return d3.format(',.2~f')(val); // e.g., 1.2, 12, 123
+          return d3.format('.2~s')(val); // e.g., 1.2k, 12k, 1.2M
         });
 
       yAxis.tickSize(-chartWidth);
@@ -405,12 +385,9 @@ const ForecastChart: React.FC = () => {
 
       // Filter to show only historical data up to the selected date (as_of date)
       // This shows what was known AS OF the selected reference date
-      const historicalDataBeforeSelected = historicalData.filter(
+      const historicalDataToDraw = historicalData.filter(
         (d) => d.date < userSelectedDate && d.date >= timeFilterRangeStart
       );
-
-      /*Ensure the historical data to be drawn is cutoff before dateStart and the user selected date*/
-      const historicalDataToDraw = historicalDataBeforeSelected;
 
       const historicalLine = d3
         .line<{ date: Date; observation: number | null }>()
@@ -440,7 +417,7 @@ const ForecastChart: React.FC = () => {
         .attr('fill', '#FFA500')
         .attr('transform', `translate(${marginLeft}, ${marginTop})`);
     },
-    [timeFilterRangeStart, userSelectedDate, selectedHistoricalAsOfDate]
+    [timeFilterRangeStart, userSelectedDate]
   );
 
   function renderPredictionData(
@@ -719,6 +696,27 @@ const ForecastChart: React.FC = () => {
       // --- 2. PREPARE DATA ---
       const currentPredictions = findPredictionsForDate(predictionData, data.date);
 
+      // Helper to format numbers based on config
+      const formatValue = (
+        value: number | null | undefined,
+        type: 'observation' | 'prediction'
+      ) => {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+          return 'N/A';
+        }
+        if (type === 'observation' && value === -1) {
+          return 'N/A';
+        }
+
+        const roundingConfig = dataProcessingConfig?.rounding_decimals;
+        const decimals =
+          type === 'observation'
+            ? (roundingConfig?.target_data ?? 0)
+            : (roundingConfig?.model_output ?? 2);
+
+        return value.toFixed(decimals);
+      };
+
       let maxWidth = 0;
       let currentY = layout.padding + 8;
 
@@ -749,11 +747,19 @@ const ForecastChart: React.FC = () => {
 
       // A. Add Date and Admissions Info
       currentY = addTextLine('Date: ', data.date.toUTCString().slice(5, 16), currentY);
-      currentY = addTextLine('Admissions: ', formatNumber(data.observation, true), currentY);
+      currentY = addTextLine(
+        'Admissions: ',
+        formatValue(data.observation, 'observation'),
+        currentY
+      );
 
       // B. Add Historical Admissions Info (if toggled)
       if (isHistoricalDataMode && historicalDataPoint !== null) {
-        currentY = addTextLine('Historical: ', formatNumber(historicalDataPoint, true), currentY);
+        currentY = addTextLine(
+          'Historical: ',
+          formatValue(historicalDataPoint, 'observation'),
+          currentY
+        );
       }
 
       // C. Add Prediction Data (if available)
@@ -836,7 +842,7 @@ const ForecastChart: React.FC = () => {
 
             valueRow
               .append('text')
-              .text(formatNumber(modelPrediction.value_median))
+              .text(formatValue(modelPrediction.value_median, 'prediction'))
               .attr('x', 0)
               .attr('fill', layout.fontColor)
               .style('font-family', layout.fontFamily)
@@ -846,7 +852,10 @@ const ForecastChart: React.FC = () => {
             selectedPredictionIntervals.forEach((level, i) => {
               const interval = modelPrediction.prediction_intervals[level];
               const ciText = interval
-                ? `[${formatNumber(interval.pi_value_low)}, ${formatNumber(interval.pi_value_high)}]`
+                ? `[${formatValue(interval.pi_value_low, 'prediction')}, ${formatValue(
+                    interval.pi_value_high,
+                    'prediction'
+                  )}]`
                 : 'N/A';
               valueRow
                 .append('text')
@@ -892,32 +901,8 @@ const ForecastChart: React.FC = () => {
       // Apply the final position and make it visible
       cornerTooltip.attr('transform', `translate(${tooltipX}, ${marginTop})`).style('opacity', 1);
     },
-    [selectedPredictionIntervals]
+    [selectedPredictionIntervals, modelColorMap, dataProcessingConfig]
   );
-
-  function formatNumber(value: number | null | undefined, isAdmission: boolean = false): string {
-    if (value === null || value === undefined || Number.isNaN(value)) {
-      return 'N/A';
-    }
-
-    if (isAdmission) {
-      if (value === -1) {
-        return 'N/A';
-      }
-      // Surveillance data-slices should be integer; just in case
-      return Math.round(value).toString();
-    }
-
-    // For other numbers (predictions and confidence intervals)
-    if (Number.isInteger(value)) {
-      // If whole number, return as is
-      return value.toString();
-    }
-    // For decimal numbers, use toFixed(2) but trim unnecessary zeros
-    const fixed = value.toFixed(2);
-    // Remove trailing zeros after decimal point, and remove decimal point if no decimals
-    return fixed.replace(/\.?0+$/, '');
-  }
 
   function findPredictionsForDate(
     predictionData: PredictionDataForRender,
@@ -1131,10 +1116,6 @@ const ForecastChart: React.FC = () => {
   const bubbleUserSelectedWeek = useCallback(
     (date: Date) => {
       const utcDate = new Date(date.toISOString());
-      console.debug(
-        'ForecastChart bubbleUserSelectedWeek: Dispatching standardized UTC date:',
-        utcDate.toISOString()
-      );
       dispatch(updateUserSelectedDate(new Date(date.toISOString()))); // Ensure UTC
     },
     [dispatch]
@@ -1224,7 +1205,6 @@ const ForecastChart: React.FC = () => {
         const date = xScale.invert(mouseX - marginLeft);
         const closestData = findNearestDataPoint(combinedData, date);
 
-
         bubbleUserSelectedWeek(closestData.date);
         updateVerticalIndicator(
           closestData.date,
@@ -1275,7 +1255,7 @@ const ForecastChart: React.FC = () => {
 
       function handleMouseOut() {
         mouseFollowLine.style('opacity', 0);
-        // cornerTooltip.style("opacity", 0);
+
         if (isDragging) {
           isDragging = false;
         }
@@ -1349,10 +1329,10 @@ const ForecastChart: React.FC = () => {
       let adjustedUserSelectedDate = new Date(userSelectedDate);
       // Snap to left/right bound depending to which direction it was originally out-of-bound
       if (adjustedUserSelectedDate < timeFilterRangeStart) {
-        adjustedUserSelectedDate = new Date(groundTruthData[groundTruthData.length - 1].date);
+        adjustedUserSelectedDate = new Date(groundTruthData[0].date);
         dispatch(updateUserSelectedDate(adjustedUserSelectedDate));
       } else if (adjustedUserSelectedDate > timeFilterRangeEnd) {
-        adjustedUserSelectedDate = new Date(groundTruthData[0].date);
+        adjustedUserSelectedDate = new Date(groundTruthData[groundTruthData.length - 1].date);
         dispatch(updateUserSelectedDate(adjustedUserSelectedDate));
       }
 
@@ -1365,13 +1345,8 @@ const ForecastChart: React.FC = () => {
       );
 
       // Render historical data if the mode is enabled
-      const historicalDataForPeriod = groundTruthData.map((d) => ({
-        date: d.date,
-        observation: getHistoricalDataPoint(d.date),
-      }));
-
       if (historicalTargetDataMode) {
-        renderHistoricalData(svg, historicalDataForPeriod, xScale, yScale, marginLeft, marginTop);
+        renderHistoricalData(svg, historicalTimeSeries, xScale, yScale, marginLeft, marginTop);
       }
 
       renderGroundTruthData(svg, groundTruthData, xScale, yScale, marginLeft, marginTop);

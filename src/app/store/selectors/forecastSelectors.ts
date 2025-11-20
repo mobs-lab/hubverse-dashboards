@@ -16,9 +16,11 @@ export const selectLocationMapping = (state: RootState) =>
 export const selectForecastPeriodOptions = (state: RootState) =>
   state.auxiliaryDataStore.forecastPeriodOptions;
 
-export const selectTargetData = (state: RootState) => state.coreDataStore.targetDataCollection;
+// [UPDATED] Selects the root monolithic target data
+export const selectTargetData = (state: RootState) => state.coreDataStore.targetData;
 
-export const selectModelOutput = (state: RootState) => state.coreDataStore.modelOutputCollection;
+// [UPDATED] Selects the root monolithic model output
+export const selectModelOutput = (state: RootState) => state.coreDataStore.modelOutput;
 
 export const selectHistoricalTargetData = (state: RootState) =>
   state.historicalTargetDataStore.data;
@@ -33,7 +35,7 @@ export const selectEvaluationsEnabled = (state: RootState) =>
   state.configStore.config?.evaluationsEnabled ?? false;
 
 export const selectModelNames = (state: RootState) =>
-  state.configStore.config?.models.map((m) => m.modelName) ?? [];
+  Object.keys(state.configStore.config?.modelColorMap ?? {});
 
 export const selectModelColorMap = (state: RootState) =>
   state.configStore.config?.modelColorMap ?? {};
@@ -44,6 +46,17 @@ export const selectPredictionIntervalOptions = (state: RootState) =>
   state.configStore.config?.predictionIntervals ?? [];
 
 export const selectTargets = (state: RootState) => state.configStore.config?.targets ?? [];
+
+export const selectCurrentTarget = createSelector(
+  [selectTargets, (state: RootState) => state.forecastSettings.selectedTargetId],
+  (targets, selectedTargetId) => {
+    return targets.find((t) => t.targetId == selectedTargetId);
+  }
+);
+
+export const selectCurrentTargetDataProcessing = createSelector([selectCurrentTarget], (target) => {
+  return target?.dataValueProcessing ?? null;
+});
 
 export const selectTimeUnit = (state: RootState) => state.configStore.config?.timeUnit ?? 7;
 
@@ -74,12 +87,41 @@ export const selectLocationName = (locationCode: string) =>
 // ============================================
 
 /**
- * Get target data for a specific forecast period
+ * [UPDATED] Smart Lookup: Get target data filtered by a specific forecast period's time range.
+ * This maintains backward compatibility with components that expect data "for a period"
+ * while using the new monolithic data structure.
  */
 export const selectTargetDataForPeriod = (forecastPeriodId: string) =>
-  createSelector([selectTargetData], (targetData): TargetData | undefined => {
-    return targetData[forecastPeriodId];
-  });
+  createSelector(
+    [selectTargetData, selectForecastPeriodOptions],
+    (targetData, periodOptions): TargetData | undefined => {
+      const period = periodOptions[forecastPeriodId];
+      if (!period || !targetData) return undefined;
+
+      // Create a subset of targetData that only falls within period.startDate and period.endDate
+      const subset: TargetData = {};
+
+      Object.entries(targetData).forEach(([location, dateMap]) => {
+        const filteredDateMap: any = {};
+        let hasData = false;
+
+        Object.entries(dateMap).forEach(([dateStr, val]) => {
+          // Simple string comparison for ISO dates often works, but Date object is safer
+          const d = new Date(dateStr);
+          if (d >= period.startDate && d <= period.endDate) {
+            filteredDateMap[dateStr] = val;
+            hasData = true;
+          }
+        });
+
+        if (hasData) {
+          subset[location] = filteredDateMap;
+        }
+      });
+
+      return subset;
+    }
+  );
 
 /**
  * Get target data for a specific location, period, and date range
@@ -87,28 +129,21 @@ export const selectTargetDataForPeriod = (forecastPeriodId: string) =>
 export const selectTargetDataFiltered = createSelector(
   [
     selectTargetData,
-    (state: RootState) => state.forecastSettings.selectedForecastPeriod,
     (state: RootState) => state.forecastSettings.selectedLocationCode,
     (state: RootState) => state.forecastSettings.selectedTargetId,
     (state: RootState) => state.forecastSettings.timeFilterRangeStart,
     (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
   ],
-  (targetData, forecastPeriod, locationCode, selectedTargetId, startDate, endDate) => {
-    if (!forecastPeriod) {
-      console.warn('[selectTargetDataFiltered] No forecastPeriod selected. Returning [].');
+  (targetData, locationCode, selectedTargetId, startDate, endDate) => {
+    if (!targetData) {
+      console.warn('[selectTargetDataFiltered] No target data available. Returning [].');
       return [];
     }
 
-    const periodData = targetData[forecastPeriod.forecastPeriodId];
-    if (!periodData) {
-      console.warn(
-        `[selectTargetDataFiltered] No data found for forecast period: ${forecastPeriod.forecastPeriodId}. Returning [].`
-      );
-      return [];
-    }
-    const periodDataByLocation = periodData[locationCode];
+    // Logic remains valid because targetData is now Map<Location, ...> directly
+    const locationData = targetData[locationCode];
 
-    if (!periodDataByLocation) {
+    if (!locationData) {
       console.warn(
         `[selectTargetDataFiltered] No data found for locationCode: ${locationCode}. Returning [].`
       );
@@ -120,7 +155,7 @@ export const selectTargetDataFiltered = createSelector(
       targetId: string;
       observation: number | null;
     }> = [];
-    Object.entries(periodDataByLocation).forEach(([dateStr, dateData]) => {
+    Object.entries(locationData).forEach(([dateStr, dateData]) => {
       const safeDate = new Date(dateStr + 'T00:00:00Z'); // Treat date string as UTC
       const isDateInRange = safeDate >= startDate && safeDate <= endDate;
       if (isDateInRange) {
@@ -151,7 +186,6 @@ export const selectTargetDataFiltered = createSelector(
 export const selectModelOutputFiltered = createSelector(
   [
     selectModelOutput,
-    (state: RootState) => state.forecastSettings.selectedForecastPeriod,
     (state: RootState) => state.forecastSettings.selectedLocationCode,
     (state: RootState) => state.forecastSettings.selectedModels,
     (state: RootState) => state.forecastSettings.selectedTargetId,
@@ -160,23 +194,14 @@ export const selectModelOutputFiltered = createSelector(
   ],
   (
     modelOutput,
-    forecastPeriod,
     locationCode,
     selectedModels,
     selectedTargetId,
     selectedHorizon,
     userSelectedDate
   ) => {
-    if (!forecastPeriod) {
-      console.warn('[selectModelOutputFiltered] No forecastPeriod selected. Returning {}.');
-      return {};
-    }
-
-    const periodData = modelOutput[forecastPeriod.forecastPeriodId];
-    if (!periodData) {
-      console.warn(
-        `[selectModelOutputFiltered] No data for forecast period: ${forecastPeriod.forecastPeriodId}. Returning {}.`
-      );
+    if (!modelOutput) {
+      console.warn('[selectModelOutputFiltered] No model output data available. Returning {}.');
       return {};
     }
 
@@ -184,7 +209,7 @@ export const selectModelOutputFiltered = createSelector(
     const referenceDateStr = userSelectedDate.toISOString().split('T')[0];
 
     selectedModels.forEach((modelName) => {
-      const modelData = periodData[modelName]?.[locationCode]?.[referenceDateStr];
+      const modelData = modelOutput[modelName]?.[locationCode]?.[referenceDateStr];
       if (modelData?.predictions) {
         const predictionsForModel: any = {};
         Object.entries(modelData.predictions).forEach(([targetDate, prediction]) => {
@@ -237,15 +262,6 @@ export const selectHistoricalDataPoint = createSelector(
     (state: RootState, date: Date) => date, // Pass date as an argument to the selector
   ],
   (historicalData, asOfDate, locationCode, targetId, date) => {
-    console.debug('[selectHistoricalDataPoint] Called with:', {
-      hasHistoricalData: !!historicalData,
-      asOfDate,
-      locationCode,
-      targetId,
-      date: date?.toISOString(),
-      historicalDataKeys: historicalData ? Object.keys(historicalData) : [],
-    });
-
     if (!historicalData || !asOfDate) {
       console.debug('[selectHistoricalDataPoint] Missing data or asOfDate:', {
         hasHistoricalData: !!historicalData,
@@ -256,26 +272,10 @@ export const selectHistoricalDataPoint = createSelector(
 
     const dateStr = date.toISOString().split('T')[0];
     const asOfData = historicalData[asOfDate];
-    
-    console.debug('[selectHistoricalDataPoint] Looking for date:', {
-      dateStr,
-      hasAsOfData: !!asOfData,
-      asOfDataKeys: asOfData ? Object.keys(asOfData).slice(0, 5) : [],
-    });
 
     const dateData = asOfData?.[dateStr];
-    
-    console.debug('[selectHistoricalDataPoint] Date data:', {
-      hasDateData: !!dateData,
-      dateDataKeys: dateData ? Object.keys(dateData) : [],
-    });
 
     const locationData = dateData?.[locationCode];
-
-    console.debug('[selectHistoricalDataPoint] Location data:', {
-      hasLocationData: !!locationData,
-      locationData,
-    });
 
     if (!locationData) {
       console.debug('[selectHistoricalDataPoint] No location data found');
@@ -305,6 +305,50 @@ export const selectHistoricalDataPoint = createSelector(
     const observation = locationData.observation ?? null;
     console.debug('[selectHistoricalDataPoint] Returning observation:', observation);
     return observation;
+  }
+);
+
+/**
+ * Get entire historical time series for the currently selected context
+ * Returns: Array<{ date: Date; observation: number | null }>
+ */
+export const selectHistoricalTimeSeries = createSelector(
+  [
+    selectHistoricalTargetData,
+    (state: RootState) => state.forecastSettings.selectedHistoricalAsOfDate,
+    (state: RootState) => state.forecastSettings.selectedLocationCode,
+    (state: RootState) => state.forecastSettings.selectedTargetId,
+    (state: RootState) => state.forecastSettings.timeFilterRangeStart,
+    (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
+  ],
+  (historicalData, asOfDate, locationCode, targetId, startDate, endDate) => {
+    if (!historicalData || !asOfDate) return [];
+
+    const asOfData = historicalData[asOfDate];
+    if (!asOfData) return [];
+
+    const series: Array<{ date: Date; observation: number | null }> = [];
+
+    // Iterate through all dates in the snapshot
+    Object.entries(asOfData).forEach(([dateStr, dateData]) => {
+      const date = new Date(dateStr + 'T00:00:00Z'); // UTC
+
+      // Filter by time range
+      if (date >= startDate && date <= endDate) {
+        const locationData = dateData[locationCode];
+
+        // Filter by target and existence
+        if (locationData && locationData.target === targetId) {
+          series.push({
+            date,
+            observation: locationData.observation ?? null,
+          });
+        }
+      }
+    });
+    const result = series.sort((a, b) => a.date.getTime() - b.date.getTime());
+    console.debug('DEBUG: final result of historical target data: ', result.slice(0, 10));
+    return result;
   }
 );
 
@@ -354,16 +398,19 @@ export const selectSelectedLocationName = createSelector(
   [selectForecastSettings, selectLocationMapping],
   (forecastSettings, locationMapping): string => {
     let locationCode = forecastSettings.selectedLocationCode;
-    
+
     // Safety: If locationCode is somehow an object (like {"US": "US"}), extract the key
     if (typeof locationCode === 'object' && locationCode !== null) {
-      console.warn('[selectSelectedLocationName] Location code is an object, extracting key:', locationCode);
+      console.warn(
+        '[selectSelectedLocationName] Location code is an object, extracting key:',
+        locationCode
+      );
       locationCode = Object.keys(locationCode)[0];
     }
-    
+
     // Ensure it's a string
     locationCode = String(locationCode || 'US');
-    
+
     return locationMapping[locationCode]?.locationName || locationCode;
   }
 );
