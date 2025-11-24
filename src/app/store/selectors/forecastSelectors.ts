@@ -250,72 +250,13 @@ export const selectHistoricalAsOfDates = createSelector(
 );
 
 /**
- * Get historical target data for a specific as_of date, location, and targets
- * Backend structure: as_of -> date -> location -> {observation, target}
- */
-export const selectHistoricalDataPoint = createSelector(
-  [
-    selectHistoricalTargetData,
-    (state: RootState) => state.forecastSettings.selectedHistoricalAsOfDate,
-    (state: RootState) => state.forecastSettings.selectedLocationCode,
-    (state: RootState) => state.forecastSettings.selectedTargetId,
-    (state: RootState, date: Date) => date, // Pass date as an argument to the selector
-  ],
-  (historicalData, asOfDate, locationCode, targetId, date) => {
-    if (!historicalData || !asOfDate) {
-      console.debug('[selectHistoricalDataPoint] Missing data or asOfDate:', {
-        hasHistoricalData: !!historicalData,
-        asOfDate,
-      });
-      return null;
-    }
-
-    const dateStr = date.toISOString().split('T')[0];
-    const asOfData = historicalData[asOfDate];
-
-    const dateData = asOfData?.[dateStr];
-
-    const locationData = dateData?.[locationCode];
-
-    if (!locationData) {
-      console.debug('[selectHistoricalDataPoint] No location data found');
-      return null;
-    }
-
-    // IMPORTANT: Target field is required in historical data
-    // Check if the target matches the currently selected target
-    if (!locationData.target) {
-      console.warn('[selectHistoricalDataPoint] Historical data missing target field!', {
-        asOfDate,
-        dateStr,
-        locationCode,
-        locationData,
-      });
-      return null;
-    }
-
-    if (locationData.target !== targetId) {
-      console.debug('[selectHistoricalDataPoint] Target mismatch (filtering out):', {
-        expectedTarget: targetId,
-        actualTarget: locationData.target,
-      });
-      return null;
-    }
-
-    const observation = locationData.observation ?? null;
-    console.debug('[selectHistoricalDataPoint] Returning observation:', observation);
-    return observation;
-  }
-);
-
-/**
  * Get entire historical time series for the currently selected context
  * Returns: Array<{ date: Date; observation: number | null }>
  */
 export const selectHistoricalTimeSeries = createSelector(
   [
     selectHistoricalTargetData,
-    (state: RootState) => state.forecastSettings.selectedHistoricalAsOfDate,
+    (state: RootState) => state.forecastSettings.userSelectedDate,
     (state: RootState) => state.forecastSettings.selectedLocationCode,
     (state: RootState) => state.forecastSettings.selectedTargetId,
     (state: RootState) => state.forecastSettings.timeFilterRangeStart,
@@ -324,7 +265,9 @@ export const selectHistoricalTimeSeries = createSelector(
   (historicalData, asOfDate, locationCode, targetId, startDate, endDate) => {
     if (!historicalData || !asOfDate) return [];
 
-    const asOfData = historicalData[asOfDate];
+    const asOfDateISO = asOfDate.toISOString().split('T')[0];
+    const asOfData = historicalData[asOfDateISO];
+
     if (!asOfData) return [];
 
     const series: Array<{ date: Date; observation: number | null }> = [];
@@ -337,17 +280,16 @@ export const selectHistoricalTimeSeries = createSelector(
       if (date >= startDate && date <= endDate) {
         const locationData = dateData[locationCode];
 
-        // Filter by target and existence
-        if (locationData && locationData.target === targetId) {
+        if (locationData && locationData[targetId]) {
           series.push({
             date,
-            observation: locationData.observation ?? null,
+            observation: locationData[targetId].observation ?? null,
           });
         }
       }
     });
     const result = series.sort((a, b) => a.date.getTime() - b.date.getTime());
-    console.debug('DEBUG: final result of historical target data: ', result.slice(0, 10));
+    console.debug('selectHistoricalTimeSeries', result);
     return result;
   }
 );

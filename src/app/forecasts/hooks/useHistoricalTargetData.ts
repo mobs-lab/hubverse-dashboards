@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { updateSelectedHistoricalAsOfDate } from '@/store/data-slices/settings/SettingsSliceForecastPage';
 import { selectHistoricalAsOfDates } from '@/store/selectors';
 import { useDataContext } from '@/providers/DataProvider';
 
@@ -15,7 +14,7 @@ import { useDataContext } from '@/providers/DataProvider';
 export const useHistoricalTargetData = () => {
   const dispatch = useAppDispatch();
   const { loadHistoricalDataIfNeeded, loadingStates } = useDataContext();
-  
+
   // Ref to track if we've attempted to load to prevent infinite retries on failure
   const hasAttemptedLoadRef = useRef(false);
 
@@ -27,7 +26,7 @@ export const useHistoricalTargetData = () => {
     (state) => state.historicalTargetDataStore.isLoaded
   );
   const selectedHistoricalAsOfDate = useAppSelector(
-    (state) => state.forecastSettings.selectedHistoricalAsOfDate
+    (state) => state.forecastSettings.userSelectedDate
   );
   const userSelectedDate = useAppSelector((state) => state.forecastSettings.userSelectedDate);
   const availableAsOfDates = useAppSelector(selectHistoricalAsOfDates);
@@ -47,9 +46,9 @@ export const useHistoricalTargetData = () => {
     // 3. We haven't already attempted to load (prevents infinite loop on 404/failure)
     // 4. It is not currently loading (checked via loadingStates)
     if (
-      historicalDataMode && 
-      !isHistoricalDataLoaded && 
-      !hasAttemptedLoadRef.current && 
+      historicalDataMode &&
+      !isHistoricalDataLoaded &&
+      !hasAttemptedLoadRef.current &&
       !loadingStates.historicalTargetData
     ) {
       console.debug('[useHistoricalTargetData] Loading historical data...');
@@ -57,36 +56,10 @@ export const useHistoricalTargetData = () => {
       loadHistoricalDataIfNeeded();
     }
   }, [
-    historicalDataMode, 
-    isHistoricalDataLoaded, 
-    loadHistoricalDataIfNeeded, 
-    loadingStates.historicalTargetData
-  ]);
-
-  // useEffect 2: Sync selectedHistoricalAsOfDate with userSelectedDate
-  // This ensures historical data shows what was known AS OF the selected reference date
-  useEffect(() => {
-    if (isHistoricalDataLoaded && historicalDataMode && availableAsOfDates.length > 0) {
-      const userSelectedDateISO = userSelectedDate.toISOString().split('T')[0];
-
-      // Find the matching or most recent as_of date <= userSelectedDate
-      // availableAsOfDates is sorted descending (most recent first)
-      // Should always be the same date, but for safety still search
-      const matchingAsOfDate = availableAsOfDates.find(
-        (asOfDate) => asOfDate <= userSelectedDateISO
-      );
-
-      if (matchingAsOfDate && matchingAsOfDate !== selectedHistoricalAsOfDate) {
-        dispatch(updateSelectedHistoricalAsOfDate(matchingAsOfDate));
-      }
-    }
-  }, [
-    isHistoricalDataLoaded,
     historicalDataMode,
-    userSelectedDate,
-    selectedHistoricalAsOfDate,
-    availableAsOfDates,
-    dispatch,
+    isHistoricalDataLoaded,
+    loadHistoricalDataIfNeeded,
+    loadingStates.historicalTargetData,
   ]);
 
   return {

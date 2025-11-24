@@ -474,19 +474,24 @@ class DataProcessor:
                     # IMPORTANT: Add target field - required for multi-target scenarios
                     # Map raw target key to target_id for consistency with config
 
+                    target_id = "default"
                     if "target" in row and pd.notna(row["target"]):
                         raw_target_key = str(row["target"])
                         target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
 
                         # Apply scaling for target data
                         dvp_config = self.target_id_to_dvp_config.get(target_id)
-                        if dvp_config and "observation" in data_entry and data_entry["observation"] is not None:
+                        if dvp_config and "observation" in data_entry and data_entry["observation"] is not None and data_entry["observation"] != -1:
                             scaling_factor = dvp_config.scaling_factor.target_data
                             data_entry["observation"] *= scaling_factor
 
                         data_entry["target"] = target_id
 
-                    location_map[location_key] = data_entry
+                    # Use nested structure: location -> target -> data
+                    if location_key not in location_map:
+                        location_map[location_key] = {}
+                    
+                    location_map[location_key][target_id] = data_entry
 
                 date_map[date_iso] = location_map
 
@@ -521,16 +526,35 @@ class DataProcessor:
         else:
             all_locations = ["US"]  # Default single location
 
-        # Create complete grid of dates x locations
-        complete_grid = pd.MultiIndex.from_product([date_range, all_locations], names=["date", "location"])
-        complete_df = pd.DataFrame(index=complete_grid).reset_index()
+        # Handle targets for grid generation to ensure placeholders have correct target IDs
+        targets = self.config.targets or []
+        target_keys = [t.target_key_in_data for t in targets] if targets else []
+        
+        complete_df = None
+        merge_cols = []
+
+        # Create complete grid
+        # If the dataframe has a 'target' column, we must include it in the grid
+        # to ensure we generate placeholders for all targets
+        if "target" in target_data_df.columns and target_keys:
+             # Create complete grid of dates x locations x targets
+             complete_grid = pd.MultiIndex.from_product(
+                [date_range, all_locations, target_keys], 
+                names=["date", "location", "target"]
+            )
+             complete_df = pd.DataFrame(index=complete_grid).reset_index()
+             merge_cols = ["date", "location", "target"]
+        elif "location" in target_data_df.columns:
+             # Existing logic for date x location
+             complete_grid = pd.MultiIndex.from_product([date_range, all_locations], names=["date", "location"])
+             complete_df = pd.DataFrame(index=complete_grid).reset_index()
+             merge_cols = ["date", "location"]
+        else:
+             # Just date
+             complete_df = pd.DataFrame({"date": date_range})
+             merge_cols = ["date"]
 
         # Merge with existing target data
-        merge_cols = ["date", "location"] if "location" in target_data_df.columns else ["date"]
-        if "location" not in target_data_df.columns:
-            complete_df = pd.DataFrame({"date": date_range})
-            merge_cols = ["date"]
-
         fixed_df = pd.merge(complete_df, target_data_df, on=merge_cols, how="left")
 
         # Fill missing observation values with -1 (indicating no data)
@@ -892,7 +916,7 @@ class DataProcessor:
             date_iso = pd.to_datetime(row["date"]).strftime("%Y-%m-%d")
 
             data_entry = {
-                "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= 0 else None,
+                "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= -1 else None,
             }
 
             if "location_name" in row and pd.notna(row["location_name"]):
@@ -903,7 +927,7 @@ class DataProcessor:
 
             # Apply scaling
             dvp_config = self.target_id_to_dvp_config.get(target_id)
-            if dvp_config and data_entry["observation"] is not None:
+            if dvp_config and data_entry["observation"] is not None and data_entry["observation"] != -1:
                 scaling_factor = dvp_config.scaling_factor.target_data
                 data_entry["observation"] *= scaling_factor
 
