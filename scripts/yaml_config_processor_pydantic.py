@@ -39,15 +39,15 @@ class ForecastPeriodConfig(BaseModel):
         pattern=r"^[a-zA-Z0-9_-]+$",
         examples=["season-2024-2025", "round-1"],
     )
-    start_date: datetime = Field(..., description="Start date of forecast period (ISO format)")
-    end_date: datetime = Field(..., description="End date of forecast period (ISO format)")
-    display_string: str = Field(..., description="Human-readable name shown in dashboard", min_length=1, max_length=100)
-    is_default_selected: bool = Field(default=False, description="Whether this period is selected by default (only one allowed)")
+    start_date: datetime = Field(..., description="The inclusive start date of the forecast period (ISO format).")
+    end_date: datetime = Field(..., description="The inclusive end date of the forecast period (ISO format).")
+    display_string: str = Field(..., description="Human-readable name shown in the dashboard's period selector.", min_length=1, max_length=100)
+    is_default_selected: bool = Field(default=False, description="If true, this period will be selected by default when the dashboard loads. Only one period can be the default.")
 
     @field_validator("end_date")
     @classmethod
     def end_after_start(cls, v: datetime, info) -> datetime:
-        """Validate end_date is after start_date"""
+        """Validates that the period end date occurs after the start date."""
         if "start_date" in info.data and v <= info.data["start_date"]:
             raise ValueError("end_date must be after start_date")
         return v
@@ -97,25 +97,32 @@ class DataValueProcessingConfig(BaseModel):
 
 
 class TargetConfig(BaseModel):
-    """Configuration for a forecasting target/task"""
+    """
+    Configuration for a forecasting target.
+    Each target represents a distinct outcome you are predicting, such as 'COVID-19 Admissions' or 'Flu-related ED Visits'.
+    """
 
     target_id: str = Field(..., description="Unique identifier for this target", pattern=r"^[a-zA-Z0-9_-]+$")
-    task_display_string: str = Field(..., description="Display name in dashboard", min_length=1)
-    target_key_in_data: str = Field(..., description="Key to match in target/output_type column")
-    for_forecast_periods: Optional[List[str]] = Field(default=None, description="Forecast period IDs to use (null = all periods)")
-    is_default_selected: bool = Field(default=False, description="Whether this target is selected by default (only one allowed)")
+    task_display_string: str = Field(..., description="Display name for this target in the dashboard UI.", min_length=1)
+    target_key_in_data: str = Field(..., description="The exact string identifier for this target as it appears in the 'target' column of your data files.", examples=["wk inc covid hosp", "wk flu hosp"])
+    for_forecast_periods: Optional[List[str]] = Field(default=None, description="If specified, this target will only be available for the listed forecast period IDs. If null, it is available for all periods.")
+    is_default_selected: bool = Field(default=False, description="If true, this target will be selected by default. Only one target can be the default.")
     data_value_processing: Optional[DataValueProcessingConfig] = Field(default_factory=DataValueProcessingConfig)
 
 
 class PredictionIntervalConfig(BaseModel):
-    """Configuration for a prediction interval"""
+    """
+    Configuration for a single prediction interval.
+    This defines the shaded confidence interval regions around the median prediction line in the forecast chart.
+    """
 
-    level: int = Field(..., ge=1, le=99, description="Prediction interval level (1-99)")
+    level: int = Field(..., ge=1, le=99, description="The prediction interval level (e.g., 50, 90, 95). This is the value shown to the user.")
     uses_output_type_ids: List[str] = Field(
         ...,
-        description="Quantile values for lower and upper bounds",
+        description="A pair of quantile values [lower, upper] that define the bounds of the interval.",
         min_length=2,
         max_length=2,
+        examples=[["0.05", "0.95"], ["0.25", "0.75"]]
     )
 
     @field_validator("uses_output_type_ids", mode="after")
@@ -158,27 +165,27 @@ class SpatialDataConfig(BaseModel):
 
 
 class TargetDataHeaderMapping(BaseModel):
-    """Column name mappings for target data"""
+    """Column name mappings for your ground truth (target) data file."""
 
-    date_col_name: str = Field(default="date")
-    observation_col_name: str = Field(default="observation")
-    location_col_name: str = Field(default="location")
-    location_name_col_name: Optional[str] = Field(default="location_name")
-    target_col_name: Optional[str] = Field(default="target")
-    as_of_col_name: Optional[str] = Field(default=None)
+    date_col_name: str = Field(default="date", description="Column containing the date of the observation.")
+    observation_col_name: str = Field(default="observation", description="Column containing the observed numerical value. Missing values will be filled with -1.")
+    location_col_name: str = Field(default="location", description="Column containing the location code (e.g., 'US', '01'). Required for multi-location dashboards.")
+    location_name_col_name: Optional[str] = Field(default="location_name", description="Column containing the human-readable location name (e.g., 'Massachusetts', 'Washington').")
+    target_col_name: Optional[str] = Field(default="target", description="Column containing the target identifier (e.g., 'wk inc covid hosp'). Required for multi-target dashboards.")
+    as_of_col_name: Optional[str] = Field(default=None, description="If provided, enables historical data versioning. This column should contain the date the data was reported.")
 
 
 class ModelOutputHeaderMapping(BaseModel):
-    """Column name mappings for model output data"""
+    """Column name mappings for your model output files."""
 
-    reference_date_col_name: str = Field(default="reference_date")
-    target_end_date_col_name: str = Field(default="target_end_date")
-    target_col_name: str = Field(default="target")
-    horizon_col_name: str = Field(default="horizon")
-    location_col_name: str = Field(default="location")
-    output_type_col_name: str = Field(default="output_type")
-    output_type_id_col_name: str = Field(default="output_type_id")
-    value_col_name: str = Field(default="value")
+    reference_date_col_name: str = Field(default="reference_date", description="Column containing the date when the forecast was made.")
+    target_end_date_col_name: str = Field(default="target_end_date", description="Column containing the date that is being forecasted.")
+    target_col_name: str = Field(default="target", description="Column containing the target identifier being predicted.")
+    horizon_col_name: str = Field(default="horizon", description="Column containing the forecast horizon value (in units of `time_unit`).")
+    location_col_name: str = Field(default="location", description="Column containing the location code.")
+    output_type_col_name: str = Field(default="output_type", description="Column identifying the prediction type. Must contain 'quantile'.")
+    output_type_id_col_name: str = Field(default="output_type_id", description="Column containing the quantile level for 'quantile' rows (e.g., 0.05, 0.5, 0.95).")
+    value_col_name: str = Field(default="value", description="Column containing the predicted numerical value.")
 
 
 class InfoButtonContent(BaseModel):
@@ -253,7 +260,7 @@ class DashboardConfig(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="ignore")
 
     # Data Source
-    link_to_hubverse_compatible_data: Optional[str] = Field(default=None, description="Set to null for local data")
+    link_to_hubverse_compatible_data: Optional[str] = Field(default=None, description="URL to a remote, Hubverse-compatible data repository on GitHub. Set to null for local data.")
     target_data_link: Optional[HttpUrl] = None
     model_output_link: Optional[HttpUrl] = None
 
@@ -268,7 +275,7 @@ class DashboardConfig(BaseModel):
 
     # Target Configuration
     targets: List[TargetConfig]
-    time_unit: int = Field(..., ge=1, le=365, description="Time unit in days (typically 1 or 7)")
+    time_unit: int = Field(..., ge=1, le=365, description="The time unit in days between forecast points. This is crucial for calculating forecast horizons correctly.")
 
     # Target Data Configuration
     target_data_file_format: Literal["csv", "parquet"] = Field(default="csv")
@@ -288,10 +295,10 @@ class DashboardConfig(BaseModel):
 
     # Evaluation Configuration
     evaluations_prediction_intervals: Optional[List[PredictionIntervalConfig]] = None
-    baseline_model_for_relative_WIS: str
+    baseline_model_for_relative_WIS: str = Field(..., description="The model ID to use as a baseline for calculating Relative WIS. This model acts as a benchmark for performance comparison.")
 
     # Default Selections
-    default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(default=None, description="Default location code or dict mapping")
+    default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(default=None, description="Default location to display when the dashboard loads. Can be a location code string or a code-name dictionary.")
     default_selected_prediction_intervals: Optional[List[str]] = Field(default=None, description="Default prediction interval levels")
     default_selected_horizon: Optional[int] = Field(default=None, description="Default horizon value")
     default_selected_prediction_intervals_for_evaluations: Optional[List[str]] = Field(
@@ -307,7 +314,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_single_location_requires_mapping(self):
-        """Ensure single_location_mapping provided when in single-location mode"""
+        """Ensures `single_location_mapping` is provided when in single-location mode."""
         if self.is_single_location_forecast and not self.single_location_mapping:
             raise ValueError("single_location_mapping is REQUIRED when is_single_location_forecast is True")
         return self
@@ -321,7 +328,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_single_file_name_required(self):
-        """Ensure single_target_data_file_name provided when needed"""
+        """Ensures `single_target_data_file_name` is provided for CSV or non-partitioned Parquet data."""
         if self.target_data_file_format in ["csv", "parquet"]:
             if not self.parquet_partitioned_by_as_of:
                 if not self.single_target_data_file_name:
@@ -330,7 +337,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_only_one_default_period(self):
-        """Ensure only one forecast period is default"""
+        """Ensures that only one forecast period has `is_default_selected` set to true."""
         default_count = sum(1 for period in self.forecast_periods if period.is_default_selected)
         if default_count > 1:
             raise ValueError(f"Only one forecast period can be default, found {default_count}")
@@ -338,7 +345,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_only_one_default_target(self):
-        """Ensure only one target is default"""
+        """Ensures that only one target has `is_default_selected` set to true."""
         default_targets = [t.target_id for t in self.targets if t.is_default_selected]
         if len(default_targets) > 1:
             raise ValueError(f"Only one target can be default. Found: {', '.join(default_targets)}")
@@ -346,7 +353,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def assign_model_colors(self):
-        """Assign colors to models that don't have one"""
+        """Assigns unique colors from a default palette to any models that do not have a `color_hex` specified."""
         default_palette = [
             "#9ceb94",
             "#3fc49e",
@@ -383,7 +390,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_baseline_in_models(self):
-        """Warn if baseline model not in available_models"""
+        """Warns the user if the specified baseline model is not in the list of available models."""
         model_names = [m.model_name for m in self.available_models]
         if self.baseline_model_for_relative_WIS not in model_names:
             logger.warning(f"Baseline model '{self.baseline_model_for_relative_WIS}' not in available_models: {model_names}")
@@ -391,7 +398,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_special_periods_anchor(self):
-        """Ensure special period anchors reference valid periods"""
+        """Ensures that special period anchors reference valid, defined forecast periods."""
         if not self.special_forecast_periods:
             return self
 
@@ -404,14 +411,14 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def set_evaluation_intervals_default(self):
-        """Set evaluation intervals to prediction intervals if not provided"""
+        """Sets `evaluations_prediction_intervals` to match `prediction_intervals` if it's not explicitly provided."""
         if not self.evaluations_prediction_intervals:
             self.evaluations_prediction_intervals = self.prediction_intervals
         return self
 
     @model_validator(mode="after")
     def validate_default_selections(self):
-        """Validate default selection values"""
+        """Validates that the default selections for PIs and horizons exist in the available options."""
         # Validate default prediction intervals
         if self.default_selected_prediction_intervals:
             available_levels = {str(pi.level) for pi in self.prediction_intervals}

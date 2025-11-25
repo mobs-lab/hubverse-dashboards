@@ -35,12 +35,36 @@ class NpEncoder(json.JSONEncoder):
 
 
 class DataProcessor:
+    """
+    Main data processing class handling the entire pipeline from ingestion to export.
+
+    This class coordinates the loading, validation, transformation, and export of:
+    1.  Target data (ground truth)
+    2.  Model output data (forecasts)
+    3.  Evaluation metrics (if enabled)
+    4.  Metadata generation for the frontend
+
+    Attributes:
+        config (DashboardConfig): The validated configuration object.
+        dev_mode (bool): Whether to use test data input/output directories.
+        skip_evaluations (bool): Whether to skip the evaluation metrics calculation step.
+        processing_stats (dict): Dictionary tracking statistics of the current run.
+    """
+
     def __init__(
         self,
         config: DashboardConfig,
         dev_mode: bool = False,
         skip_evaluations: bool = False,
     ):
+        """
+        Initialize the DataProcessor.
+
+        Args:
+            config (DashboardConfig): The validated Pydantic configuration object.
+            dev_mode (bool, optional): If True, reads from ``test-data-input/``. Defaults to False.
+            skip_evaluations (bool, optional): If True, skips calculating WIS/Coverage. Defaults to False.
+        """
         self.config = config
         self.project_root = Path(__file__).parent.parent
         self.dev_mode = dev_mode
@@ -89,7 +113,20 @@ class DataProcessor:
             self.output_base_path = self.project_root / "public" / "data"
 
     def run(self):
-        """Main entry point to run the data processing pipeline."""
+        """
+        Executes the full data processing pipeline.
+
+        Steps:
+        1.  **Ingestion**: Loads target data and model output data.
+        2.  **Preprocessing**: Fixes missing time intervals in target data.
+        3.  **Discovery**: Detects locations present in the data.
+        4.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
+        5.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
+        6.  **Export**: Writes all processed data to JSON files in the public directory.
+
+        Returns:
+            bool: True if the pipeline completes successfully.
+        """
         logger.info("Starting data processing...")
 
         # 2: Data Ingestion
@@ -139,7 +176,22 @@ class DataProcessor:
         return True  # Indicate success
 
     def _load_target_data(self) -> pd.DataFrame:
-        """Loads and prepares the target data."""
+        """
+        Loads and standardizes the ground truth (target) data.
+
+        Handles both CSV and Parquet formats (partitioned or single file) as specified
+        in :attr:`~yaml_config_processor_pydantic.DashboardConfig.target_data_file_format`.
+
+        Applies column renaming based on :attr:`~yaml_config_processor_pydantic.TargetDataHeaderMapping`.
+
+        Returns:
+            pd.DataFrame: A standardized DataFrame with columns: ``date``, ``observation``,
+            ``location``, ``target``, and optionally ``as_of``.
+
+        Raises:
+            FileNotFoundError: If the specified file does not exist.
+            ValueError: If required columns are missing.
+        """
         logger.info("Loading target data...")
         logger.info(f"  → Looking in: {self.target_data_path}")
         file_format = self.config.target_data_file_format
@@ -248,9 +300,13 @@ class DataProcessor:
 
     def _load_partitioned_parquet(self) -> pd.DataFrame:
         """
-        Load partitioned parquet files where each subdirectory represents an as_of date.
+        Loads partitioned parquet files where each subdirectory represents an ``as_of`` date.
+
+        This is typically used for historical data versioning, allowing the dashboard
+        to show what the data looked like at a specific point in time.
+
         Returns:
-            Combined DataFrame with as_of column added
+            pd.DataFrame: Combined DataFrame with an added ``as_of`` column extracted from the directory name.
         """
         import re
         from datetime import datetime
@@ -328,7 +384,20 @@ class DataProcessor:
         return combined_df
 
     def _load_model_output_data(self) -> pd.DataFrame:
-        """Loads and prepares all model output data."""
+        """
+        Loads and prepares all model output data from the ``model-output`` directory.
+
+        It iterates through each model subdirectory specified in :attr:`~yaml_config_processor_pydantic.DashboardConfig.available_models`.
+        
+        The data is:
+        1.  Loaded from CSVs.
+        2.  Renamed according to :attr:`~yaml_config_processor_pydantic.ModelOutputHeaderMapping`.
+        3.  Calculated for ``horizon`` if missing.
+        4.  Pivoted if it contains quantile data (converting long format to wide).
+
+        Returns:
+            pd.DataFrame: A unified DataFrame containing predictions from all models.
+        """
         logger.info("Loading model output data...")
         logger.info(f"  → Looking in: {self.model_output_path}")
         all_model_dfs = []
@@ -400,7 +469,18 @@ class DataProcessor:
         return df
 
     def _pivot_quantiles(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Pivots the long-format quantile data into a wide format."""
+        """
+        Pivots the long-format quantile data into a wide format where each quantile level
+        becomes its own column.
+        
+        This is necessary for the frontend to easily map prediction intervals.
+
+        Args:
+            df (pd.DataFrame): The raw long-format model output DataFrame.
+
+        Returns:
+            pd.DataFrame: Wide-format DataFrame.
+        """
 
         quantile_rows = df[df["output_type"] == "quantile"].copy()
         other_rows = df[df["output_type"] != "quantile"]
@@ -439,8 +519,17 @@ class DataProcessor:
 
     def _process_historical_target_data(self, df: pd.DataFrame) -> dict:
         """
-        Process historical target data into nested dictionary structure.
-        Returns: Map<as_of_date, Map<date, Map<location, data>>>
+        Process historical target data into a nested dictionary structure.
+        
+        Structure: ``Map<as_of_date, Map<date, Map<location, data>>>``
+
+        This allows the frontend to quickly look up "what we knew" at any given point in time.
+
+        Args:
+            df (pd.DataFrame): The raw DataFrame with 'as_of' column.
+
+        Returns:
+            dict: The nested dictionary structure.
         """
         historical_data = {}
 
@@ -501,8 +590,18 @@ class DataProcessor:
 
     def _fix_missing_time_intervals(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Fills in missing time intervals in target data based on time_unit.
-        Instead of hard-coding Saturdays, uses the configured time_unit to generate appropriate intervals.
+        Fills in missing time intervals in target data to ensure a complete time series.
+        
+        This prevents gaps in the chart visualizations. It generates a complete grid of
+        dates (based on :attr:`~yaml_config_processor_pydantic.DashboardConfig.time_unit`)
+        for all locations and targets, filling missing observations with -1.
+
+        Args:
+            target_data_df (pd.DataFrame): The raw target data.
+            model_output_df (pd.DataFrame): The model output data (used to determine the full date range).
+
+        Returns:
+            pd.DataFrame: A DataFrame with continuous date ranges for every location/target.
         """
         logger.info("Fixing missing time intervals in target data...")
 
@@ -566,11 +665,27 @@ class DataProcessor:
 
     def _detect_locations(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> list:
         """
-        Detects all unique locations with proper precedence:
-        1. Custom location mapping file (if provided)
-        2. Locations from target-data (with names from mapping)
-        3. Locations from model-output (with names from mapping)
-        4. Default US FIPS mapping
+        Detects all unique locations from the provided data and configuration.
+
+        This method implements a specific precedence logic to ensure the most accurate
+        location names are displayed.
+
+        The precedence order is:
+        1.  **Custom Mapping File**: If ``custom_location_mapping_file_name`` is provided in config,
+            ONLY these locations are used.
+        2.  **Target Data**: Locations found in ``target_data_df``. If a ``location_name`` column exists,
+            those names are used.
+        3.  **Model Output**: Additional locations found in ``model_output_df`` that weren't in target data.
+        4.  **Default Fallback**: Uses the built-in US FIPS code mapping (e.g., "01" -> "Alabama").
+
+        Args:
+            target_data_df (pd.DataFrame): The loaded ground truth data.
+            model_output_df (pd.DataFrame): The loaded model predictions data.
+
+        Returns:
+            list: A list of dictionaries, where each dictionary contains:
+                - ``location`` (str): The location code (e.g., "US", "06").
+                - ``location_name`` (str): The human-readable name.
         """
         logger.info("Detecting locations from data...")
 
@@ -679,7 +794,23 @@ class DataProcessor:
         model_output_df: pd.DataFrame,
         target_data_df: pd.DataFrame,
     ) -> dict:
-        """Generates metadata for the frontend."""
+        """
+        Generates the metadata dictionary required by the frontend application.
+
+        This dictionary serves as the "handshake" between Python and React, containing:
+        -   All configuration options (UI, spatial, temporal).
+        -   Detected data ranges (min/max dates).
+        -   Available models and targets.
+        -   Feature flags.
+
+        Args:
+            locations_info (list): The list of detected locations.
+            model_output_df (pd.DataFrame): The full model output data.
+            target_data_df (pd.DataFrame): The full target data.
+
+        Returns:
+            dict: The complete metadata object serialized to JSON later.
+        """
         logger.info("Generating metadata...")
 
         # Get the date range
@@ -904,8 +1035,17 @@ class DataProcessor:
 
     def _process_target_data(self, target_data_df: pd.DataFrame) -> dict:
         """
-        Structure all ground truth (target) data.
-        Returns: Map<location, Map<date, Map<target, data>>>
+        Transforms ground truth data into a nested dictionary structure optimized for frontend lookup.
+
+        Structure: ``Map<location, Map<date, Map<target, data>>>``
+
+        Applies configured scaling factors to the values.
+
+        Args:
+            target_data_df (pd.DataFrame): The standardized target data DataFrame.
+
+        Returns:
+            dict: The processed nested dictionary.
         """
         logger.info("Processing all ground truth data...")
         processed_data = {}
@@ -944,8 +1084,21 @@ class DataProcessor:
 
     def _process_model_output_data(self, model_output_df: pd.DataFrame) -> dict:
         """
-        Structure all model predictions output.
-        Returns: Map<model, Map<location, Map<reference_date, Map<target_date, predictions>>>>>
+        Transforms model predictions into a highly nested dictionary structure for the frontend.
+
+        Structure: ``Map<model, Map<location, Map<reference_date, Map<target_date, predictions>>>>``
+
+        Each prediction entry includes:
+        -   ``horizon``
+        -   ``targetId``
+        -   ``value_median``
+        -   ``prediction_intervals`` (nested by level)
+
+        Args:
+            model_output_df (pd.DataFrame): The standardized model output DataFrame (long or wide).
+
+        Returns:
+            dict: The nested dictionary structure.
         """
         logger.info("Processing all predictions data...")
         processed_data = {}
@@ -1010,8 +1163,17 @@ class DataProcessor:
 
     def _process_evaluations_by_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
-        Calculate evaluation metrics for each forecast period.
-        Returns: Map<period_id, Map<metric_type, DataFrame>>
+        Calculates evaluation metrics (WIS, Coverage) for each defined forecast period.
+
+        It filters the data for the specific time range of each period and invokes
+        the :class:`EvaluationProcessor` to compute the metrics.
+
+        Args:
+            target_data_df (pd.DataFrame): The full target data.
+            model_output_df (pd.DataFrame): The full model output data.
+
+        Returns:
+            dict: A map of ``period_id`` to evaluation result DataFrames/dictionaries.
         """
         logger.info("Processing evaluations by forecast periods...")
         evaluations_by_period = {}
@@ -1078,7 +1240,21 @@ class DataProcessor:
         metadata: dict,
         evaluations_by_period: dict = None,
     ):
-        """Write all processed data to a single JSON files."""
+        """
+        Writes all processed data to JSON files in the public output directory.
+
+        Files generated:
+        -   ``metadata.json``
+        -   ``targetData.json``
+        -   ``modelOutputData.json``
+        -   ``historical-target-data.json`` (optional)
+
+        Args:
+            target_data (dict): Processed target data.
+            model_output_data (dict): Processed model output data.
+            metadata (dict): Metadata object.
+            evaluations_by_period (dict, optional): Evaluation results. Defaults to None.
+        """
         logger.info("Writing unified output files...")
         logger.info(f"  → Output directory: {self.output_base_path}")
 
@@ -1236,9 +1412,9 @@ def process_data(config: DashboardConfig, dev_mode: bool = False, skip_evaluatio
     This will be called by the main workflow orchestrator.
 
     Args:
-        config: DashboardConfig object with all settings
-        dev_mode: If True, use test-data-input/ directory
-        skip_evaluations: If True, skip evaluation metrics calculation
+        config (DashboardConfig): DashboardConfig object with all settings
+        dev_mode (bool): If True, use test-data-input/ directory
+        skip_evaluations (bool): If True, skip evaluation metrics calculation
     """
     try:
         processor = DataProcessor(config, dev_mode=dev_mode, skip_evaluations=skip_evaluations)
