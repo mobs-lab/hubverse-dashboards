@@ -539,7 +539,30 @@ const ForecastChart: React.FC = () => {
             if (!color) return;
             color.opacity = opacity;
 
-            if (pastPathData.length > 0) {
+            // Helper: Draw a vertical capsule for isolated points
+            // This is critical for the "Negative Horizon" case (e.g., Horizon -1) where 
+            // the data chain might terminate without connecting to a 'zero' or 'future' point.
+            const drawIsolatedInterval = (dataPoint: any, className: string) => {
+              const interval = dataPoint.prediction_intervals?.[level];
+              if (!interval) return;
+
+              svg
+                .append('line')
+                .attr('class', className)
+                .attr('x1', xScale(new Date(dataPoint.targetEndDate)))
+                .attr('x2', xScale(new Date(dataPoint.targetEndDate)))
+                .attr('y1', yScale(interval.pi_value_low))
+                .attr('y2', yScale(interval.pi_value_high))
+                .attr('stroke', color.toString())
+                .attr('stroke-width', 6) // Visible width for the interval
+                .attr('stroke-linecap', 'round') // Rounded caps for better UI
+                .style('opacity', opacity)
+                .attr('transform', `translate(${marginLeft}, ${marginTop})`)
+                .attr('pointer-events', 'none');
+            };
+
+            // Render Past PIs
+            if (pastPathData.length > 1) {
               svg
                 .append('path')
                 .datum(pastPathData)
@@ -548,9 +571,14 @@ const ForecastChart: React.FC = () => {
                 .attr('d', area)
                 .attr('transform', `translate(${marginLeft}, ${marginTop})`)
                 .attr('pointer-events', 'none');
+            } else if (pastPathData.length === 1) {
+              // Ensure when only -1 horizon is available so no possible area, we draw a line indicating where intervals are at
+              drawIsolatedInterval(pastPathData[0], 'confidence-area-past-single');
             }
 
-            if (futurePathData.length > 0) {
+            // Render Future PIs
+            // Standard rendering for 0 and positive horizons
+            if (futurePathData.length > 1) {
               svg
                 .append('path')
                 .datum(futurePathData)
@@ -559,6 +587,9 @@ const ForecastChart: React.FC = () => {
                 .attr('d', area)
                 .attr('transform', `translate(${marginLeft}, ${marginTop})`)
                 .attr('pointer-events', 'none');
+            } else if (futurePathData.length === 1) {
+              // Fallback for single-point future data (e.g. only Horizon 0 exists)
+              drawIsolatedInterval(futurePathData[0], 'confidence-area-future-single');
             }
           });
         }
