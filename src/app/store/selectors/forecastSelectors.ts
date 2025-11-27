@@ -16,10 +16,8 @@ export const selectLocationMapping = (state: RootState) =>
 export const selectForecastPeriodOptions = (state: RootState) =>
   state.auxiliaryDataStore.forecastPeriodOptions;
 
-// [UPDATED] Selects the root monolithic target data
 export const selectTargetData = (state: RootState) => state.coreDataStore.targetData;
 
-// [UPDATED] Selects the root monolithic model output
 export const selectModelOutput = (state: RootState) => state.coreDataStore.modelOutput;
 
 export const selectHistoricalTargetData = (state: RootState) =>
@@ -85,43 +83,6 @@ export const selectLocationName = (locationCode: string) =>
 // ============================================
 // Target Data Selectors
 // ============================================
-
-/**
- * [UPDATED] Smart Lookup: Get target data filtered by a specific forecast period's time range.
- * This maintains backward compatibility with components that expect data "for a period"
- * while using the new monolithic data structure.
- */
-export const selectTargetDataForPeriod = (forecastPeriodId: string) =>
-  createSelector(
-    [selectTargetData, selectForecastPeriodOptions],
-    (targetData, periodOptions): TargetData | undefined => {
-      const period = periodOptions[forecastPeriodId];
-      if (!period || !targetData) return undefined;
-
-      // Create a subset of targetData that only falls within period.startDate and period.endDate
-      const subset: TargetData = {};
-
-      Object.entries(targetData).forEach(([location, dateMap]) => {
-        const filteredDateMap: any = {};
-        let hasData = false;
-
-        Object.entries(dateMap).forEach(([dateStr, val]) => {
-          // Simple string comparison for ISO dates often works, but Date object is safer
-          const d = new Date(dateStr);
-          if (d >= period.startDate && d <= period.endDate) {
-            filteredDateMap[dateStr] = val;
-            hasData = true;
-          }
-        });
-
-        if (hasData) {
-          subset[location] = filteredDateMap;
-        }
-      });
-
-      return subset;
-    }
-  );
 
 /**
  * Get target data for a specific location, period, and date range

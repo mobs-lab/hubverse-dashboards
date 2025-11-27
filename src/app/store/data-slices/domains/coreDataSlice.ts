@@ -6,7 +6,6 @@ import {
 
 interface CoreDataState {
   isLoaded: boolean;
-  // [REMOVED] loadedForecastPeriods - no longer tracking individual period loading
 
   // New simplified structure (Monolithic)
   targetData: TargetData; 
@@ -23,7 +22,6 @@ const coreDataSlice = createSlice({
   name: "coreData",
   initialState,
   reducers: {
-    // [REMOVED] addForecastPeriodData - we now load everything at once
 
     // Bulk load all data (for initial load)
     setAllCoreData: (

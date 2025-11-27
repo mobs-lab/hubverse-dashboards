@@ -48,8 +48,6 @@ export interface TargetData {
 
 // Historical Target-Data: Entire Collection organized by as_of date
 // Structure: as_of -> date -> location -> target -> {observation, location_name}
-//
-// [UPDATED] Added targetId nesting level to match data_processor.py
 export interface HistoricalTargetDataCollection {
   [asOfDate: string]: {
     [date: string]: {

@@ -93,7 +93,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
-   * [UPDATED] Load target data (Monolithic)
+   * Load target data
    */
   const loadTargetData = async (): Promise<any> => {
     const dataPath = getDataPath();
@@ -106,7 +106,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
-   * [UPDATED] Load model output (Monolithic)
+   * Load model output
    */
   const loadModelOutput = async (): Promise<any> => {
     const dataPath = getDataPath();
@@ -318,13 +318,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateLoadingState('locationShapeData', false);
 
       // Step 6: Load all target-data and model-output
-      // [UPDATED] Load everything at once regardless of default period
       logger.log('Loading all core data...');
-
-      const [targetData, modelOutput] = await Promise.all([
-        loadTargetData(),
-        loadModelOutput(),
-      ]);
+      const [targetData, modelOutput] = await Promise.all([loadTargetData(), loadModelOutput()]);
 
       // Dispatch to Redux
       dispatch(
@@ -340,7 +335,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Step 7: Initialize forecast settings with config defaults
       // Use the default period from config to set initial time filters
       const defaultPeriod = config.forecastPeriodOptions[config.defaultForecastPeriodId];
-      
+
       if (defaultPeriod) {
         logger.log('Initializing forecast settings...');
         dispatch(
