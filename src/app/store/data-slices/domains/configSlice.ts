@@ -91,12 +91,19 @@ export interface DashboardConfig {
   earliestDate?: string;
   latestDate?: string;
 
+  // Evaluation Configuration
+  evaluationCoverageLevels?: number[];
+  evaluationAvailablePeriodIds?: string[]; // List of period IDs that have evaluation data files
+
   // Default selections for UI initialization
   defaultLocation?: string;
   defaultHorizon?: number;
 
   // UI Customization
   uiCustomization: UICustomizationConfig;
+
+  // TODO: Add customizable UI components configuration here for Evaluation Page
+
 }
 
 interface ConfigState {

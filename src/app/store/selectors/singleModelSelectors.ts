@@ -1,12 +1,26 @@
 // src/store/selectors/singleModelSelectors.ts
+// Selectors specific to Single Model evaluation view
+
 import { createSelector } from "@reduxjs/toolkit";
 import { RootState } from "../index";
 import { addWeeks } from "date-fns";
+import { selectSingleModelSelectedTargetId } from "./evaluationSelectors";
 
-// Selector for core data loading status
+// ============================================
+// Core Data Status
+// ============================================
+
+/** Check if core data (target + model output) is loaded */
 export const selectIsCoreDataLoaded = (state: RootState) => state.coreDataStore.isLoaded;
 
-// Helper function to calculate display time range based on metadata and horizon
+// ============================================
+// Helper Functions
+// ============================================
+
+/**
+ * Calculate display time range based on prediction metadata and horizon
+ * Extends the end date to include forecast-tail predictions
+ */
 function calculateDisplayTimeRange(
   firstPredRefDate: string | undefined,
   lastPredRefDate: string | undefined,
@@ -25,7 +39,14 @@ function calculateDisplayTimeRange(
   return { startDate, endDate };
 }
 
-// Main selector for time series data
+// ============================================
+// Single Model Time Series Selectors
+// ============================================
+
+/**
+ * Main selector for Single Model time series visualization data
+ * Combines predictions and ground truth for a specific model/location/season/horizon
+ */
 export const selectSingleModelTimeSeriesData = createSelector(
   [
     (state: RootState) => state.coreDataStore.isLoaded,
@@ -121,27 +142,40 @@ export const selectSingleModelTimeSeriesData = createSelector(
   }
 );
 
-// Selector for evaluation scores from JSON that syncs with time series data
+// ============================================
+// Single Model Score Selectors
+// ============================================
+
+/**
+ * Selector for evaluation scores from JSON that syncs with time series data
+ * Provides raw score data points for the Single Model score line chart
+ */
 export const selectSingleModelScoreDataFromJSON = createSelector(
   [
     (state: RootState) => state.evaluationDataStore.rawScores,
     (state: RootState) => state.coreDataStore.mainData?.predictionData,
-    (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSeasonId, // <-- Use seasonId
+    (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSeasonId,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewModel,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSelectedStateCode,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationSingleModelViewHorizon,
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationSingleModelViewScoresOption,
+    selectSingleModelSelectedTargetId,
   ],
-  (rawScores, timeSeriesData, seasonId, modelName, stateCode, horizon, scoreOption) => {
-    // <-- Use seasonId
+  (rawScores, timeSeriesData, seasonId, modelName, stateCode, horizon, scoreOption, targetId) => {
     if (!rawScores || !timeSeriesData || !seasonId || !modelName) {
-      // <-- Use seasonId
       console.debug("Missing required data for score selector");
       return [];
     }
 
     if (!rawScores[seasonId]) {
       console.debug("No score data for season:", seasonId);
+      return [];
+    }
+    
+    // Navigate with target layer
+    const seasonData = rawScores[seasonId]?.[targetId];
+    if (!seasonData) {
+      console.debug("No score data for target:", targetId);
       return [];
     }
 
@@ -161,8 +195,8 @@ export const selectSingleModelScoreDataFromJSON = createSelector(
 
     const metric = scoreOption === "WIS/Baseline" ? "WIS/Baseline" : "MAPE";
 
-    // Navigate the nested structure
-    const scoreData = rawScores[seasonId]?.[metric]?.[modelName]?.[stateCode]?.[horizon];
+    // Navigate the nested structure with target layer
+    const scoreData = seasonData?.[metric]?.[modelName]?.[stateCode]?.[horizon];
 
     if (!scoreData || !Array.isArray(scoreData)) {
       return [];

@@ -63,7 +63,7 @@ class DataProcessor:
         Args:
             config (DashboardConfig): The validated Pydantic configuration object.
             dev_mode (bool, optional): If True, reads from ``test-data-input/``. Defaults to False.
-            skip_evaluations (bool, optional): If True, skips calculating WIS/Coverage. Defaults to False.
+            skip_evaluations (bool, optional): If True, skips evaluation generation, calculating WIS/Baseline, MAPE Coverage and all evaluation related logic. Defaults to False.
         """
         self.config = config
         self.project_root = Path(__file__).parent.parent
@@ -81,7 +81,7 @@ class DataProcessor:
 
         # Initialize evaluation processor (only if evaluations are enabled)
         if not skip_evaluations:
-            self.evaluation_processor = EvaluationProcessor(config=config, baseline_model=config.baseline_model_for_relative_wis)
+            self.evaluation_processor = EvaluationProcessor(config=config, baseline_model=config.baseline_model_for_relative_WIS)
         else:
             self.evaluation_processor = None
 
@@ -98,6 +98,7 @@ class DataProcessor:
         }
 
         # TODO: Handle GitHub data sources
+
         if self.dev_mode:
             logger.info("=" * 60)
             logger.info("   DEVELOPMENT MODE ENABLED")
@@ -151,12 +152,22 @@ class DataProcessor:
         processed_model_output = self._process_model_output_data(model_output_df)
         self.processing_stats["forecast_periods"] = len(self.config.forecast_periods)
 
-        # 6: Calculate evaluations (use unpivoted data for evaluations)
+        # 6: Calculate evaluations (3-step process)
+        raw_evaluations = {}
+        aggregated_evaluations = None
+        raw_scores_by_period = {}
+
         if not self.skip_evaluations:
-            evaluations_by_period = self._process_evaluations_by_periods(fixed_target_data_df, self.model_output_unpivoted)
+            # Step 6a: Generate raw evaluation metrics for all available data
+            raw_evaluations = self._generate_raw_evaluation_collection(fixed_target_data_df, self.model_output_unpivoted)
+
+            # Step 6b: Aggregate evaluation metrics by periods (for Season Overview)
+            aggregated_evaluations = self._generate_aggregated_evaluation_collection(raw_evaluations)
+
+            # Step 6c: Organize raw scores by period (for Single Model view)
+            raw_scores_by_period = self._generate_raw_scores_by_period(raw_evaluations)
         else:
             logger.info("Skipping evaluation calculations (disabled by user)")
-            evaluations_by_period = {}
 
         # 7: Generate Metadata
         metadata = self._generate_metadata(locations, model_output_df, target_data_df)
@@ -166,11 +177,9 @@ class DataProcessor:
             processed_target_data,
             processed_model_output,
             metadata,
-            evaluations_by_period,
+            raw_scores_by_period,
+            aggregated_evaluations,
         )
-
-        # 8: Print summary
-        # self._print_processing_summary(target_data_df, model_output_df, metadata)
 
         logger.info("Data processing completed successfully.")
         return True  # Indicate success
@@ -325,12 +334,9 @@ class DataProcessor:
             # Extract as_of date from directory name
             dir_name = subdir.name
 
-            # Try different date formats
-            # Format 1: "as_of=2024-01-01" (Hive-style partitioning)
-
             as_of_date = None
 
-            # Try Hive-style: as_of=YYYY-MM-DD
+            # Use Hive-style: as_of=YYYY-MM-DD
             match = re.match(r"as_of[=_](\d{4}-\d{2}-\d{2})", dir_name)
             if match:
                 as_of_date = match.group(1)
@@ -388,7 +394,7 @@ class DataProcessor:
         Loads and prepares all model output data from the ``model-output`` directory.
 
         It iterates through each model subdirectory specified in :attr:`~yaml_config_processor_pydantic.DashboardConfig.available_models`.
-        
+
         The data is:
         1.  Loaded from CSVs.
         2.  Renamed according to :attr:`~yaml_config_processor_pydantic.ModelOutputHeaderMapping`.
@@ -472,7 +478,7 @@ class DataProcessor:
         """
         Pivots the long-format quantile data into a wide format where each quantile level
         becomes its own column.
-        
+
         This is necessary for the frontend to easily map prediction intervals.
 
         Args:
@@ -503,12 +509,6 @@ class DataProcessor:
         # Pivot the table
         pivoted = quantile_rows.pivot_table(index=index_cols, columns="output_type_id", values="value").reset_index()
 
-        # NOTE: Keep the quantile column header to be 0.XX format
-        # Since user configurations already specifies needed PIs in that format
-        """ pivoted.columns = [
-            f"q{str(c).replace('.', '_')}" if isinstance(c, (float, str)) and str(c).replace(".", "").isnumeric() else c for c in pivoted.columns
-        ] """
-
         # Merge back with non-quantile rows if any
         if not other_rows.empty:
             final_df = pd.concat([pivoted, other_rows], ignore_index=True)
@@ -520,7 +520,7 @@ class DataProcessor:
     def _process_historical_target_data(self, df: pd.DataFrame) -> dict:
         """
         Process historical target data into a nested dictionary structure.
-        
+
         Structure: ``Map<as_of_date, Map<date, Map<location, data>>>``
 
         This allows the frontend to quickly look up "what we knew" at any given point in time.
@@ -579,7 +579,7 @@ class DataProcessor:
                     # Use nested structure: location -> target -> data
                     if location_key not in location_map:
                         location_map[location_key] = {}
-                    
+
                     location_map[location_key][target_id] = data_entry
 
                 date_map[date_iso] = location_map
@@ -591,7 +591,7 @@ class DataProcessor:
     def _fix_missing_time_intervals(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> pd.DataFrame:
         """
         Fills in missing time intervals in target data to ensure a complete time series.
-        
+
         This prevents gaps in the chart visualizations. It generates a complete grid of
         dates (based on :attr:`~yaml_config_processor_pydantic.DashboardConfig.time_unit`)
         for all locations and targets, filling missing observations with -1.
@@ -628,7 +628,7 @@ class DataProcessor:
         # Handle targets for grid generation to ensure placeholders have correct target IDs
         targets = self.config.targets or []
         target_keys = [t.target_key_in_data for t in targets] if targets else []
-        
+
         complete_df = None
         merge_cols = []
 
@@ -636,22 +636,19 @@ class DataProcessor:
         # If the dataframe has a 'target' column, we must include it in the grid
         # to ensure we generate placeholders for all targets
         if "target" in target_data_df.columns and target_keys:
-             # Create complete grid of dates x locations x targets
-             complete_grid = pd.MultiIndex.from_product(
-                [date_range, all_locations, target_keys], 
-                names=["date", "location", "target"]
-            )
-             complete_df = pd.DataFrame(index=complete_grid).reset_index()
-             merge_cols = ["date", "location", "target"]
+            # Create complete grid of dates x locations x targets
+            complete_grid = pd.MultiIndex.from_product([date_range, all_locations, target_keys], names=["date", "location", "target"])
+            complete_df = pd.DataFrame(index=complete_grid).reset_index()
+            merge_cols = ["date", "location", "target"]
         elif "location" in target_data_df.columns:
-             # Existing logic for date x location
-             complete_grid = pd.MultiIndex.from_product([date_range, all_locations], names=["date", "location"])
-             complete_df = pd.DataFrame(index=complete_grid).reset_index()
-             merge_cols = ["date", "location"]
+            # Existing logic for date x location
+            complete_grid = pd.MultiIndex.from_product([date_range, all_locations], names=["date", "location"])
+            complete_df = pd.DataFrame(index=complete_grid).reset_index()
+            merge_cols = ["date", "location"]
         else:
-             # Just date
-             complete_df = pd.DataFrame({"date": date_range})
-             merge_cols = ["date"]
+            # Just date
+            complete_df = pd.DataFrame({"date": date_range})
+            merge_cols = ["date"]
 
         # Merge with existing target data
         fixed_df = pd.merge(complete_df, target_data_df, on=merge_cols, how="left")
@@ -788,6 +785,29 @@ class DataProcessor:
         logger.warning(f"  [!] No locations detected, defaulting to 'US'")
         return "US"
 
+    def _get_evaluation_period_ids(self) -> list:
+        """
+        Get list of period IDs that will have evaluation data.
+        
+        This includes both static forecast periods and special/dynamic periods.
+        Used to inform the frontend about available evaluation data folders.
+        
+        Returns:
+            list: List of period ID strings
+        """
+        period_ids = []
+        
+        # Add static forecast periods
+        for period in self.config.forecast_periods:
+            period_ids.append(period.forecast_period_id)
+        
+        # Add special/dynamic periods
+        special_periods = self.config.special_forecast_periods or []
+        for period in special_periods:
+            period_ids.append(period.special_period_id)
+        
+        return period_ids
+
     def _generate_metadata(
         self,
         locations_info: list,
@@ -918,7 +938,7 @@ class DataProcessor:
             # === MODELS ===
             "models": {
                 "list": model_configs,
-                "baselineModel": self.config.baseline_model_for_relative_wis if not self.skip_evaluations else None,
+                "baselineModel": self.config.baseline_model_for_relative_WIS if not self.skip_evaluations else None,
             },
             # === TARGETS ===
             "targets": {
@@ -931,6 +951,12 @@ class DataProcessor:
                 "defaults": self.config.default_selected_prediction_intervals
                 if self.config.default_selected_prediction_intervals
                 else [str(pi.level) for pi in self.config.prediction_intervals],
+            },
+            # === EVALUATION SETTINGS ===
+            "evaluations": {
+                "coverageLevels": self.config.evaluation_coverage_levels if hasattr(self.config, "evaluation_coverage_levels") else [50, 95],
+                # List of period IDs that have evaluation data available (for lazy loading)
+                "availablePeriodIds": self._get_evaluation_period_ids() if not self.skip_evaluations else [],
             },
             # === DEFAULT SELECTIONS ===
             "defaults": {
@@ -1161,151 +1187,513 @@ class DataProcessor:
         logger.info(f"Processed predictions for {len(processed_data)} models.")
         return processed_data
 
-    def _process_evaluations_by_periods(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
+    def _generate_raw_evaluation_collection(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
-        Calculates evaluation metrics (WIS, Coverage) for each defined forecast period.
+        Generate complete collection of raw evaluation scores.
 
-        It filters the data for the specific time range of each period and invokes
-        the :class:`EvaluationProcessor` to compute the metrics.
+        Calculates WIS, MAPE, Coverage for ALL data (no period filtering).
+        Then calculates WIS Ratio against baseline model.
 
         Args:
-            target_data_df (pd.DataFrame): The full target data.
-            model_output_df (pd.DataFrame): The full model output data.
+            target_data_df: Complete target data with placeholder filtering applied
+            model_output_df: Complete model output data (unpivoted)
 
         Returns:
-            dict: A map of ``period_id`` to evaluation result DataFrames/dictionaries.
+            dict: Raw evaluation DataFrames {'wis', 'wis_ratio', 'mape', 'coverage'}
         """
-        logger.info("Processing evaluations by forecast periods...")
-        evaluations_by_period = {}
+        logger.info("=" * 60)
+        logger.info("STEP 1: GENERATING RAW EVALUATION COLLECTION")
+        logger.info("=" * 60)
+
+        # Calculate base metrics using evaluation processor
+        evaluation_results = self.evaluation_processor.evaluate_predictions(target_data_df=target_data_df, model_output_df=model_output_df)
+
+        # Calculate WIS Ratio
+        if "wis" in evaluation_results and not evaluation_results["wis"].empty:
+            logger.info("Calculating WIS Ratios...")
+            wis_ratio_df = self.evaluation_processor.calculate_wis_ratio(evaluation_results["wis"])
+            if not wis_ratio_df.empty:
+                evaluation_results["wis_ratio"] = wis_ratio_df
+
+        total_evals = sum(len(df) for df in evaluation_results.values() if isinstance(df, pd.DataFrame))
+        self.processing_stats["evaluations_calculated"] = total_evals
+
+        logger.info(f"Generated {total_evals} total evaluation records")
+        logger.info("Raw evaluation collection complete.")
+        return evaluation_results
+
+    def _generate_aggregated_evaluation_collection(self, raw_evaluations: dict) -> dict:
+        """
+        Generate aggregated evaluation statistics by forecast period.
+
+        Takes the raw scores and groups them by configured forecast periods
+        to produce frontend-ready aggregated statistics.
+
+        Args:
+            raw_evaluations: Dictionary of raw evaluation DataFrames
+
+        Returns:
+            dict: Aggregated evaluation data for AppDataEvaluationsPrecalculated
+        """
+        logger.info("=" * 60)
+        logger.info("STEP 2: GENERATING AGGREGATED EVALUATION COLLECTION")
+        logger.info("=" * 60)
+
+        # Initialize structure
+        precalculated = {"iqr": {}, "locationMap_aggregates": {}, "detailedCoverage_aggregates": {}}
+
+        # Get configuration values
+        cov_levels = sorted([int(x) for x in (self.config.evaluation_coverage_levels or [50, 95])])
+
+        # Define all periods to aggregate over
         special_periods = self.config.special_forecast_periods or []
         all_periods = list(self.config.forecast_periods) + list(special_periods)
 
         for period in all_periods:
-            date_range = self._get_period_date_range(period, target_data_df, model_output_df)
+            period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
+
+            # Get date range for this period
+            date_range = self._get_period_date_range(period, self.fixed_target_data, self.model_output_unpivoted)
+            if not date_range:
+                logger.warning(f"Could not determine date range for period '{period_id}', skipping")
+                continue
+            start, end = date_range
+
+            logger.info(f"Processing period: '{period_id}' ({start.date()} to {end.date()})")
+
+            # Initialize period structure
+            precalculated["iqr"][period_id] = {}
+            precalculated["locationMap_aggregates"][period_id] = {}
+            precalculated["detailedCoverage_aggregates"][period_id] = {}
+
+            # Process location map aggregates FIRST (IQR depends on this)
+            self._process_location_map_aggregates(raw_evaluations, period_id, start, end, precalculated)
+
+            # Process IQR statistics for boxplots (uses state_map_aggregates)
+            self._process_iqr_stats(period_id, precalculated)
+
+            # Process coverage aggregates
+            self._process_coverage_aggregates(raw_evaluations, period_id, start, end, precalculated, cov_levels)
+
+        logger.info("Aggregated evaluation collection complete.")
+        return precalculated
+
+    def _process_iqr_stats(self, period_id: str, precalculated: dict):
+        """
+        Calculate IQR statistics for Season Overview boxplot charts.
+        
+        MUST be called AFTER _process_state_map_aggregates as it uses the 
+        locationMap_aggregates data to compute per-location averages.
+        
+        Logic:
+        1. For each metric (WIS/Baseline, MAPE), target, model, and horizon
+        2. Compute average score for each location: sum/count
+        3. Collect all location averages into a list
+        4. Calculate percentiles (q05, q25, median, q75, q95) from that list
+        
+        Only pre-calculates single-horizon IQR. Frontend computes multi-horizon
+        combinations using locationMap_aggregates data.
+        """
+        state_map_data = precalculated.get("locationMap_aggregates", {}).get(period_id, {})
+        
+        if not state_map_data:
+            return
+        
+        # Iterate through the state_map_aggregates structure
+        for target_id, target_data in state_map_data.items():
+            if target_id not in precalculated["iqr"][period_id]:
+                precalculated["iqr"][period_id][target_id] = {}
+            
+            for metric_name, metric_data in target_data.items():
+                # Skip Coverage metric - IQR is only for WIS/Baseline and MAPE
+                if metric_name == "Coverage":
+                    continue
+                
+                if metric_name not in precalculated["iqr"][period_id][target_id]:
+                    precalculated["iqr"][period_id][target_id][metric_name] = {}
+                
+                for model_name, model_data in metric_data.items():
+                    if model_name not in precalculated["iqr"][period_id][target_id][metric_name]:
+                        precalculated["iqr"][period_id][target_id][metric_name][model_name] = {}
+                    
+                    # Get all available horizons for this model
+                    available_horizons = set()
+                    for loc_data in model_data.values():
+                        available_horizons.update(loc_data.keys())
+                    
+                    # Calculate IQR for each individual horizon only
+                    # Frontend will compute multi-horizon combinations using locationMap_aggregates
+                    for horizon in available_horizons:
+                        horizon_str = str(horizon)
+                        
+                        # Compute location averages for this horizon
+                        location_averages = []
+                        for loc, loc_data in model_data.items():
+                            if horizon_str in loc_data:
+                                agg = loc_data[horizon_str]
+                                if agg["count"] > 0:
+                                    avg = agg["sum"] / agg["count"]
+                                    location_averages.append(avg)
+                        
+                        # Calculate IQR stats from location averages
+                        if len(location_averages) >= 1:
+                            stats = self._calculate_boxplot_stats(location_averages)
+                            if stats:
+                                precalculated["iqr"][period_id][target_id][metric_name][model_name][horizon_str] = stats
+
+    def _process_location_map_aggregates(self, raw_evaluations: dict, period_id: str, start, end, precalculated: dict):
+        """
+        Process location map aggregates for geographic visualization and IQR calculation.
+        
+        Aggregates sum/count per location per horizon for WIS over Baseline, MAPE, and Coverage metrics.
+        These aggregates are used by:
+        1. Location map visualization (computing location averages for map coloring)
+        2. IQR calculation (computing percentiles across location averages)
+        
+        Note: WIS/Baseline and MAPE each have a single score per forecast instance.
+        Coverage uses the 95% prediction interval level by default.
+        """
+        # Define metrics to process: (metric_name, df, value_column)
+        # WIS/Baseline: wis_ratio column (single value per forecast)
+        # MAPE: mape column (single value per forecast)
+        # Coverage: use 95_coverage column specifically (binary 0/1 per forecast, averaged to percentage)
+        metrics_to_process = []
+        if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
+            metrics_to_process.append(("WIS/Baseline", raw_evaluations["wis_ratio"], "wis_ratio"))
+        if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
+            metrics_to_process.append(("MAPE", raw_evaluations["mape"], "mape"))
+        if "coverage" in raw_evaluations and not raw_evaluations["coverage"].empty:
+            # Use 95% coverage level for location map aggregates
+            cov_df = raw_evaluations["coverage"]
+            if "95_coverage" in cov_df.columns:
+                metrics_to_process.append(("Coverage", cov_df, "95_coverage"))
+            else:
+                logger.warning("95_coverage column not found in coverage data, skipping Coverage metric for location map")
+
+        for metric_name, df, val_col in metrics_to_process:
+            # Filter by date range
+            if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
+                df = df.copy()
+                df["target_end_date"] = pd.to_datetime(df["target_end_date"])
+            
+            period_df = df[(df["target_end_date"] >= start) & (df["target_end_date"] <= end)]
+            
+            if period_df.empty:
+                continue
+
+            unique_targets = period_df["target"].unique() if "target" in period_df.columns else ["default"]
+
+            for target in unique_targets:
+                target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
+                target_df = period_df if target == "default" else period_df[period_df["target"] == target]
+
+                if target_id not in precalculated["locationMap_aggregates"][period_id]:
+                    precalculated["locationMap_aggregates"][period_id][target_id] = {}
+                
+                if metric_name not in precalculated["locationMap_aggregates"][period_id][target_id]:
+                    precalculated["locationMap_aggregates"][period_id][target_id][metric_name] = {}
+
+                for model_name in target_df["model"].unique():
+                    model_df = target_df[target_df["model"] == model_name]
+                    precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name] = {}
+
+                    if "location" in model_df.columns and "horizon" in model_df.columns:
+                        grouped = model_df.groupby(["location", "horizon"])[val_col].agg(["sum", "count"]).reset_index()
+
+                        for _, row in grouped.iterrows():
+                            loc = str(row["location"]).zfill(2)
+                            horizon = str(int(row["horizon"]))
+
+                            if loc not in precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name]:
+                                precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name][loc] = {}
+
+                            precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name][loc][horizon] = {
+                                "sum": float(row["sum"]),
+                                "count": int(row["count"]),
+                            }
+
+    def _process_coverage_aggregates(self, raw_evaluations: dict, period_id: str, start, end, precalculated: dict, cov_levels: list):
+        """Process coverage aggregates for Season Overview coverage chart."""
+        if "coverage" not in raw_evaluations or raw_evaluations["coverage"].empty:
+            return
+
+        df = raw_evaluations["coverage"]
+        if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
+            df["target_end_date"] = pd.to_datetime(df["target_end_date"])
+        period_df = df[(df["target_end_date"] >= start) & (df["target_end_date"] <= end)]
+
+        if period_df.empty:
+            return
+
+        unique_targets = period_df["target"].unique() if "target" in period_df.columns else ["default"]
+
+        for target in unique_targets:
+            target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
+            target_df = period_df if target == "default" else period_df[period_df["target"] == target]
+
+            if target_id not in precalculated["detailedCoverage_aggregates"][period_id]:
+                precalculated["detailedCoverage_aggregates"][period_id][target_id] = {}
+
+            for model_name in target_df["model"].unique():
+                model_df = target_df[target_df["model"] == model_name]
+                precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name] = {}
+
+                for level in cov_levels:
+                    col_name = f"{level}_coverage"
+                    if col_name not in model_df.columns:
+                        continue
+
+                    if "horizon" in model_df.columns:
+                        grouped = model_df.groupby("horizon")[col_name].agg(["sum", "count"]).reset_index()
+
+                        for _, row in grouped.iterrows():
+                            horizon = int(row["horizon"])
+                            if horizon not in precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name]:
+                                precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon] = {}
+
+                            precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon][str(level)] = {
+                                "sum": float(row["sum"]),
+                                "count": int(row["count"]),
+                            }
+
+    def _generate_raw_scores_by_period(self, raw_evaluations: dict) -> dict:
+        """
+        Organize raw scores by forecast period for Single Model view.
+
+        Args:
+            raw_evaluations: Dictionary of raw evaluation DataFrames
+
+        Returns:
+            dict: Raw scores organized by period for frontend consumption
+        """
+        logger.info("=" * 60)
+        logger.info("STEP 3: ORGANIZING RAW SCORES BY PERIOD")
+        logger.info("=" * 60)
+
+        raw_scores_data = {}
+
+        # Define all periods
+        special_periods = self.config.special_forecast_periods or []
+        all_periods = list(self.config.forecast_periods) + list(special_periods)
+
+        for period in all_periods:
+            # Get date range for this period
+            date_range = self._get_period_date_range(period, self.fixed_target_data, self.model_output_unpivoted)
             if not date_range:
                 continue
             start, end = date_range
 
             period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
-            logger.info(f"Calculating evaluations for period: '{period_id}' ({start.date()} to {end.date()})")
+            logger.info(f"Organizing raw scores for period: '{period_id}'")
 
-            # Filter data for this period
-            period_target_data = target_data_df[(target_data_df["date"] >= start) & (target_data_df["date"] <= end)].copy()
+            raw_scores_data[period_id] = {}
 
-            period_model_output = model_output_df[(model_output_df["reference_date"] >= start) & (model_output_df["reference_date"] <= end)].copy()
+            # Process WIS Ratio
+            if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
+                self._organize_metric_by_period(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", start, end, raw_scores_data[period_id])
 
-            # Get valid targets for this period
-            valid_model_targets = []
-            targets = self.config.targets or []
-            for target in targets:
-                target_periods = target.for_forecast_periods or []
-                if period_id in target_periods:
-                    valid_model_targets.append(target.target_key_in_data)
+            # Process MAPE
+            if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
+                self._organize_metric_by_period(raw_evaluations["mape"], "MAPE", "mape", start, end, raw_scores_data[period_id])
 
-            # Filter by valid targets if not single target mode
-            if not self.config.is_single_forecast_target and "target" in period_model_output.columns and valid_model_targets:
-                period_model_output = period_model_output[period_model_output["target"].isin(valid_model_targets)]
+        logger.info("Raw scores organization complete.")
+        return raw_scores_data
 
-            if period_target_data.empty or period_model_output.empty:
-                logger.warning(f"No data available for evaluations in period '{period_id}'")
-                continue
+    def _organize_metric_by_period(self, df: pd.DataFrame, metric_name: str, val_col: str, start, end, period_dict: dict):
+        """Helper to organize a specific metric's raw scores by period."""
+        # Filter for period
+        if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
+            df["target_end_date"] = pd.to_datetime(df["target_end_date"])
 
-            # Calculate evaluation metrics
-            evaluation_results = self.evaluation_processor.evaluate_predictions(
-                target_data_df=period_target_data,
-                model_output_df=period_model_output,
-                period_id=period_id,
-            )
+        period_df = df[(df["target_end_date"] >= start) & (df["target_end_date"] <= end)]
 
-            # Calculate WIS ratio if WIS results exist
-            if "wis" in evaluation_results and not evaluation_results["wis"].empty:
-                wis_ratio_df = self.evaluation_processor.calculate_wis_ratio(evaluation_results["wis"])
-                if not wis_ratio_df.empty:
-                    evaluation_results["wis_ratio"] = wis_ratio_df
+        if period_df.empty:
+            return
 
-            evaluations_by_period[period_id] = evaluation_results
+        # Group by target
+        unique_targets = period_df["target"].unique() if "target" in period_df.columns else ["default"]
 
-            # Update statistics
-            total_evals = sum(len(df) for df in evaluation_results.values() if isinstance(df, pd.DataFrame))
-            self.processing_stats["evaluations_calculated"] += total_evals
+        for target in unique_targets:
+            target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
+            target_df = period_df if target == "default" else period_df[period_df["target"] == target]
 
-        logger.info(f"Processed evaluations for {len(evaluations_by_period)} periods.")
-        logger.info(f"Total evaluations calculated: {self.processing_stats['evaluations_calculated']}")
-        return evaluations_by_period
+            if target_id not in period_dict:
+                period_dict[target_id] = {}
+
+            period_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
+
+    def _calculate_boxplot_stats(self, location_averages: list) -> dict:
+        """
+        Calculate boxplot statistics from a list of per-location score averages.
+        
+        These statistics represent the distribution of model performance across locations.
+        The percentiles (q05, q25, median, q75, q95) are computed from the list of
+        location averages.
+        
+        Args:
+            location_averages: List of average scores, one per location
+            
+        Returns:
+            dict: BoxplotStats with q05, q25, median, q75, q95, min, max, mean, count
+        """
+        if not location_averages or len(location_averages) == 0:
+            return None
+
+        scores = np.array(location_averages)
+        scores = scores[~np.isnan(scores)]
+        
+        if len(scores) == 0:
+            return None
+
+        # Calculate percentiles from the distribution of location averages
+        percentiles = np.percentile(scores, [5, 25, 50, 75, 95])
+
+        stats = {
+            "q05": float(percentiles[0]),
+            "q25": float(percentiles[1]),
+            "median": float(percentiles[2]),
+            "q75": float(percentiles[3]),
+            "q95": float(percentiles[4]),
+            "min": float(np.min(scores)),
+            "max": float(np.max(scores)),
+            "mean": float(np.mean(scores)),
+            "count": int(len(scores)),
+        }
+
+        return stats
 
     def _write_output_files(
         self,
         target_data: dict,
         model_output_data: dict,
         metadata: dict,
-        evaluations_by_period: dict = None,
+        raw_scores_by_period: dict = None,
+        aggregated_evaluations: dict = None,
     ):
         """
         Writes all processed data to JSON files in the public output directory.
 
-        Files generated:
-        -   ``metadata.json``
-        -   ``targetData.json``
-        -   ``modelOutputData.json``
-        -   ``historical-target-data.json`` (optional)
+        Directory Structure:
+        - metadata.json (root)
+        - forecast/targetData.json
+        - forecast/modelOutputData.json
+        - forecast/historical-target-data.json (optional)
+        - evaluations/{period_id}/aggregates.json (per period)
+        - evaluations/{period_id}/rawScores.json (per period)
 
         Args:
-            target_data (dict): Processed target data.
-            model_output_data (dict): Processed model output data.
-            metadata (dict): Metadata object.
-            evaluations_by_period (dict, optional): Evaluation results. Defaults to None.
+            target_data: Processed target data for forecast visualization
+            model_output_data: Processed model output data for forecast visualization
+            metadata: Metadata object
+            raw_scores_by_period: Raw evaluation scores organized by period
+            aggregated_evaluations: Aggregated evaluation statistics (iqr, locationMap_aggregates, detailedCoverage_aggregates)
         """
-        logger.info("Writing unified output files...")
-        logger.info(f"  → Output directory: {self.output_base_path}")
+        logger.info("=" * 60)
+        logger.info("WRITING OUTPUT FILES")
+        logger.info("=" * 60)
+        logger.info(f"Output directory: {self.output_base_path}")
 
         self.output_base_path.mkdir(exist_ok=True, parents=True)
 
-        # Write metadata
+        # Write metadata (root level)
         metadata_file = self.output_base_path / "metadata.json"
         with open(metadata_file, "w") as f:
             json.dump(metadata, f, cls=NpEncoder, separators=(",", ":"))
         self._track_file_written(metadata_file)
 
-        # Write target data
-        gt_file = self.output_base_path / "targetData.json"
+        # Create and populate forecast subdirectory
+        forecast_dir = self.output_base_path / "forecast"
+        forecast_dir.mkdir(exist_ok=True, parents=True)
+
+        # Write forecast data
+        gt_file = forecast_dir / "targetData.json"
         with open(gt_file, "w") as f:
             json.dump(target_data, f, cls=NpEncoder, separators=(",", ":"))
         self._track_file_written(gt_file)
 
-        # Write model output data
-        pred_file = self.output_base_path / "modelOutputData.json"
+        pred_file = forecast_dir / "modelOutputData.json"
         with open(pred_file, "w") as f:
             json.dump(model_output_data, f, cls=NpEncoder, separators=(",", ":"))
         self._track_file_written(pred_file)
 
         # Write historical data if available
         if self.historical_target_data:
-            historical_file = self.output_base_path / "historical-target-data.json"
+            historical_file = forecast_dir / "historical-target-data.json"
             with open(historical_file, "w") as f:
                 json.dump(self.historical_target_data, f, cls=NpEncoder, separators=(",", ":"))
             self._track_file_written(historical_file)
 
-        """ # Write evaluation data
-        if evaluations:
-            eval_dir = self.output_base_path / "evaluations"
-            eval_dir.mkdir(exist_ok=True, parents=True)
-            
-            if "wis" in evaluations and not evaluations["wis"].empty:
-                wis_file = eval_dir / "evaluationsRawScoresData.json"
-                evaluations["wis"].to_json(wis_file, orient="records")
-                self._track_file_written(wis_file)
-            
-            if "wis_ratio" in evaluations and not evaluations["wis_ratio"].empty:
-                wis_ratio_file = eval_dir / "evaluationsPrecalculatedData.json"
-                evaluations["wis_ratio"].to_json(wis_ratio_file, orient="records")
-                self._track_file_written(wis_ratio_file)
+        # Create and populate evaluations subdirectory with per-period folders
+        if aggregated_evaluations and raw_scores_by_period:
+            eval_base_dir = self.output_base_path / "evaluations"
+            eval_base_dir.mkdir(exist_ok=True, parents=True)
 
-            if "coverage" in evaluations and not evaluations["coverage"].empty:
-                coverage_file = eval_dir / "coverageData.json"
-                evaluations["coverage"].to_json(coverage_file, orient="records")
-                self._track_file_written(coverage_file) """
+            # Get all period IDs from the aggregated data
+            # Use iqr keys as the source of truth for period IDs
+            period_ids = set(aggregated_evaluations.get("iqr", {}).keys())
+            period_ids.update(raw_scores_by_period.keys())
+
+            logger.info(f"Writing evaluation data for {len(period_ids)} periods...")
+
+            for period_id in period_ids:
+                # Create period-specific folder
+                period_dir = eval_base_dir / period_id
+                period_dir.mkdir(exist_ok=True, parents=True)
+
+                # Extract aggregated data for this period
+                period_aggregates = {
+                    "iqr": aggregated_evaluations.get("iqr", {}).get(period_id, {}),
+                    "locationMap_aggregates": aggregated_evaluations.get("locationMap_aggregates", {}).get(period_id, {}),
+                    "detailedCoverage_aggregates": aggregated_evaluations.get("detailedCoverage_aggregates", {}).get(period_id, {}),
+                }
+
+                # Write aggregates for this period
+                aggregates_file = period_dir / "aggregates.json"
+                with open(aggregates_file, "w") as f:
+                    json.dump(period_aggregates, f, cls=NpEncoder, separators=(",", ":"))
+                self._track_file_written(aggregates_file)
+
+                # Extract and write raw scores for this period
+                period_raw_scores = raw_scores_by_period.get(period_id, {})
+                raw_file = period_dir / "rawScores.json"
+                with open(raw_file, "w") as f:
+                    json.dump(period_raw_scores, f, cls=NpEncoder, separators=(",", ":"))
+                self._track_file_written(raw_file)
+
+                logger.info(f"  [OK] Written evaluation data for period: {period_id}")
 
         logger.info("All output files written successfully!")
+
+    def _structure_raw_scores(self, df: pd.DataFrame, val_col: str) -> dict:
+        """Helper to structure raw scores for JSON export."""
+        structured = {}
+        for model_name in df["model"].unique():
+            model_df = df[df["model"] == model_name]
+            structured[model_name] = {}
+
+            for location in model_df["location"].unique():
+                loc_key = str(location).zfill(2)
+                loc_df = model_df[model_df["location"] == location]
+                structured[model_name][loc_key] = {}
+
+                if "horizon" in loc_df.columns:
+                    for horizon in loc_df["horizon"].unique():
+                        h_df = loc_df[loc_df["horizon"] == horizon]
+                        records = []
+                        for _, row in h_df.iterrows():
+                            records.append(
+                                {
+                                    "referenceDate": row["reference_date"].isoformat()
+                                    if isinstance(row["reference_date"], pd.Timestamp)
+                                    else row["reference_date"],
+                                    "targetEndDate": row["target_end_date"].isoformat()
+                                    if isinstance(row["target_end_date"], pd.Timestamp)
+                                    else row["target_end_date"],
+                                    "score": float(row[val_col]),
+                                }
+                            )
+                        structured[model_name][loc_key][int(horizon)] = records
+        return structured
 
     def _track_file_written(self, file_path: Path):
         """Track files written for summary reporting."""

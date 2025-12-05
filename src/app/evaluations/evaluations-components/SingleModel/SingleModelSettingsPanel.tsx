@@ -2,13 +2,12 @@
 
 import React, { useState } from "react";
 
-import { modelColorMap, modelNames } from "@/types/common";
+import { selectModelColorMap, selectModelNames, selectLocationData } from "@/store/selectors";
 import { ForecastPeriodOption } from "@/types/domains/forecasting";
 
 import SettingsStateMap from "@/shared-components/SettingsStateMap";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectLocationData } from "@/store/selectors";
 
 import {
   updateEvaluationScores,
@@ -29,6 +28,9 @@ import { horizonSelectorsInfo } from "types/infobutton-content";
 const SingleModelSettingsPanel: React.FC = () => {
   /* Redux-Managed State Variables */
   const dispatch = useAppDispatch();
+  const modelColorMap = useAppSelector(selectModelColorMap);
+  const modelNames = useAppSelector(selectModelNames);
+  const locationData = useAppSelector(selectLocationData);
 
   const [scoreOptions] = useState(["WIS/Baseline", "MAPE"]);
 
@@ -43,8 +45,6 @@ const SingleModelSettingsPanel: React.FC = () => {
     evaluationsSingleModelViewSeasonId, // <-- Use seasonId from state
     evaluationSingleModelViewSeasonOptions,
   } = useAppSelector((state) => state.evaluationsSingleModelSettings);
-
-  const locationData = useAppSelector((state) => state.auxiliaryDataStore["locations"]);
 
   // State selection handlers (reused from forecast)
   const onStateSelectionChange = (stateNum: string) => {

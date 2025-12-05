@@ -1,7 +1,7 @@
 import { updateEvaluationSingleModelViewSelectedState } from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
 import { updateSelectedLocation } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectLocationData, selectMapData, selectSelectedLocationName } from "@/store/selectors/forecastSelectors";
+import { selectLocationData, selectMapData, selectSelectedLocationName } from "@/store/selectors";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import * as d3 from "d3";
 import { zoom, ZoomBehavior, zoomIdentity } from "d3-zoom";

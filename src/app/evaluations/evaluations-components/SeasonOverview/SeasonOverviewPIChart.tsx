@@ -6,7 +6,7 @@ import * as d3 from "d3";
 
 import { useAppSelector } from "@/store/hooks";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
-import { modelColorMap, modelNames } from "@/types/common";
+import { selectModelColorMap, selectModelNames } from "@/store/selectors";
 import { selectSeasonOverviewData, selectShouldUseJsonData } from "@/store/selectors/evaluationSelectors";
 
 // Interface for processed data structure
@@ -25,6 +25,9 @@ const SeasonOverviewPIChart: React.FC = () => {
   // Get data from selectors
   const shouldUseJsonData = useAppSelector(selectShouldUseJsonData);
   const seasonOverviewData = useAppSelector(selectSeasonOverviewData);
+  const modelColorMap = useAppSelector(selectModelColorMap);
+  const modelNames = useAppSelector(selectModelNames);
+  const { evaluationCoverageLevels } = useAppSelector((state) => state.configStore.config?.evaluationCoverageLevels || []);
 
   // Process the detailed coverage data using JSON when available, otherwise CSV fallback
   const processedData = useMemo(() => {
@@ -34,7 +37,26 @@ const SeasonOverviewPIChart: React.FC = () => {
       const results: ProcessedCoverageData[] = [];
 
       // Coverage levels mapping for JSON data
-      const coverageLevels = [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98];
+      // Use config levels if available, otherwise discover from data
+      let coverageLevels: number[] = [];
+      
+      if (evaluationCoverageLevels && evaluationCoverageLevels.length > 0) {
+        coverageLevels = evaluationCoverageLevels;
+      } else {
+        // Discover available levels from data instead of hardcoding
+        const discoveredLevels = new Set<number>();
+        Object.values(coverageData as any).forEach((modelData: any) => {
+          Object.values(modelData).forEach((horizonData: any) => {
+            Object.keys(horizonData).forEach((level) => {
+              const levelNum = parseInt(level, 10);
+              if (!isNaN(levelNum)) {
+                discoveredLevels.add(levelNum);
+              }
+            });
+          });
+        });
+        coverageLevels = Array.from(discoveredLevels).sort((a, b) => a - b);
+      }
 
       // Process each selected model
       for (const modelName of modelNames.filter((m) => seasonOverviewData.selectedModels.includes(m))) {
@@ -75,7 +97,7 @@ const SeasonOverviewPIChart: React.FC = () => {
       return results;
     }
     return [];
-  }, [shouldUseJsonData, seasonOverviewData]);
+  }, [shouldUseJsonData, seasonOverviewData, evaluationCoverageLevels]);
 
   const renderChart = useCallback(() => {
     if (!chartRef.current) return;

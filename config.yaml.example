@@ -38,8 +38,7 @@ link_to_hubverse_compatible_data: null
 # FORECAST PERIODS DEFINITIONS
 #==============================================================================
 # [REQUIRED] Define at least one time range for your forecasting data.
-# Each period acts as a filter. The dashboard will only show data that falls
-# within the selected period's start and end dates.
+# Each period acts as a filter, allow for quickly viewing pre-defined time periods of data in visualizations.
 #------------------------------------------------------------------------------
 
 forecast_periods:
@@ -105,7 +104,7 @@ spatial_config:
 
   # [OPTIONAL] Path to a custom GeoJSON or TopoJSON shape file.
   # Place the file in the /auxiliary-data/ directory.
-  # If null, a default US states map is used.
+  # If null, a default US states map is used (Located at /public/states-10m.json).
   custom_shape_file_name: null
 
   # [RECOMMENDED] Path to a CSV file mapping location codes to names.
@@ -308,6 +307,26 @@ default_selected_prediction_intervals_for_evaluations: ["50", "90"]
 # Relative WIS = (WIS of a model) / (WIS of this baseline model).
 # This model's data must exist in /model-output/, even if it's not in `available_models`.
 baseline_model_for_relative_WIS: "CovidHub-baseline"
+
+# [OPTIONAL] Define the coverage levels (in percentage) to be used for:
+# 1. Calculating coverage metrics (e.g., "Did the 95% PI cover the truth?")
+#    These values populate the "Coverage" chart in the evaluations section.
+#    Note: The necessary quantiles must be available in your model output data.
+#    (e.g., 95% requires 0.025 and 0.975 quantiles).
+#
+# If omitted, defaults to [50, 95].
+evaluation_coverage_levels: [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98]
+
+# [OPTIONAL] Define the intervals (in percentage) used to summarize the distribution of
+# evaluation scores (WIS, MAPE) in the boxplots.
+#
+# The boxplots will display:
+# - Median score
+# - Inner Box: Defined by the interval closest to 50% (e.g., 25th-75th percentile of scores)
+# - Whiskers: Defined by the largest specified interval (e.g., 5th-95th percentile of scores for 90%)
+#
+# If omitted, defaults to [50, 90].
+evaluation_score_boxplot_intervals: [50, 90]
 
 #==============================================================================
 # DASHBOARD DISPLAY SETTINGS

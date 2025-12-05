@@ -1,20 +1,12 @@
 // src/store/selector/forecastSelectors.ts
+// Selectors specific to the Forecast page
 
 import { createSelector } from '@reduxjs/toolkit';
 import { RootState } from '../index';
-import { TargetData } from '@/types/domains/forecasting';
-
+import { selectLocationMapping, selectTargets } from './sharedSelectors';
 // ============================================
-// Basic Selectors
+// Forecast-Specific Data Selectors
 // ============================================
-
-export const selectConfig = (state: RootState) => state.configStore.config;
-
-export const selectLocationMapping = (state: RootState) =>
-  state.configStore.config?.locationMapping ?? {};
-
-export const selectForecastPeriodOptions = (state: RootState) =>
-  state.auxiliaryDataStore.forecastPeriodOptions;
 
 export const selectTargetData = (state: RootState) => state.coreDataStore.targetData;
 
@@ -26,25 +18,12 @@ export const selectHistoricalTargetData = (state: RootState) =>
 export const selectForecastSettings = (state: RootState) => state.forecastSettings;
 
 // ============================================
-// Config-Derived Selectors
+// Forecast-Specific Computed Selectors
 // ============================================
 
-export const selectEvaluationsEnabled = (state: RootState) =>
-  state.configStore.config?.evaluationsEnabled ?? false;
-
-export const selectModelNames = (state: RootState) =>
-  Object.keys(state.configStore.config?.modelColorMap ?? {});
-
-export const selectModelColorMap = (state: RootState) =>
-  state.configStore.config?.modelColorMap ?? {};
-
-export const selectHorizons = (state: RootState) => state.configStore.config?.horizons ?? [];
-
-export const selectPredictionIntervalOptions = (state: RootState) =>
-  state.configStore.config?.predictionIntervals ?? [];
-
-export const selectTargets = (state: RootState) => state.configStore.config?.targets ?? [];
-
+/**
+ * Get the currently selected target from forecast settings
+ */
 export const selectCurrentTarget = createSelector(
   [selectTargets, (state: RootState) => state.forecastSettings.selectedTargetId],
   (targets, selectedTargetId) => {
@@ -52,33 +31,12 @@ export const selectCurrentTarget = createSelector(
   }
 );
 
+/**
+ * Get data value processing config for current target
+ */
 export const selectCurrentTargetDataProcessing = createSelector([selectCurrentTarget], (target) => {
   return target?.dataValueProcessing ?? null;
 });
-
-export const selectTimeUnit = (state: RootState) => state.configStore.config?.timeUnit ?? 7;
-
-// ============================================
-// Location Selectors
-// ============================================
-
-// Get list of location objects for dropdowns/maps
-export const selectLocationList = createSelector(
-  [selectLocationMapping],
-  (locationMapping): Array<{ code: string; name: string; nameAlt?: string }> => {
-    return Object.entries(locationMapping).map(([code, data]) => ({
-      code,
-      name: data.locationName,
-      nameAlt: data.locationNameAlt,
-    }));
-  }
-);
-
-// Get location name from code
-export const selectLocationName = (locationCode: string) =>
-  createSelector([selectLocationMapping], (locationMapping): string => {
-    return locationMapping[locationCode]?.locationName || locationCode;
-  });
 
 // ============================================
 // Target Data Selectors
@@ -254,45 +212,6 @@ export const selectHistoricalTimeSeries = createSelector(
     return result;
   }
 );
-
-// ============================================
-// Date Constraint Selectors
-// ============================================
-
-/**
- * Get the earliest and latest dates available in the data
- */
-export const selectDateConstraints = createSelector([selectConfig], (config) => {
-  return {
-    earliestDate: config?.earliestDate ? new Date(config.earliestDate) : new Date(),
-    latestDate: config?.latestDate ? new Date(config.latestDate) : new Date(),
-  };
-});
-
-// ============================================
-// Map Data Selectors
-// ============================================
-
-/**
- * Get map shape data (TopoJSON/GeoJSON)
- */
-export const selectMapData = (state: RootState) => state.auxiliaryDataStore.mapData;
-
-// ============================================
-// Legacy Compatibility Selectors
-// ============================================
-
-/**
- * Legacy selector for location data array (for compatibility with old components)
- * Returns location list derived from locationMapping
- */
-export const selectLocationData = createSelector([selectLocationList], (locationList) => {
-  if (!locationList || locationList.length === 0) {
-    console.warn('Warning: selectLocationData: No location data available');
-    return [];
-  }
-  return locationList;
-});
 
 /**
  * Get selected location name from selected location code

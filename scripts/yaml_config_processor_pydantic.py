@@ -296,6 +296,10 @@ class DashboardConfig(BaseModel):
     # Evaluation Configuration
     evaluations_prediction_intervals: Optional[List[PredictionIntervalConfig]] = None
     baseline_model_for_relative_WIS: str = Field(..., description="The model ID to use as a baseline for calculating Relative WIS. This model acts as a benchmark for performance comparison.")
+    evaluation_coverage_levels: List[int] = Field(
+        default=[50, 95],
+        description="List of integer percentages (0-100) for evaluation coverage calculation."
+    )
 
     # Default Selections
     default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(default=None, description="Default location to display when the dashboard loads. Can be a location code string or a code-name dictionary.")
@@ -307,6 +311,26 @@ class DashboardConfig(BaseModel):
 
     # UI Customizations
     ui_customization: UICustomizationConfig = Field(default_factory=UICustomizationConfig)
+
+    @field_validator("evaluation_coverage_levels")
+    @classmethod
+    def validate_coverage_levels(cls, v: List[int]) -> List[str]:
+        """Validate coverage levels and convert to list of strings"""
+        if not v:
+            # Return empty list or defaults depending on logic downstream, 
+            # but defaults are set in Field(). 
+            # However, if user provides empty list [], we might want defaults.
+            # But Field default only applies if key is missing.
+            return [] 
+        
+        for level in v:
+            if not isinstance(level, int):
+                raise ValueError(f"Coverage level must be an integer, got {type(level)}")
+            if level <= 0 or level >= 100:
+                raise ValueError(f"Coverage level must be between 0 and 100 (exclusive), got {level}")
+        
+        # Sort and convert to strings as requested
+        return sorted([str(level) for level in set(v)], key=lambda x: int(x))
 
     # ==========================================================================
     # Cross-Field Validators
@@ -447,6 +471,20 @@ class DashboardConfig(BaseModel):
         if self.evaluations_prediction_intervals:
             for interval in self.evaluations_prediction_intervals:
                 quantiles.update(interval.uses_output_type_ids)
+        
+        # Add quantiles needed for configured coverage levels
+        if self.evaluation_coverage_levels:
+            for level_str in self.evaluation_coverage_levels:
+                # level_str is now a string like "50", "95"
+                level = int(level_str)
+                alpha = 1.0 - (level / 100.0)
+                lower = alpha / 2.0
+                upper = 1.0 - (alpha / 2.0)
+                
+                # Round to reasonable precision to match data (usually 3 or 4 decimals)
+                # Hubverse data typically uses 0.025, 0.975, etc.
+                quantiles.add(f"{lower:.3g}")
+                quantiles.add(f"{upper:.3g}")
 
         return sorted(list(quantiles), key=lambda x: float(x))
 

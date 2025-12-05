@@ -2,7 +2,7 @@
 
 import React from "react";
 
-import { modelColorMap, modelNames } from "@/types/common";
+import { selectModelColorMap, selectModelNames } from "@/store/selectors";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -23,6 +23,8 @@ export const SeasonOverviewSettings = () => {
   const dispatch = useAppDispatch();
   const { evaluationSeasonOverviewHorizon, selectedDynamicTimePeriod, evalSOTimeRangeOptions, evaluationSeasonOverviewSelectedModels } =
     useAppSelector((state) => state.evaluationsSeasonOverviewSettings);
+  const modelColorMap = useAppSelector(selectModelColorMap);
+  const modelNames = useAppSelector(selectModelNames);
 
   // Check if "Last 2 Weeks" is selected
   const isLastTwoWeeksSelected = selectedDynamicTimePeriod === "last-2-weeks";

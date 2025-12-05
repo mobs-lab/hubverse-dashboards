@@ -5,6 +5,8 @@ import { setMapData } from '@/store/data-slices/domains/auxiliaryDataSlice';
 import { DashboardConfig, setDashboardConfig } from '@/store/data-slices/domains/configSlice';
 import { setAllCoreData } from '@/store/data-slices/domains/coreDataSlice';
 import { setHistoricalTargetData } from '@/store/data-slices/domains/historicalTargetDataSlice';
+import { initializeEvaluationSeasonOverviewSettings } from '@/store/data-slices/settings/SettingsSliceEvaluationSeasonOverview';
+import { initializeEvaluationSingleModelSettings } from '@/store/data-slices/settings/SettingsSliceEvaluationSingleModel';
 import { initializeForecastSettings } from '@/store/data-slices/settings/SettingsSliceForecastPage';
 import { useAppDispatch } from '@/store/hooks';
 import { LoadingStates } from '@/types/app';
@@ -18,6 +20,7 @@ interface DataContextType {
   updateLoadingState: (key: keyof LoadingStates, value: boolean) => void;
   initializationError: string | null;
   loadHistoricalDataIfNeeded: () => Promise<void>;
+  currentSeasonId: string;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -25,6 +28,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const dispatch = useAppDispatch();
   const [initializationError, setInitializationError] = useState<string | null>(null);
+  const [currentSeasonId, setCurrentSeasonId] = useState<string>('');
   const initStartedRef = useRef(false);
 
   const [loadingStates, setLoadingStates] = useState<LoadingStates>({
@@ -98,7 +102,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadTargetData = async (): Promise<any> => {
     const dataPath = getDataPath();
     // Fetch from root data directory, not forecastPeriod subdirectory
-    const response = await fetch(`${dataPath}/targetData.json`);
+    const response = await fetch(`${dataPath}/forecast/targetData.json`);
     if (!response.ok) {
       throw new Error(`Failed to load target data`);
     }
@@ -110,7 +114,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadModelOutput = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/modelOutputData.json`);
+    const response = await fetch(`${dataPath}/forecast/modelOutputData.json`);
     if (!response.ok) {
       throw new Error(`Failed to load model output`);
     }
@@ -122,7 +126,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadHistoricalTargetData = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/historical-target-data.json`);
+    const response = await fetch(`${dataPath}/forecast/historical-target-data.json`);
     if (!response.ok) {
       throw new Error(`Failed to load historical target data: ${response.statusText}`);
     }
@@ -256,6 +260,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       predictionIntervals,
       defaultPredictionIntervals,
 
+      // Evaluation Configuration
+      evaluationCoverageLevels: metadata.evaluations?.coverageLevels || [],
+      evaluationAvailablePeriodIds: metadata.evaluations?.availablePeriodIds || [],
+
       // Default selections
       defaultLocation,
       defaultHorizon,
@@ -303,6 +311,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Step 4: Dispatch config to Redux
       dispatch(setDashboardConfig(config));
+      
+      // Set current season ID (default forecast period)
+      setCurrentSeasonId(config.defaultForecastPeriodId || '');
 
       updateLoadingState('forecastPeriodOptions', false);
       updateLoadingState('locations', false);
@@ -358,6 +369,68 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
       }
 
+      // Step 8: Initialize evaluation settings if evaluations are enabled
+      if (config.evaluationsEnabled) {
+        logger.log('Initializing evaluation settings...');
+        
+        const models = Object.keys(config.modelColorMap);
+        const defaultLocation = config.defaultLocation || 
+          (config.isSingleLocation ? config.singleLocationCode : 'US') || 'US';
+        const locationName = config.locationMapping[defaultLocation]?.locationName || defaultLocation;
+        
+        // Build target options for evaluation target selector
+        const targetOptions = config.targets.map(t => ({
+          targetId: t.targetId,
+          displayString: t.displayString,
+        }));
+        
+        // Build time range options from forecast periods
+        const timeRangeOptions: any[] = Object.values(config.forecastPeriodOptions).map(period => ({
+          name: period.forecastPeriodId,
+          displayString: period.displayString,
+          isDynamic: false,
+          startDate: period.startDate,
+          endDate: period.endDate,
+        }));
+        
+        // Initialize Season Overview settings
+        dispatch(
+          initializeEvaluationSeasonOverviewSettings({
+            models,
+            timeRangeOptions,
+            defaultModel: models[0],
+            targets: targetOptions,
+            defaultTargetId: config.defaultTargetId,
+            defaultPeriodId: config.defaultForecastPeriodId,
+            horizons: config.horizons,
+          })
+        );
+        
+        // Build season options for Single Model view
+        const seasonOptions = Object.values(config.forecastPeriodOptions).map((period, index) => ({
+          forecastPeriodID: period.forecastPeriodId,
+          displayString: period.displayString,
+          timeValue: period.timeValue,
+          startDate: period.startDate,
+          endDate: period.endDate,
+          index,
+        }));
+        
+        // Initialize Single Model settings
+        dispatch(
+          initializeEvaluationSingleModelSettings({
+            locationCode: defaultLocation,
+            locationName,
+            defaultModel: models[0],
+            seasonOptions,
+            defaultSeasonId: config.defaultForecastPeriodId || seasonOptions[0]?.forecastPeriodID || '',
+            targets: targetOptions,
+            defaultTargetId: config.defaultTargetId,
+            defaultHorizon: config.defaultHorizon,
+          })
+        );
+      }
+
       logger.info('Initialization complete!');
     } catch (error) {
       logger.error('Failed to initialize data:', error);
@@ -384,6 +457,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateLoadingState,
         initializationError,
         loadHistoricalDataIfNeeded,
+        currentSeasonId,
       }}
     >
       {/* Show error message about initialization process and offer for user to reload */}

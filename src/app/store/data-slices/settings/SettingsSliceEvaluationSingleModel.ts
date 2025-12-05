@@ -4,9 +4,13 @@ import { ForecastPeriodOption } from '@/types/domains/forecasting';
 import {parseISO} from "date-fns";
 
 interface EvaluationsSettingsState {
+    /* Target Selection */
+    selectedTargetId: string;
+    availableTargets: { targetId: string; displayString: string }[];
+
     /* Location Related */
-    evaluationsSingleModelViewSelectedStateName: string; // Single model view's selected U.S. State code "US" or something like "05"
-    evaluationsSingleModelViewSelectedStateCode: string;
+    evaluationsSingleModelViewSelectedStateName: string; // Single model view's selected location name
+    evaluationsSingleModelViewSelectedStateCode: string; // Location code
 
     /* Model Related*/
     evaluationsSingleModelViewModel: string; //Single Model view page allows only 1 model to be selected at a time
@@ -21,17 +25,21 @@ interface EvaluationsSettingsState {
 }
 
 const initialState: EvaluationsSettingsState = {
+    /* Target Defaults */
+    selectedTargetId: '',
+    availableTargets: [],
+
     /* Location Defaults */
     evaluationsSingleModelViewSelectedStateName: "US",
     evaluationsSingleModelViewSelectedStateCode: "US",
 
     /* Model Defaults*/
-    evaluationsSingleModelViewModel: "MOBS-GLEAM_FLUH",
+    evaluationsSingleModelViewModel: "",
     evaluationSingleModelViewHorizon: 0,
-    evaluationSingleModelViewScoresOption: "MAPE",
+    evaluationSingleModelViewScoresOption: "MAPE", // TODO: Make configurable via config.yaml
 
     /* Time Range Defaults*/
-    evaluationsSingleModelViewSeasonId: "", // <-- Changed from dateRange, will be set by DataProvider
+    evaluationsSingleModelViewSeasonId: "", // Will be set by DataProvider
     evaluationsSingleModelViewDateStart: parseISO("2023-08-01T12:00:00Z"),
     evaluationSingleModelViewDateEnd: parseISO("2024-05-04T12:00:00Z"),
     evaluationSingleModelViewSeasonOptions: [],
@@ -41,6 +49,54 @@ const evaluationsSingleModelSettingsSlice = createSlice({
     name: 'evaluations-single-model-settings-slice',
     initialState,
     reducers: {
+        // Initialize evaluation single model settings from config
+        initializeEvaluationSingleModelSettings: (
+            state,
+            action: PayloadAction<{
+                locationCode: string;
+                locationName: string;
+                defaultModel: string;
+                seasonOptions: ForecastPeriodOption[];
+                defaultSeasonId?: string;
+                targets?: { targetId: string; displayString: string }[];
+                defaultTargetId?: string;
+                defaultHorizon?: number;
+            }>
+        ) => {
+            const { locationCode, locationName, defaultModel, seasonOptions, defaultSeasonId, targets, defaultTargetId, defaultHorizon } = action.payload;
+            
+            state.evaluationsSingleModelViewSelectedStateCode = locationCode;
+            state.evaluationsSingleModelViewSelectedStateName = locationName;
+            state.evaluationsSingleModelViewModel = defaultModel;
+            state.evaluationSingleModelViewSeasonOptions = seasonOptions;
+            
+            // Set default season if provided
+            if (defaultSeasonId) {
+                state.evaluationsSingleModelViewSeasonId = defaultSeasonId;
+                const selectedSeason = seasonOptions.find(s => s.forecastPeriodID === defaultSeasonId);
+                if (selectedSeason) {
+                    state.evaluationsSingleModelViewDateStart = selectedSeason.startDate;
+                    state.evaluationSingleModelViewDateEnd = selectedSeason.endDate;
+                }
+            }
+            
+            // Set available targets and default selection
+            if (targets && targets.length > 0) {
+                state.availableTargets = targets;
+                state.selectedTargetId = defaultTargetId || targets[0].targetId;
+            }
+            
+            // Set default horizon if provided
+            if (defaultHorizon !== undefined) {
+                state.evaluationSingleModelViewHorizon = defaultHorizon;
+            }
+        },
+        
+        // Set selected target
+        setSingleModelSelectedTargetId: (state, action: PayloadAction<string>) => {
+            state.selectedTargetId = action.payload;
+        },
+        
         updateEvaluationSingleModelViewSelectedState: (state, action: PayloadAction<{
             stateName: string;
             stateNum: string
@@ -76,14 +132,15 @@ const evaluationsSingleModelSettingsSlice = createSlice({
 });
 
 export const {
+    initializeEvaluationSingleModelSettings,
+    setSingleModelSelectedTargetId,
     updateEvaluationsSingleModelViewModel,
     updateEvaluationSingleModelViewHorizon,
     updateEvaluationSingleModelViewSeasonOptions,
     updateEvaluationSingleModelViewSelectedState,
     updateEvaluationSingleModelViewDateStart,
     updateEvaluationSingleModelViewDateEnd,
-    updateEvaluationsSingleModelViewSeasonId, // <-- Renamed
-    /* TODO: uncomment this after scores options are implemented */
+    updateEvaluationsSingleModelViewSeasonId,
     updateEvaluationScores
 } = evaluationsSingleModelSettingsSlice.actions;
 

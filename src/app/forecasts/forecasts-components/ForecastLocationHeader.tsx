@@ -1,5 +1,5 @@
 import { useAppSelector } from '@/store/hooks';
-import { selectSelectedLocationName, selectConfig } from '@/store/selectors/forecastSelectors';
+import { selectSelectedLocationName, selectConfig } from '@/store/selectors';
 import React from 'react';
 
 const ForecastLocationHeader: React.FC = () => {

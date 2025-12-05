@@ -24,7 +24,7 @@ import {
   selectModelNames,
   selectPredictionIntervalOptions,
   selectTargets,
-} from '@/store/selectors/forecastSelectors';
+} from '@/store/selectors';
 import { Radio, Typography } from '@/styles/material-tailwind-wrapper';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -271,7 +271,7 @@ const SettingsPanel: React.FC = () => {
           Models
         </Typography>
         <div className="relative">
-          <div 
+          <div
             className={`space-y-2 overflow-y-auto pr-1 transition-all duration-300 ${
               isModelListExpanded ? 'max-h-96' : 'max-h-40'
             }`}
@@ -420,7 +420,11 @@ const SettingsPanel: React.FC = () => {
           <InfoButton
             content={
               uiConfig?.forecastPage.infoButtons.horizonInfo?.content ? (
-                <div dangerouslySetInnerHTML={{ __html: uiConfig.forecastPage.infoButtons.horizonInfo.content }} />
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: uiConfig.forecastPage.infoButtons.horizonInfo.content,
+                  }}
+                />
               ) : (
                 horizonSelectorsInfo
               )
