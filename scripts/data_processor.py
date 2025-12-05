@@ -20,17 +20,29 @@ logger = logging.getLogger(__name__)
 
 
 class NpEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle NumPy and Pandas types."""
+    """Custom JSON encoder to handle NumPy and Pandas types.
+    
+    Handles special float values (NaN, Infinity) that are not valid JSON
+    by converting them to None (which becomes null in JSON).
+    """
 
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
         if isinstance(obj, np.floating):
+            # Handle NaN and Infinity - convert to None for valid JSON
+            if np.isnan(obj) or np.isinf(obj):
+                return None
             return float(obj)
         if isinstance(obj, np.ndarray):
-            return obj.tolist()
+            # Convert array, handling NaN/Inf values
+            return [None if (isinstance(x, float) and (np.isnan(x) or np.isinf(x))) else x for x in obj.tolist()]
         if isinstance(obj, pd.Timestamp):
             return obj.isoformat()
+        # Handle regular Python float NaN/Inf
+        if isinstance(obj, float):
+            if np.isnan(obj) or np.isinf(obj):
+                return None
         return super(NpEncoder, self).default(obj)
 
 
@@ -1394,13 +1406,23 @@ class DataProcessor:
                     precalculated["locationMap_aggregates"][period_id][target_id][metric_name] = {}
 
                 for model_name in target_df["model"].unique():
-                    model_df = target_df[target_df["model"] == model_name]
+                    model_df = target_df[target_df["model"] == model_name].copy()
                     precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name] = {}
 
                     if "location" in model_df.columns and "horizon" in model_df.columns:
+                        # Filter out NaN and Infinity values before aggregation
+                        model_df = model_df[np.isfinite(model_df[val_col])]
+                        
+                        if model_df.empty:
+                            continue
+                            
                         grouped = model_df.groupby(["location", "horizon"])[val_col].agg(["sum", "count"]).reset_index()
 
                         for _, row in grouped.iterrows():
+                            # Skip if sum is not finite (shouldn't happen after filtering, but extra safety)
+                            if not np.isfinite(row["sum"]):
+                                continue
+                                
                             loc = str(row["location"]).zfill(2)
                             horizon = str(int(row["horizon"]))
 
@@ -1535,18 +1557,32 @@ class DataProcessor:
             
         Returns:
             dict: BoxplotStats with q05, q25, median, q75, q95, min, max, mean, count
+            Returns None if no valid data is available.
         """
         if not location_averages or len(location_averages) == 0:
             return None
 
-        scores = np.array(location_averages)
-        scores = scores[~np.isnan(scores)]
+        scores = np.array(location_averages, dtype=float)
+        
+        # Filter out NaN and Infinity values
+        valid_mask = np.isfinite(scores)
+        scores = scores[valid_mask]
         
         if len(scores) == 0:
             return None
 
         # Calculate percentiles from the distribution of location averages
         percentiles = np.percentile(scores, [5, 25, 50, 75, 95])
+        
+        # Verify all results are finite before returning
+        min_val = float(np.min(scores))
+        max_val = float(np.max(scores))
+        mean_val = float(np.mean(scores))
+        
+        # Double-check that our computed values are valid
+        if not all(np.isfinite([min_val, max_val, mean_val, *percentiles])):
+            logger.warning(f"Boxplot stats computation produced non-finite values, skipping")
+            return None
 
         stats = {
             "q05": float(percentiles[0]),
@@ -1554,9 +1590,9 @@ class DataProcessor:
             "median": float(percentiles[2]),
             "q75": float(percentiles[3]),
             "q95": float(percentiles[4]),
-            "min": float(np.min(scores)),
-            "max": float(np.max(scores)),
-            "mean": float(np.mean(scores)),
+            "min": min_val,
+            "max": max_val,
+            "mean": mean_val,
             "count": int(len(scores)),
         }
 
@@ -1665,7 +1701,10 @@ class DataProcessor:
         logger.info("All output files written successfully!")
 
     def _structure_raw_scores(self, df: pd.DataFrame, val_col: str) -> dict:
-        """Helper to structure raw scores for JSON export."""
+        """Helper to structure raw scores for JSON export.
+        
+        Filters out records with NaN or Infinity scores to ensure valid JSON output.
+        """
         structured = {}
         for model_name in df["model"].unique():
             model_df = df[df["model"] == model_name]
@@ -1681,6 +1720,10 @@ class DataProcessor:
                         h_df = loc_df[loc_df["horizon"] == horizon]
                         records = []
                         for _, row in h_df.iterrows():
+                            score_val = row[val_col]
+                            # Skip records with NaN or Infinity scores
+                            if pd.isna(score_val) or not np.isfinite(score_val):
+                                continue
                             records.append(
                                 {
                                     "referenceDate": row["reference_date"].isoformat()
@@ -1689,10 +1732,12 @@ class DataProcessor:
                                     "targetEndDate": row["target_end_date"].isoformat()
                                     if isinstance(row["target_end_date"], pd.Timestamp)
                                     else row["target_end_date"],
-                                    "score": float(row[val_col]),
+                                    "score": float(score_val),
                                 }
                             )
-                        structured[model_name][loc_key][int(horizon)] = records
+                        # Only add horizon key if there are valid records
+                        if records:
+                            structured[model_name][loc_key][int(horizon)] = records
         return structured
 
     def _track_file_written(self, file_path: Path):

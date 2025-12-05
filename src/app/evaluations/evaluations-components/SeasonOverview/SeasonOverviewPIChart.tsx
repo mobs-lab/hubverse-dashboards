@@ -7,7 +7,7 @@ import * as d3 from "d3";
 import { useAppSelector } from "@/store/hooks";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import { selectModelColorMap, selectModelNames } from "@/store/selectors";
-import { selectSeasonOverviewData, selectShouldUseJsonData } from "@/store/selectors/evaluationSelectors";
+import { selectSeasonOverviewData } from "@/store/selectors/evaluationSelectors";
 
 // Interface for processed data structure
 interface ProcessedCoverageData {
@@ -23,15 +23,14 @@ const SeasonOverviewPIChart: React.FC = () => {
   const chartRef = useRef<SVGSVGElement>(null);
 
   // Get data from selectors
-  const shouldUseJsonData = useAppSelector(selectShouldUseJsonData);
   const seasonOverviewData = useAppSelector(selectSeasonOverviewData);
   const modelColorMap = useAppSelector(selectModelColorMap);
   const modelNames = useAppSelector(selectModelNames);
   const { evaluationCoverageLevels } = useAppSelector((state) => state.configStore.config?.evaluationCoverageLevels || []);
 
-  // Process the detailed coverage data using JSON when available, otherwise CSV fallback
+  // Process the detailed coverage data from JSON
   const processedData = useMemo(() => {
-    if (shouldUseJsonData && seasonOverviewData) {
+    if (seasonOverviewData) {
       // Use JSON data structure
       const coverageData = seasonOverviewData.coverageData;
       const results: ProcessedCoverageData[] = [];
@@ -97,7 +96,7 @@ const SeasonOverviewPIChart: React.FC = () => {
       return results;
     }
     return [];
-  }, [shouldUseJsonData, seasonOverviewData, evaluationCoverageLevels]);
+  }, [seasonOverviewData, evaluationCoverageLevels, modelNames]);
 
   const renderChart = useCallback(() => {
     if (!chartRef.current) return;

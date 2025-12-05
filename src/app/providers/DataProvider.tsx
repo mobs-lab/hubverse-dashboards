@@ -30,6 +30,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [initializationError, setInitializationError] = useState<string | null>(null);
   const [currentSeasonId, setCurrentSeasonId] = useState<string>('');
   const initStartedRef = useRef(false);
+  
+  // Track loading attempts to prevent repetitive fetches
+  const historicalDataAttemptedRef = useRef(false);
 
   const [loadingStates, setLoadingStates] = useState<LoadingStates>({
     forecastPeriodOptions: true,
@@ -48,52 +51,87 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * Lazy load historical target data when toggle is enabled
+   * Uses a ref to prevent repetitive fetch attempts on failure
    */
   const loadHistoricalDataIfNeeded = useCallback(async () => {
-    // Check if already loaded
+    // Guard: Already attempted (success or failure)
+    if (historicalDataAttemptedRef.current) {
+      return;
+    }
+
+    // Guard: Currently loading
     if (loadingStates.historicalTargetData) {
       return;
     }
+
+    // Mark as attempted immediately to prevent concurrent calls
+    historicalDataAttemptedRef.current = true;
 
     try {
       updateLoadingState('historicalTargetData', true);
       logger.info('Loading historical target data...');
 
       const historicalData = await loadHistoricalTargetData();
-      dispatch(setHistoricalTargetData(historicalData));
-
-      logger.info('Historical target data loaded successfully');
-      updateLoadingState('historicalTargetData', false);
+      
+      // Validate data
+      if (historicalData && typeof historicalData === 'object') {
+        dispatch(setHistoricalTargetData(historicalData));
+        logger.info('Historical target data loaded successfully');
+      } else {
+        logger.warn('Historical target data is empty or invalid format');
+      }
     } catch (error) {
+      // Log error but don't break the app - historical data is optional
       logger.error('Failed to load historical target data:', error);
+      // Continue with empty data - components will handle null gracefully
+    } finally {
       updateLoadingState('historicalTargetData', false);
-      // Don't throw error - historical data is optional
     }
   }, [dispatch, loadingStates.historicalTargetData, updateLoadingState]);
+
+  /**
+   * Safe JSON fetch helper - handles network errors and JSON parsing errors
+   */
+  const safeFetch = async (url: string, errorContext: string): Promise<any> => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error(`${errorContext}: Invalid JSON response`);
+      }
+      throw new Error(`${errorContext}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
 
   /**
    * Load and parse dashboard metadata from Python processor
    */
   const loadMetadata = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/metadata.json`);
-    if (!response.ok) {
-      throw new Error(`Failed to load metadata: ${response.statusText}`);
-    }
-    return response.json();
+    return safeFetch(`${dataPath}/metadata.json`, 'Failed to load metadata');
   };
 
   /**
    * Load map shape data (TopoJSON/GeoJSON)
    */
   const loadMapShapeData = async (shapeFileName?: string): Promise<any> => {
-    const fileName = shapeFileName || 'states-10m.json';
-    const response = await fetch(`/${fileName}`);
-    if (!response.ok) {
-      logger.warn(`Failed to load map data: ${response.statusText}`);
-      return null;
+    try {
+      const fileName = shapeFileName || 'states-10m.json';
+      const response = await fetch(`/${fileName}`);
+      if (!response.ok) {
+        logger.warn(`Failed to load map data: ${response.statusText}`);
+        return null;
+      }
+      return response.json();
+    } catch (error) {
+      logger.warn('Failed to load map shape data:', error);
+      return null; // Map data is optional, don't break the app
     }
-    return response.json();
   };
 
   /**
@@ -101,12 +139,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadTargetData = async (): Promise<any> => {
     const dataPath = getDataPath();
-    // Fetch from root data directory, not forecastPeriod subdirectory
-    const response = await fetch(`${dataPath}/forecast/targetData.json`);
-    if (!response.ok) {
-      throw new Error(`Failed to load target data`);
-    }
-    return response.json();
+    return safeFetch(`${dataPath}/forecast/targetData.json`, 'Failed to load target data');
   };
 
   /**
@@ -114,11 +147,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadModelOutput = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/forecast/modelOutputData.json`);
-    if (!response.ok) {
-      throw new Error(`Failed to load model output`);
-    }
-    return response.json();
+    return safeFetch(`${dataPath}/forecast/modelOutputData.json`, 'Failed to load model output');
   };
 
   /**
@@ -126,11 +155,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadHistoricalTargetData = async (): Promise<any> => {
     const dataPath = getDataPath();
-    const response = await fetch(`${dataPath}/forecast/historical-target-data.json`);
-    if (!response.ok) {
-      throw new Error(`Failed to load historical target data: ${response.statusText}`);
-    }
-    return response.json();
+    return safeFetch(`${dataPath}/forecast/historical-target-data.json`, 'Failed to load historical target data');
   };
 
   /**

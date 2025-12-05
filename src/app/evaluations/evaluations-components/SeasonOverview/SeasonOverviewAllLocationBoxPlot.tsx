@@ -7,7 +7,7 @@ import { useAppSelector } from "@/store/hooks";
 import { selectModelColorMap, selectModelNames } from "@/store/selectors";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 
-import { selectSeasonOverviewData, selectShouldUseJsonData } from "@/store/selectors/evaluationSelectors";
+import { selectSeasonOverviewData, selectIQRDataForBoxplot } from "@/store/selectors/evaluationSelectors";
 import { BoxplotStats } from "@/types/domains/evaluations";
 
 // Options for controlling to which direction tooltip appears relative to the mouse pointer
@@ -46,93 +46,59 @@ const SeasonOverviewAllLocationBoxPlot: React.FC<SeasonOverviewLocationAggregate
   const chartRef = useRef<SVGSVGElement>(null);
 
   // Get data from selectors
-  const shouldUseJsonData = useAppSelector(selectShouldUseJsonData);
   const seasonOverviewData = useAppSelector(selectSeasonOverviewData);
+  // Use the IQR selector that handles both single-horizon (precalculated) and multi-horizon (on-the-fly) cases
+  const iqrDataResult = useAppSelector(selectIQRDataForBoxplot);
   const modelColorMap = useAppSelector(selectModelColorMap);
   const modelNames = useAppSelector(selectModelNames);
 
   const { wisChartScaleType, mapeChartScaleType } = useAppSelector((state) => state.evaluationsSeasonOverviewSettings);
-  const evaluationScoreBoxplotIntervals = useAppSelector((state) => state.configStore.config?.evaluationScoreBoxplotIntervals || []);
 
   // Process evaluation score data based on selected criteria, enhanced with memoization
   const processedData = useMemo(() => {
-    if (shouldUseJsonData && seasonOverviewData) {
-      const metric = type === "wis" ? "WIS/Baseline" : "MAPE";
-      const results: IQRData[] = [];
+    if (!seasonOverviewData || !iqrDataResult) {
+      return [];
+    }
+    
+    const metric = type === "wis" ? "WIS/Baseline" : "MAPE";
+    const results: IQRData[] = [];
 
-      if (!seasonOverviewData.iqrData) {
-        return results;
-      }
-
-      // Parse user-selected key to string then send to selector
-      const horizonKey = seasonOverviewData.horizons
-        .slice()
-        .sort((a, b) => a - b)
-        .join(",");
-
-      // Default targets if config missing
-      const targetBoxLevel = evaluationScoreBoxplotIntervals && evaluationScoreBoxplotIntervals.length > 0 ? Math.min(...evaluationScoreBoxplotIntervals) : 50;
-      const targetWhiskerLevel = evaluationScoreBoxplotIntervals && evaluationScoreBoxplotIntervals.length > 0 ? Math.max(...evaluationScoreBoxplotIntervals) : 90;
-
-      // Final processed data output should be grouped by model
-      for (const modelName of modelNames.filter((m) => seasonOverviewData.selectedModels.includes(m))) {
-        const iqrData = (seasonOverviewData.iqrData as any)[metric]?.[modelName];
-        if (!iqrData) continue;
-
-        const finalDataForModel: BoxplotStats = iqrData?.[horizonKey];
-
-        if (finalDataForModel && finalDataForModel.intervals) {
-          const availableLevels = Object.keys(finalDataForModel.intervals).map(Number).sort((a, b) => a - b);
-          
-          if (availableLevels.length === 0) continue;
-
-          // Find level for Box (target usually 50% or smallest config)
-          const boxLevelNum = availableLevels.includes(targetBoxLevel) 
-            ? targetBoxLevel
-            : availableLevels.reduce((prev, curr) => Math.abs(curr - targetBoxLevel) < Math.abs(prev - targetBoxLevel) ? curr : prev);
-            
-          // Find level for Whiskers (target largest config)
-          const whiskerLevelNum = availableLevels.includes(targetWhiskerLevel)
-            ? targetWhiskerLevel
-            : availableLevels.reduce((prev, curr) => Math.abs(curr - targetWhiskerLevel) < Math.abs(prev - targetWhiskerLevel) ? curr : prev);
-          
-          const boxInterval = finalDataForModel.intervals[String(boxLevelNum)];
-          const whiskerInterval = finalDataForModel.intervals[String(whiskerLevelNum)];
-
-          results.push({
-            model: modelName,
-            lowerWhisker: Number(whiskerInterval.lower.toFixed(3)),
-            lowerBox: Number(boxInterval.lower.toFixed(3)),
-            median: Number(finalDataForModel.median.toFixed(3)),
-            upperBox: Number(boxInterval.upper.toFixed(3)),
-            upperWhisker: Number(whiskerInterval.upper.toFixed(3)),
-            count: finalDataForModel.count,
-            boxLevel: String(boxLevelNum),
-            whiskerLevel: String(whiskerLevelNum)
-          });
-        } else if (finalDataForModel && (finalDataForModel as any).q05 !== undefined) {
-           // Fallback for old data structure if needed
-           results.push({
-            model: modelName,
-            lowerWhisker: Number((finalDataForModel as any).q05.toFixed(3)),
-            lowerBox: Number((finalDataForModel as any).q25.toFixed(3)),
-            median: Number(finalDataForModel.median.toFixed(3)),
-            upperBox: Number((finalDataForModel as any).q75.toFixed(3)),
-            upperWhisker: Number((finalDataForModel as any).q95.toFixed(3)),
-            count: finalDataForModel.count,
-            boxLevel: "50",
-            whiskerLevel: "95"
-          });
-        } else {
-          console.warn(
-            `DEBUG: Seaon Overview/LocationAggregationBoxPlot/processedData()/No pre-calculated IQR data for ${modelName} matching horizons: ${horizonKey}.`
-          );
-        }
-      }
+    // Get the IQR data from the selector (handles both precalculated and on-the-fly calculation)
+    const metricData = iqrDataResult.data[metric];
+    if (!metricData) {
+      console.debug(`No metric data available for ${metric}`);
       return results;
     }
-    return [];
-  }, [shouldUseJsonData, seasonOverviewData, type, evaluationScoreBoxplotIntervals]);
+
+    // Iterate over selected models in display order (filtered from modelNames to maintain order)
+    // Normalize strings for comparison
+    const selectedModelSet = new Set(seasonOverviewData.selectedModels.map(m => String(m)));
+    const orderedSelectedModels = modelNames.filter(m => selectedModelSet.has(m));
+
+    for (const modelName of orderedSelectedModels) {
+      const finalDataForModel: BoxplotStats | null = metricData[modelName];
+
+      // Use the BoxplotStats structure with fixed percentiles: q05, q25, median, q75, q95
+      if (finalDataForModel && finalDataForModel.q05 !== undefined) {
+        results.push({
+          model: modelName,
+          lowerWhisker: Number(finalDataForModel.q05.toFixed(3)),
+          lowerBox: Number(finalDataForModel.q25.toFixed(3)),
+          median: Number(finalDataForModel.median.toFixed(3)),
+          upperBox: Number(finalDataForModel.q75.toFixed(3)),
+          upperWhisker: Number(finalDataForModel.q95.toFixed(3)),
+          count: finalDataForModel.count,
+          boxLevel: "50",    // Fixed: q25-q75 box
+          whiskerLevel: "95" // Fixed: q05-q95 whiskers
+        });
+      } else {
+        console.debug(
+          `No IQR data available for ${modelName} (type: ${iqrDataResult.type}, horizons: ${seasonOverviewData.horizons.join(',')})`
+        );
+      }
+    }
+    return results;
+  }, [seasonOverviewData, iqrDataResult, type, modelNames]);
 
   // Create tooltip element with initial hidden state
   const createTooltip = (svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) => {

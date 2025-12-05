@@ -4,7 +4,7 @@
 import { useDataContext } from "@/providers/DataProvider";
 import { useAppSelector } from "@/store/hooks";
 import { selectLocationData } from "@/store/selectors";
-import { selectSeasonOverviewData, selectShouldUseJsonData } from "@/store/selectors/evaluationSelectors";
+import { selectSeasonOverviewData } from "@/store/selectors/evaluationSelectors";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import * as d3 from "d3";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,7 +23,6 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
   const { mapData } = useDataContext();
 
   // Get data from selectors
-  const shouldUseJsonData = useAppSelector(selectShouldUseJsonData);
   const seasonOverviewData = useAppSelector(selectSeasonOverviewData);
 
   const locationData = useAppSelector(selectLocationData);
@@ -34,7 +33,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
 
   // Calculate location performance data based on selected criteria
   const modelPerformanceData = useMemo(() => {
-    if (shouldUseJsonData && seasonOverviewData) {
+    if (seasonOverviewData) {
       // Use JSON data structure
       const locationPerformanceMap = new Map();
       const locationMapData = (seasonOverviewData.locationMapData as any)[mapSelectedScoringOption] || {};
@@ -60,7 +59,8 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
       });
       return locationPerformanceMap;
     }
-  }, [shouldUseJsonData, seasonOverviewData, mapSelectedModel, mapSelectedScoringOption]);
+    return new Map();
+  }, [seasonOverviewData, mapSelectedModel, mapSelectedScoringOption]);
 
   const createTooltip = (svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) => {
     return svg.append("g").attr("class", "soStateMap-tooltip").style("opacity", 0).style("pointer-style", "none");

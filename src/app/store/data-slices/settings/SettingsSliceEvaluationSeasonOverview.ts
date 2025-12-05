@@ -9,7 +9,7 @@ interface EvaluationsSeasonOverviewSettingsState {
 
   /* Model Related*/
   evaluationSeasonOverviewHorizon: number[]; //how many weeks ahead from reference date (matching surveillance week's number) should we look for as target_end_date in predictions to draw the intervals
-  evaluationSeasonOverviewSelectedModels: String[];
+  evaluationSeasonOverviewSelectedModels: string[];
 
   /* Time Range Related */
   evalSOTimeRangeOptions: EvaluationSeasonOverviewTimeRangeOption[];

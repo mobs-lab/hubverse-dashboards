@@ -6,7 +6,7 @@ import {
   addRawScores,
 } from '@/store/data-slices/domains/evaluationDataSlice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 interface UseEvaluationsDataReturn {
   isLoading: boolean;
@@ -40,7 +40,7 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
   const selectedSeasonOverviewPeriod = useAppSelector(
     (state) => state.evaluationsSeasonOverviewSettings.selectedDynamicTimePeriod
   );
-  
+
   // Get currently selected period from Single Model settings
   const selectedSingleModelPeriod = useAppSelector(
     (state) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSeasonId
@@ -49,23 +49,53 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Track failed periods to prevent repetitive fetch attempts
+  // Using refs to persist across renders without causing re-renders
+  const failedAggregatePeriodsRef = useRef<Set<string>>(new Set());
+  const failedRawScorePeriodsRef = useRef<Set<string>>(new Set());
+
+  // Track in-flight requests to prevent duplicate concurrent fetches
+  const aggregatesLoadingRef = useRef<Set<string>>(new Set());
+  const rawScoresLoadingRef = useRef<Set<string>>(new Set());
+
   /**
    * Load aggregates (IQR, locationMap_aggregates, detailedCoverage_aggregates) for a specific period
    */
   const loadAggregatesForPeriod = useCallback(
     async (periodId: string) => {
-      // Check if already loaded
-      if (loadedPeriods.includes(periodId)) {
-        console.log(`Aggregates for period ${periodId} already loaded, skipping`);
+      // Guard: No period ID provided
+      if (!periodId) {
+        console.warn('No period ID provided for loading aggregates');
         return;
       }
 
-      // Check if period is available
+      // Guard: Already loaded successfully
+      if (loadedPeriods.includes(periodId)) {
+        console.debug(`Aggregates for period ${periodId} already loaded, skipping`);
+        return;
+      }
+
+      // Guard: Previously failed - don't retry automatically
+      if (failedAggregatePeriodsRef.current.has(periodId)) {
+        console.debug(`Aggregates for period ${periodId} previously failed, skipping`);
+        return;
+      }
+
+      // Guard: Currently loading - prevent duplicate fetches
+      if (aggregatesLoadingRef.current.has(periodId)) {
+        console.debug(`Aggregates for period ${periodId} already loading, skipping`);
+        return;
+      }
+
+      // Guard: Period not in available list (if list is provided)
       if (availablePeriodIds.length > 0 && !availablePeriodIds.includes(periodId)) {
         console.warn(`Period ${periodId} not in available period IDs:`, availablePeriodIds);
+        failedAggregatePeriodsRef.current.add(periodId);
         return;
       }
 
+      // Mark as loading
+      aggregatesLoadingRef.current.add(periodId);
       setIsLoading(true);
       setError(null);
       updateLoadingState('evaluationScores', true);
@@ -76,13 +106,26 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
         const dataPath = getDataPath();
 
         const response = await fetch(`${dataPath}/evaluations/${periodId}/aggregates.json`);
+
         if (!response.ok) {
-          throw new Error(`Failed to load aggregates for ${periodId}: ${response.statusText}`);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const aggregatesData = await response.json();
+        // Parse JSON with explicit error handling for invalid JSON (NaN, Infinity, etc.)
+        let aggregatesData;
+        try {
+          const responseText = await response.text();
+          aggregatesData = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`JSON parse error: ${parseError instanceof Error ? parseError.message : 'Invalid JSON in response'}`);
+        }
 
-        // Dispatch to store - the data from per-period file is flat (not nested by periodId)
+        // Validate data structure
+        if (!aggregatesData || typeof aggregatesData !== 'object') {
+          throw new Error('Invalid aggregates data format');
+        }
+
+        // Dispatch to store
         dispatch(
           addPrecalculatedData({
             periodId,
@@ -93,9 +136,16 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
         console.log(`Aggregates for period ${periodId} loaded successfully`);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        console.warn(`Failed to load aggregates for period ${periodId}:`, errorMessage);
-        setError(errorMessage);
+        console.error(`Failed to load aggregates for period ${periodId}:`, errorMessage);
+
+        // Mark as failed to prevent repetitive fetches
+        failedAggregatePeriodsRef.current.add(periodId);
+        setError(`Failed to load evaluation data for ${periodId}: ${errorMessage}`);
+
+        // Don't break the app - just continue with empty data
       } finally {
+        // Clean up loading state
+        aggregatesLoadingRef.current.delete(periodId);
         setIsLoading(false);
         updateLoadingState('evaluationScores', false);
         updateLoadingState('evaluationDetailedCoverage', false);
@@ -109,18 +159,39 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
    */
   const loadRawScoresForPeriod = useCallback(
     async (periodId: string) => {
-      // Check if already loaded
-      if (loadedRawScoreSeasons.includes(periodId)) {
-        console.log(`Raw scores for period ${periodId} already loaded, skipping`);
+      // Guard: No period ID provided
+      if (!periodId) {
+        console.warn('No period ID provided for loading raw scores');
         return;
       }
 
-      // Check if period is available
+      // Guard: Already loaded successfully
+      if (loadedRawScoreSeasons.includes(periodId)) {
+        console.debug(`Raw scores for period ${periodId} already loaded, skipping`);
+        return;
+      }
+
+      // Guard: Previously failed - don't retry automatically
+      if (failedRawScorePeriodsRef.current.has(periodId)) {
+        console.debug(`Raw scores for period ${periodId} previously failed, skipping`);
+        return;
+      }
+
+      // Guard: Currently loading - prevent duplicate fetches
+      if (rawScoresLoadingRef.current.has(periodId)) {
+        console.debug(`Raw scores for period ${periodId} already loading, skipping`);
+        return;
+      }
+
+      // Guard: Period not in available list (if list is provided)
       if (availablePeriodIds.length > 0 && !availablePeriodIds.includes(periodId)) {
         console.warn(`Period ${periodId} not in available period IDs:`, availablePeriodIds);
+        failedRawScorePeriodsRef.current.add(periodId);
         return;
       }
 
+      // Mark as loading
+      rawScoresLoadingRef.current.add(periodId);
       setIsLoading(true);
 
       try {
@@ -128,13 +199,26 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
         const dataPath = getDataPath();
 
         const response = await fetch(`${dataPath}/evaluations/${periodId}/rawScores.json`);
+
         if (!response.ok) {
-          throw new Error(`Failed to load raw scores for ${periodId}: ${response.statusText}`);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const rawScoresData = await response.json();
+        // Parse JSON with explicit error handling for invalid JSON (NaN, Infinity, etc.)
+        let rawScoresData;
+        try {
+          const responseText = await response.text();
+          rawScoresData = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`JSON parse error: ${parseError instanceof Error ? parseError.message : 'Invalid JSON in response'}`);
+        }
 
-        // Dispatch to store - the data from per-period file is flat (not nested by seasonId)
+        // Validate data structure
+        if (!rawScoresData || typeof rawScoresData !== 'object') {
+          throw new Error('Invalid raw scores data format');
+        }
+
+        // Dispatch to store
         dispatch(
           addRawScores({
             seasonId: periodId,
@@ -144,9 +228,17 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
 
         console.log(`Raw scores for period ${periodId} loaded successfully`);
       } catch (err) {
-        console.error(`Failed to load raw scores for period ${periodId}:`, err);
-        // Don't clear all data, just log the error
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`Failed to load raw scores for period ${periodId}:`, errorMessage);
+
+        // Mark as failed to prevent repetitive fetches
+        failedRawScorePeriodsRef.current.add(periodId);
+        setError(`Failed to load raw scores for ${periodId}: ${errorMessage}`);
+
+        // Don't break the app - just continue with empty data
       } finally {
+        // Clean up loading state
+        rawScoresLoadingRef.current.delete(periodId);
         setIsLoading(false);
       }
     },
@@ -159,12 +251,12 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
   const loadDefaultPeriodAggregates = useCallback(async () => {
     // Priority: selected period > default period > first available
     const periodToLoad =
-      selectedSeasonOverviewPeriod || 
-      defaultPeriodId || 
+      selectedSeasonOverviewPeriod ||
+      defaultPeriodId ||
       (availablePeriodIds.length > 0 ? availablePeriodIds[0] : null);
 
     if (!periodToLoad) {
-      console.warn('No period available to load aggregates');
+      console.warn('No period available to load aggregates - evaluations may not be configured');
       return;
     }
 
@@ -178,17 +270,23 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
     // Priority: single model selected period > selected period > default period > first available
     const periodToLoad =
       selectedSingleModelPeriod ||
-      selectedSeasonOverviewPeriod || 
-      defaultPeriodId || 
+      selectedSeasonOverviewPeriod ||
+      defaultPeriodId ||
       (availablePeriodIds.length > 0 ? availablePeriodIds[0] : null);
 
     if (!periodToLoad) {
-      console.warn('No period available to load raw scores');
+      console.warn('No period available to load raw scores - evaluations may not be configured');
       return;
     }
 
     await loadRawScoresForPeriod(periodToLoad);
-  }, [selectedSingleModelPeriod, selectedSeasonOverviewPeriod, defaultPeriodId, availablePeriodIds, loadRawScoresForPeriod]);
+  }, [
+    selectedSingleModelPeriod,
+    selectedSeasonOverviewPeriod,
+    defaultPeriodId,
+    availablePeriodIds,
+    loadRawScoresForPeriod,
+  ]);
 
   // Legacy method aliases for backward compatibility with existing components
   const loadAggregates = loadDefaultPeriodAggregates;

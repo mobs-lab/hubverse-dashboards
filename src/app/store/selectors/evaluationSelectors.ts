@@ -108,11 +108,19 @@ function calculateMultiHorizonIQR(
   model: string,
   horizons: number[]
 ): BoxplotStats | null {
+  // Access path: locationMapData[metric][model][location][horizon]
   const metricData = locationMapData?.[metric]?.[model];
-  if (!metricData) return null;
+  if (!metricData) {
+    console.debug(`calculateMultiHorizonIQR: No data found for ${metric}/${model}`);
+    return null;
+  }
   
   // Get all locations
   const allLocations = Object.keys(metricData);
+  if (allLocations.length === 0) {
+    console.debug(`calculateMultiHorizonIQR: No locations found for ${metric}/${model}`);
+    return null;
+  }
   
   // Calculate average for each location across selected horizons
   const locationAverages: number[] = [];
@@ -122,7 +130,8 @@ function calculateMultiHorizonIQR(
     let totalCount = 0;
     
     for (const horizon of horizons) {
-      const horizonData = metricData[location]?.[String(horizon)];
+      const horizonKey = String(horizon);
+      const horizonData = metricData[location]?.[horizonKey];
       if (horizonData && horizonData.count > 0) {
         totalSum += horizonData.sum;
         totalCount += horizonData.count;
@@ -132,6 +141,11 @@ function calculateMultiHorizonIQR(
     if (totalCount > 0) {
       locationAverages.push(totalSum / totalCount);
     }
+  }
+  
+  if (locationAverages.length === 0) {
+    console.debug(`calculateMultiHorizonIQR: No valid location averages for ${metric}/${model}, horizons: ${horizons.join(',')}`);
+    return null;
   }
   
   return calculateBoxplotStats(locationAverages);
@@ -204,17 +218,23 @@ export const selectIQRDataForBoxplot = createSelector(
   (seasonOverviewData) => {
     const { iqrData, locationMapData, horizons, selectedModels } = seasonOverviewData;
     
+    // Normalize selectedModels to ensure we have primitive strings
+    const normalizedModels = selectedModels.map(m => String(m));
+    
     // If single horizon is selected, use pre-calculated data directly
     if (horizons.length === 1) {
       const horizonKey = String(horizons[0]);
+      // Cast iqrData to any to access dynamic metric keys
+      const iqrDataAny = iqrData as Record<string, Record<string, Record<string, BoxplotStats>>>;
+      
       return {
         type: 'precalculated' as const,
         data: {
           "WIS/Baseline": Object.fromEntries(
-            selectedModels.map(model => [model, iqrData?.["WIS/Baseline"]?.[model]?.[horizonKey] || null])
+            normalizedModels.map(model => [model, iqrDataAny?.["WIS/Baseline"]?.[model]?.[horizonKey] || null])
           ),
           "MAPE": Object.fromEntries(
-            selectedModels.map(model => [model, iqrData?.["MAPE"]?.[model]?.[horizonKey] || null])
+            normalizedModels.map(model => [model, iqrDataAny?.["MAPE"]?.[model]?.[horizonKey] || null])
           ),
         }
       };
@@ -226,17 +246,23 @@ export const selectIQRDataForBoxplot = createSelector(
       "MAPE": {},
     };
     
-    for (const model of selectedModels) {
-      calculatedIQR["WIS/Baseline"][model as string] = calculateMultiHorizonIQR(
+    // Check if location map data is available
+    const hasLocationMapData = Object.keys(locationMapData).length > 0;
+    if (!hasLocationMapData) {
+      console.debug("selectIQRDataForBoxplot: No location map data available for multi-horizon calculation");
+    }
+    
+    for (const model of normalizedModels) {
+      calculatedIQR["WIS/Baseline"][model] = calculateMultiHorizonIQR(
         locationMapData, 
         "WIS/Baseline", 
-        model as string, 
+        model, 
         horizons
       );
-      calculatedIQR["MAPE"][model as string] = calculateMultiHorizonIQR(
+      calculatedIQR["MAPE"][model] = calculateMultiHorizonIQR(
         locationMapData, 
         "MAPE", 
-        model as string, 
+        model, 
         horizons
       );
     }
@@ -251,13 +277,6 @@ export const selectIQRDataForBoxplot = createSelector(
 // ============================================
 // Helper Selectors
 // ============================================
-
-/**
- * Helper selector for checking if we should use JSON or fall back to CSV
- */
-export const selectShouldUseJsonData = createSelector([selectIsJsonDataLoaded], (isLoaded) => {
-  return isLoaded;
-});
 
 /**
  * Selector for checking if season overview has valid data structure
