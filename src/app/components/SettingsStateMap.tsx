@@ -29,7 +29,7 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   const locationData = useAppSelector(selectLocationData);
   const { selectedLocationCode } = useAppSelector((state) => state.forecastSettings);
   const selectedStateName = useAppSelector(selectSelectedLocationName);
-  const { evaluationsSingleModelViewSelectedStateName } = useAppSelector(
+  const { evaluationsSingleModelViewSelectedLocationName: evaluationsSingleModelViewSelectedStateName } = useAppSelector(
     (state) => state.evaluationsSingleModelSettings
   );
 

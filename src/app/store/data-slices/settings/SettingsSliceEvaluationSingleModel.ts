@@ -9,7 +9,7 @@ interface EvaluationsSettingsState {
     availableTargets: { targetId: string; displayString: string }[];
 
     /* Location Related */
-    evaluationsSingleModelViewSelectedStateName: string; // Single model view's selected location name
+    evaluationsSingleModelViewSelectedLocationName: string; // Single model view's selected location name
     evaluationsSingleModelViewSelectedStateCode: string; // Location code
 
     /* Model Related*/
@@ -30,7 +30,7 @@ const initialState: EvaluationsSettingsState = {
     availableTargets: [],
 
     /* Location Defaults */
-    evaluationsSingleModelViewSelectedStateName: "US",
+    evaluationsSingleModelViewSelectedLocationName: "US",
     evaluationsSingleModelViewSelectedStateCode: "US",
 
     /* Model Defaults*/
@@ -66,7 +66,7 @@ const evaluationsSingleModelSettingsSlice = createSlice({
             const { locationCode, locationName, defaultModel, seasonOptions, defaultSeasonId, targets, defaultTargetId, defaultHorizon } = action.payload;
             
             state.evaluationsSingleModelViewSelectedStateCode = locationCode;
-            state.evaluationsSingleModelViewSelectedStateName = locationName;
+            state.evaluationsSingleModelViewSelectedLocationName = locationName;
             state.evaluationsSingleModelViewModel = defaultModel;
             state.evaluationSingleModelViewSeasonOptions = seasonOptions;
             
@@ -101,7 +101,7 @@ const evaluationsSingleModelSettingsSlice = createSlice({
             stateName: string;
             stateNum: string
         }>) => {
-            state.evaluationsSingleModelViewSelectedStateName = action.payload.stateName;
+            state.evaluationsSingleModelViewSelectedLocationName = action.payload.stateName;
             state.evaluationsSingleModelViewSelectedStateCode = action.payload.stateNum;
         },
         updateEvaluationsSingleModelViewModel: (state, action: PayloadAction<string>) => {

@@ -1,28 +1,25 @@
-import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import {
-  TargetData,
-  ModelOutputCollection
-} from "@/types/domains/forecasting";
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { TargetData, ModelOutputCollection } from '@/types/domains/forecasting';
 
 interface CoreDataState {
+  mainData: any;
   isLoaded: boolean;
 
-  // New simplified structure (Monolithic)
-  targetData: TargetData; 
+  targetData: TargetData;
   modelOutput: ModelOutputCollection;
 }
 
 const initialState: CoreDataState = {
   isLoaded: false,
+  mainData: {},
   targetData: {},
   modelOutput: {},
 };
 
 const coreDataSlice = createSlice({
-  name: "coreData",
+  name: 'coreData',
   initialState,
   reducers: {
-
     // Bulk load all data (for initial load)
     setAllCoreData: (
       state,

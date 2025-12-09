@@ -104,7 +104,7 @@ const SingleModelContent = () => {
   // Granular loading for single model
   const { loadRawScores, areRawScoresLoaded, isLoading } = useEvaluationsData();
 
-  const { evaluationsSingleModelViewSelectedStateName, evaluationSingleModelViewScoresOption } =
+  const { evaluationsSingleModelViewSelectedLocationName: evaluationsSingleModelViewSelectedStateName, evaluationSingleModelViewScoresOption } =
     useAppSelector((state) => state.evaluationsSingleModelSettings);
 
   // Trigger load when component mounts

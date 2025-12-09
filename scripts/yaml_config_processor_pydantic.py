@@ -42,7 +42,9 @@ class ForecastPeriodConfig(BaseModel):
     start_date: datetime = Field(..., description="The inclusive start date of the forecast period (ISO format).")
     end_date: datetime = Field(..., description="The inclusive end date of the forecast period (ISO format).")
     display_string: str = Field(..., description="Human-readable name shown in the dashboard's period selector.", min_length=1, max_length=100)
-    is_default_selected: bool = Field(default=False, description="If true, this period will be selected by default when the dashboard loads. Only one period can be the default.")
+    is_default_selected: bool = Field(
+        default=False, description="If true, this period will be selected by default when the dashboard loads. Only one period can be the default."
+    )
 
     @field_validator("end_date")
     @classmethod
@@ -104,8 +106,15 @@ class TargetConfig(BaseModel):
 
     target_id: str = Field(..., description="Unique identifier for this target", pattern=r"^[a-zA-Z0-9_-]+$")
     task_display_string: str = Field(..., description="Display name for this target in the dashboard UI.", min_length=1)
-    target_key_in_data: str = Field(..., description="The exact string identifier for this target as it appears in the 'target' column of your data files.", examples=["wk inc covid hosp", "wk flu hosp"])
-    for_forecast_periods: Optional[List[str]] = Field(default=None, description="If specified, this target will only be available for the listed forecast period IDs. If null, it is available for all periods.")
+    target_key_in_data: str = Field(
+        ...,
+        description="The exact string identifier for this target as it appears in the 'target' column of your data files.",
+        examples=["wk inc covid hosp", "wk flu hosp"],
+    )
+    for_forecast_periods: Optional[List[str]] = Field(
+        default=None,
+        description="If specified, this target will only be available for the listed forecast period IDs. If null, it is available for all periods.",
+    )
     is_default_selected: bool = Field(default=False, description="If true, this target will be selected by default. Only one target can be the default.")
     data_value_processing: Optional[DataValueProcessingConfig] = Field(default_factory=DataValueProcessingConfig)
 
@@ -122,7 +131,7 @@ class PredictionIntervalConfig(BaseModel):
         description="A pair of quantile values [lower, upper] that define the bounds of the interval.",
         min_length=2,
         max_length=2,
-        examples=[["0.05", "0.95"], ["0.25", "0.75"]]
+        examples=[["0.05", "0.95"], ["0.25", "0.75"]],
     )
 
     @field_validator("uses_output_type_ids", mode="after")
@@ -168,11 +177,21 @@ class TargetDataHeaderMapping(BaseModel):
     """Column name mappings for your ground truth (target) data file."""
 
     date_col_name: str = Field(default="date", description="Column containing the date of the observation.")
-    observation_col_name: str = Field(default="observation", description="Column containing the observed numerical value. Missing values will be filled with -1.")
-    location_col_name: str = Field(default="location", description="Column containing the location code (e.g., 'US', '01'). Required for multi-location dashboards.")
-    location_name_col_name: Optional[str] = Field(default="location_name", description="Column containing the human-readable location name (e.g., 'Massachusetts', 'Washington').")
-    target_col_name: Optional[str] = Field(default="target", description="Column containing the target identifier (e.g., 'wk inc covid hosp'). Required for multi-target dashboards.")
-    as_of_col_name: Optional[str] = Field(default=None, description="If provided, enables historical data versioning. This column should contain the date the data was reported.")
+    observation_col_name: str = Field(
+        default="observation", description="Column containing the observed numerical value. Missing values will be filled with -1."
+    )
+    location_col_name: str = Field(
+        default="location", description="Column containing the location code (e.g., 'US', '01'). Required for multi-location dashboards."
+    )
+    location_name_col_name: Optional[str] = Field(
+        default="location_name", description="Column containing the human-readable location name (e.g., 'Massachusetts', 'Washington')."
+    )
+    target_col_name: Optional[str] = Field(
+        default="target", description="Column containing the target identifier (e.g., 'wk inc covid hosp'). Required for multi-target dashboards."
+    )
+    as_of_col_name: Optional[str] = Field(
+        default=None, description="If provided, enables historical data versioning. This column should contain the date the data was reported."
+    )
 
 
 class ModelOutputHeaderMapping(BaseModel):
@@ -184,7 +203,9 @@ class ModelOutputHeaderMapping(BaseModel):
     horizon_col_name: str = Field(default="horizon", description="Column containing the forecast horizon value (in units of `time_unit`).")
     location_col_name: str = Field(default="location", description="Column containing the location code.")
     output_type_col_name: str = Field(default="output_type", description="Column identifying the prediction type. Must contain 'quantile'.")
-    output_type_id_col_name: str = Field(default="output_type_id", description="Column containing the quantile level for 'quantile' rows (e.g., 0.05, 0.5, 0.95).")
+    output_type_id_col_name: str = Field(
+        default="output_type_id", description="Column containing the quantile level for 'quantile' rows (e.g., 0.05, 0.5, 0.95)."
+    )
     value_col_name: str = Field(default="value", description="Column containing the predicted numerical value.")
 
 
@@ -260,7 +281,9 @@ class DashboardConfig(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="ignore")
 
     # Data Source
-    link_to_hubverse_compatible_data: Optional[str] = Field(default=None, description="URL to a remote, Hubverse-compatible data repository on GitHub. Set to null for local data.")
+    link_to_hubverse_compatible_data: Optional[str] = Field(
+        default=None, description="URL to a remote, Hubverse-compatible data repository on GitHub. Set to null for local data."
+    )
     target_data_link: Optional[HttpUrl] = None
     model_output_link: Optional[HttpUrl] = None
 
@@ -275,7 +298,9 @@ class DashboardConfig(BaseModel):
 
     # Target Configuration
     targets: List[TargetConfig]
-    time_unit: int = Field(..., ge=1, le=365, description="The time unit in days between forecast points. This is crucial for calculating forecast horizons correctly.")
+    time_unit: int = Field(
+        ..., ge=1, le=365, description="The time unit in days between forecast points. This is crucial for calculating forecast horizons correctly."
+    )
 
     # Target Data Configuration
     target_data_file_format: Literal["csv", "parquet"] = Field(default="csv")
@@ -295,14 +320,15 @@ class DashboardConfig(BaseModel):
 
     # Evaluation Configuration
     evaluations_prediction_intervals: Optional[List[PredictionIntervalConfig]] = None
-    baseline_model_for_relative_WIS: str = Field(..., description="The model ID to use as a baseline for calculating Relative WIS. This model acts as a benchmark for performance comparison.")
-    evaluation_coverage_levels: List[int] = Field(
-        default=[50, 95],
-        description="List of integer percentages (0-100) for evaluation coverage calculation."
+    baseline_model_for_relative_WIS: str = Field(
+        ..., description="The model ID to use as a baseline for calculating Relative WIS. This model acts as a benchmark for performance comparison."
     )
+    evaluation_coverage_levels: List[int] = Field(default=[50, 95], description="List of integer percentages (0-100) for evaluation coverage calculation.")
 
     # Default Selections
-    default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(default=None, description="Default location to display when the dashboard loads. Can be a location code string or a code-name dictionary.")
+    default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(
+        default=None, description="Default location to display when the dashboard loads. Can be a location code string or a code-name dictionary."
+    )
     default_selected_prediction_intervals: Optional[List[str]] = Field(default=None, description="Default prediction interval levels")
     default_selected_horizon: Optional[int] = Field(default=None, description="Default horizon value")
     default_selected_prediction_intervals_for_evaluations: Optional[List[str]] = Field(
@@ -317,18 +343,18 @@ class DashboardConfig(BaseModel):
     def validate_coverage_levels(cls, v: List[int]) -> List[str]:
         """Validate coverage levels and convert to list of strings"""
         if not v:
-            # Return empty list or defaults depending on logic downstream, 
-            # but defaults are set in Field(). 
+            # Return empty list or defaults depending on logic downstream,
+            # but defaults are set in Field().
             # However, if user provides empty list [], we might want defaults.
             # But Field default only applies if key is missing.
-            return [] 
-        
+            return []
+
         for level in v:
             if not isinstance(level, int):
                 raise ValueError(f"Coverage level must be an integer, got {type(level)}")
             if level <= 0 or level >= 100:
                 raise ValueError(f"Coverage level must be between 0 and 100 (exclusive), got {level}")
-        
+
         # Sort and convert to strings as requested
         return sorted([str(level) for level in set(v)], key=lambda x: int(x))
 
@@ -471,7 +497,7 @@ class DashboardConfig(BaseModel):
         if self.evaluations_prediction_intervals:
             for interval in self.evaluations_prediction_intervals:
                 quantiles.update(interval.uses_output_type_ids)
-        
+
         # Add quantiles needed for configured coverage levels
         if self.evaluation_coverage_levels:
             for level_str in self.evaluation_coverage_levels:
@@ -480,7 +506,7 @@ class DashboardConfig(BaseModel):
                 alpha = 1.0 - (level / 100.0)
                 lower = alpha / 2.0
                 upper = 1.0 - (alpha / 2.0)
-                
+
                 # Round to reasonable precision to match data (usually 3 or 4 decimals)
                 # Hubverse data typically uses 0.025, 0.975, etc.
                 quantiles.add(f"{lower:.3g}")
@@ -604,11 +630,9 @@ def _load_us_state_fips_mapping() -> Dict[str, str]:
 
 def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode: bool) -> Dict[str, str]:
     """
-    Load location mapping with precedence:
+    Load location mapping with the following order:
     1. Custom location mapping file (highest priority)
     2. Default US FIPS mapping (fallback)
-
-    Note: Locations from target-data/model-output are detected at runtime by data_processor
     """
     # Determine base path
     project_root = config_path.parent

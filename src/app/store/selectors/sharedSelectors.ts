@@ -178,8 +178,8 @@ export const selectMapData = (state: RootState) =>
 // ============================================
 
 /**
- * Get forecast period options
+ * Get forecast period options from config
  */
 export const selectForecastPeriodOptions = (state: RootState) =>
-  state.auxiliaryDataStore.forecastPeriodOptions;
+  state.configStore.config?.forecastPeriodOptions ?? {};
 

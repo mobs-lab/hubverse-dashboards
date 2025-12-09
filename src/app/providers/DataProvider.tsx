@@ -227,6 +227,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       defaults.horizon !== undefined
         ? defaults.horizon
         : metadata.temporal?.horizons?.[metadata.temporal.horizons.length - 1] || 1;
+        
     // Ensure all prediction interval values are strings for consistency
     const defaultPredictionIntervals = defaults.predictionIntervals
       ? defaults.predictionIntervals.map((pi: any) => String(pi))
