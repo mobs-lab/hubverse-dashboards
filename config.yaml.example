@@ -3,242 +3,222 @@
 # HUBVERSE DASHBOARD CONFIGURATION FILE
 #==============================================================================
 # This file customizes the dashboard to work with your HubVerse-compatible data.
+# It is heavily commented to guide you through the setup process.
 #
 # LEGEND:
 #   [REQUIRED]     - Must be provided, will fail otherwise
 #   [CONDITIONAL]  - Required only if certain other options are set
-#   [OPTIONAL]     - Has default value or can be omitted
+#   [OPTIONAL]     - Has a default value or can be omitted
 #
-# See full documentation: TODO
+# See the full, auto-generated documentation here after you build it:
+# ./docs/build/html/index.html
 #==============================================================================
 
 #==============================================================================
 # DATA SOURCE CONFIGURATION
 #==============================================================================
-# [CONDITIONAL] You must provide EITHER local directories OR remote links, not both.
+# [CONDITIONAL] You must provide EITHER a local path OR a remote link.
 #
 # Option 1: Local Data (recommended for development)
-#   - Create directories: ./target-data/ and ./model-output/
-#   - Set link_to_hubverse_compatible_data: null
+#   - Place your data in directories named `target-data/` and `model-output/`
+#     in the project root.
+#   - Set link_to_hubverse_compatible_data to null.
 #
-# Option 2: Remote Data
-#   - Uncomment and configure links_to_hubverse_compatible_data below
-#   - Remove or ensure local directories don't exist
+# Option 2: Remote Data (for production or shared data)
+#   - Provide a URL to a GitHub repository containing your data.
+#   - The repository must follow the Hubverse data structure.
 #------------------------------------------------------------------------------
 
-- link_to_hubverse_compatible_data: null
+link_to_hubverse_compatible_data: null
 
-# Example remote configuration (currently commented out):
-# - links_to_hubverse_compatible_data: "https://github.com/test-user/test-forecasting-hub/"
+# Example remote configuration:
+# link_to_hubverse_compatible_data: "https://github.com/hubverse-org/covid-19-forecast-hub-data/"
 
 #==============================================================================
 # FORECAST PERIODS DEFINITIONS
 #==============================================================================
-# [REQUIRED] at least one. Define time ranges for your forecasting data.
-#
-# Each forecast period represents a distinct time range (e.g., a season).
-# Periods can overlap or have gaps. Data is filtered by these date ranges.
-#
-# REQUIRED FIELDS per period:
-#   - forecast_period_id: Unique identifier (alphanumeric + hyphens)
-#   - start_date: ISO datetime string (e.g., "2024-11-16T00:00:00")
-#   - end_date: ISO datetime string
-#   - display_string: Human-readable name shown in dashboard
-#
-# OPTIONAL FIELDS:
-#   - is_default_selected: Only ONE period can be true (default: most recent)
+# [REQUIRED] Define at least one time range for your forecasting data.
+# Each period acts as a filter, allow for quickly viewing pre-defined time periods of data in visualizations.
 #------------------------------------------------------------------------------
 
-- forecast_periods:
-    - season-2024-2025:
-        - forecast_period_id: "season-2024-2025"
-        - start_date: "2024-11-16T00:00:00"
-        - end_date: "2025-09-27T00:00:00"
-        - display_string: "COVID-19 2024-2025 Forecast"
-        - is_default_selected: True # [OPTIONAL] Only one can be true
+forecast_periods:
+  - forecast_period_id: "season-2024-2025"
+    start_date: "2024-11-16T00:00:00"
+    end_date: "2025-09-27T00:00:00"
+    display_string: "COVID-19 2024-2025 Forecast"
+    is_default_selected: true # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
 
-    # Example: Dynamic forecast period (end_date in future)
-    # - season-2025-2026:
-    #     - forecast_period_id: "season-2025-2026"
-    #     - start_date: "2025-08-01T00:00:00"
-    #     - end_date: "2026-07-31T00:00:00"  # Future date = dynamic
-    #     - display_string: "(Ongoing) COVID-19 Forecast 2025-2026"
+  # Example of a dynamic forecast period where the end_date is in the future.
+  # This is useful for ongoing forecasting efforts.
+  # - forecast_period_id: "season-2025-2026"
+  #   start_date: "2025-08-01T00:00:00"
+  #   end_date: "2026-07-31T00:00:00"
+  #   display_string: "(Ongoing) COVID-19 Forecast 2025-2026"
 
 #==============================================================================
 # SPECIAL FORECAST PERIODS (Dynamic Time Windows)
 #==============================================================================
-# [OPTIONAL] Auto-aggregate data within relative time windows.
-# Useful for "Last 2 Weeks", "Last Month" type views.
+# [OPTIONAL] Create relative time windows like "Last 4 Weeks".
+# These are calculated dynamically based on the latest available data.
 #
-# Requires a dynamic forecast_period as time anchor.
-#
-# CONFIGURATION:
-#   - anchor_on: ID of a dynamic forecast_period
-#   - anchor_mode: "target-data" or "model-output"
-#   - range_calculation: Negative integer (e.g., -2 for 2 periods back)
+# This requires a "dynamic" forecast_period (one with an end_date in the future)
+# to serve as a reference point.
 #------------------------------------------------------------------------------
 
-- special_forecast_periods:
-    # Example configuration (currently disabled):
-    # - last-2-weeks:
-    #     - special_period_id: "last-2-weeks"
-    #     - display_string: "Last 2 Weeks"
-    #     - time_anchor:
-    #         - anchor_on: "season-2024-2025"  # Must be dynamic period
-    #         - anchor_mode: "model-output"     # or "target-data"
-    #         - range_calculation: -2           # Negative = backwards
+special_forecast_periods:
+  # Example configuration (currently disabled):
+  # - special_period_id: "last-4-weeks"
+  #   display_string: "Last 4 Weeks"
+  #   time_anchor:
+  #     anchor_on: "season-2025-2026"  # Must be a dynamic period ID from above
+  #     anchor_mode: "model-output"     # Use latest model output date as 'today'
+  #     range_calculation: -4           # Go 4 time units (weeks) back from 'today'
 
 #==============================================================================
 # LOCATION DATA CONFIGURATION
 #==============================================================================
-# Configure spatial handling for your dashboard.
+# Configure how the dashboard handles geographic locations.
 #------------------------------------------------------------------------------
 
-# [OPTIONAL] Single-location mode toggle
-# If True: Dashboard shows data for only one location
-# If False: Auto-detects all locations from your data files
-- is_single_location_forecast: False
+# [OPTIONAL] Set to true if your dashboard is for a single location only.
+# This simplifies the UI by removing the location selector.
+is_single_location_forecast: false
 
-# [CONDITIONAL] REQUIRED if is_single_location_forecast = True
-# Specify the location code (e.g., US State FIPS: "01" = Alabama, "02" = Alaska)
-- single_location_mapping: "02"
+# [CONDITIONAL] REQUIRED if is_single_location_forecast = true.
+# Specify the location code for the single location.
+single_location_mapping: "02"
 
 #------------------------------------------------------------------------------
 # Map Visualization Settings
 #------------------------------------------------------------------------------
 
-# [OPTIONAL] Disable map visualizations (default: False)
-# If True: Only dropdown lists shown, no geographic maps
-- disable_map_in_dashboard: False
+# [OPTIONAL] Default selected location when the dashboard first loads.
+# If null, it will default to the first location found in your data, or "US".
+# The format must be a dictionary: { "location_code": "location_name" }
+default_selected_location: { "US": "US" }
 
-# [OPTIONAL] Custom shape file for map rendering
-# Must be in GeoJSON or TopoJSON format, placed in /auxiliary-data/
-# If null: Uses default US states map (states-10m.json)
-- custom_shape_file_name: null
+# Group for spatial settings
+spatial_config:
+  # [OPTIONAL] If true, the geographic map visualization is hidden.
+  disable_map_in_dashboard: false
 
-# [RECOMMENDED] Location mapping file (CSV format in /auxiliary-data/)
-# Maps location codes to human-readable names
-# If null, will resort to detecting from target-data
-# If still not found there, will default back to US FIPS mapping list
-- custom_location_mapping_file_name: "locations.csv"
+  # [OPTIONAL] Path to a custom GeoJSON or TopoJSON shape file.
+  # Place the file in the /auxiliary-data/ directory.
+  # If null, a default US states map is used (Located at /public/states-10m.json).
+  custom_shape_file_name: null
 
-# [REQUIRED if above (custom location mapping file) provided]
-# Column names in your location mapping CSV
-- location_code_col_header_name: "location" # Column with location codes
-- location_name_col_header_name: "location_name" # Column with location names
+  # [RECOMMENDED] Path to a CSV file mapping location codes to names.
+  # Place the file in /auxiliary-data/. This is the primary way the dashboard
+  # gets location names.
+  # Fallback logic: If null, names are detected from data, then from a built-in US FIPS list.
+  custom_location_mapping_file_name: "locations.csv"
 
-# [OPTIONAL] Default selected location, for the dashboard to display
-# Must be a code-name pair that actually exist in custom mapping file/target-data/US FIPS list
-# If null, will use the first found in custom file/target-data/"US"
-- default_selected_location: { "US": "US" }
+  # [REQUIRED if custom_location_mapping_file_name is provided]
+  # Specify the column headers in your location mapping CSV file.
+  location_code_col_header_name: "location"
+  location_name_col_header_name: "location_name"
 
 #==============================================================================
 # MODELLING TASKS / TARGETS DEFINITIONS
 #==============================================================================
-# [CONDITIONAL] Define what you're forecasting.
+# [REQUIRED] Define what you are forecasting.
 #------------------------------------------------------------------------------
 
-# [OPTIONAL] Single-target mode toggle
-# If True: No filtering on target column, assumes all data is one target
-# If False: Must define targets below
-- is_single_forecast_target: False
-
-# [REQUIRED] Time unit in days between forecast points
-# Used to calculate: target_date = reference_date + (horizon * time_unit)
+# [REQUIRED] The time unit in days between forecast points.
+# This is crucial for calculating forecast horizons correctly.
+# target_date = reference_date + (horizon * time_unit)
 # Common values: 1 (daily), 7 (weekly)
-- time_unit: 7
+time_unit: 7
 
-# [CONDITIONAL] List of forecasting targets
-# REQUIRED if is_single_forecast_target = False
-# Each target represents a different outcome you're predicting
-- targets:
-    - "COVID19 Admission Value":
-        - target_id: "covid19-admission" # [REQUIRED] Unique ID
-        - task_display_string: "COVID19 Admissions" # [REQUIRED] Display name
-        - target_key_in_data: "wk inc covid hosp" # [REQUIRED] Key in data files
-        - for_forecast_periods: ["season-2024-2025"] # [OPTIONAL] Defaults to all
-        - is_default_selected: True # [OPTIONAL, unique] Will become default selected in dashboard
+# [REQUIRED] List of forecasting targets. You must define at least one.
+targets:
+  - target_id: "covid19-admission" # [REQUIRED] A unique machine-readable ID.
+    task_display_string: "COVID19 Admissions" # [REQUIRED] Human-readable name for the UI.
+    target_key_in_data: "wk inc covid hosp" # [REQUIRED] The exact string that appears in the 'target' column of your data files.
+    for_forecast_periods: ["season-2024-2025"] # [OPTIONAL] Link this target to specific periods. Defaults to all periods if omitted.
+    is_default_selected: true # [OPTIONAL, unique] This target will be selected by default.
 
-    - "COVID19 Test 2nd Target":
-        - target_id: "covid19-test-target"
-        - task_display_string: "COVID19 Admissions Test"
-        - target_key_in_data: "wk inc covid prop ed visits"
-        - for_forecast_periods: ["season-2024-2025"]
+    # [OPTIONAL] Apply scaling or rounding to data values for this target.
+    # Useful for converting units (e.g., proportion to percentage) or cleaning data.
+    data_value_processing:
+      scaling_factor:
+        target_data: 1.0 # Multiply ground truth values by this factor.
+        model_output: 1.0 # Multiply model output values by this factor.
+      rounding_decimals:
+        target_data: 2 # Round ground truth values to this many decimal places.
+        model_output: 2 # Round model output values to this many decimal places.
+
+  - target_id: "covid19-test-target"
+    task_display_string: "COVID19 Admissions Test"
+    target_key_in_data: "wk inc covid prop ed visits"
+    for_forecast_periods: ["season-2024-2025"]
+    data_value_processing:
+      scaling_factor:
+        target_data: 100 # Example: Convert a 0-1 proportion to a 0-100 percentage
+        model_output: 100
+      rounding_decimals:
+        target_data: 2
+        model_output: 2
 
 #==============================================================================
 # TARGET-DATA CONFIGURATION
 #==============================================================================
 # Configure how to read your ground truth / observed data.
-# See: https://docs.hubverse.io/en/latest/user-guide/target-data.html
+# See Hubverse docs for details: https://docs.hubverse.io/en/latest/user-guide/target-data.html
 #------------------------------------------------------------------------------
 
-# [OPTIONAL] File format (default: "csv")
-# Options: "csv" or "parquet"
-- target_data_file_format: "parquet"
+# [OPTIONAL] File format of your ground truth data. Default: "csv"
+target_data_file_format: "parquet"
 
-# [CONDITIONAL] Required if target_data_file_format = "parquet"
-# Is the parquet data partitioned by as_of date into subdirectories?
-- parquet_partitioned_by_as_of: False
+# [CONDITIONAL] Required if format is "parquet".
+# Set to true if your parquet data is partitioned into subdirectories by date
+# (e.g., /target-data/as_of=2024-01-01/data.parquet).
+parquet_partitioned_by_as_of: false
 
-# [CONDITIONAL] Required if:
-#   - format = "csv", OR
-#   - format = "parquet" AND parquet_partitioned_by_as_of = False
-# Filename (without extension) of your target data file
-- single_target_data_file_name: "time-series"
+# [CONDITIONAL] Required for CSVs or non-partitioned Parquet files.
+# The filename (without extension) of your single target data file.
+single_target_data_file_name: "time-series"
 
 #------------------------------------------------------------------------------
 # Target Data Column Mapping
 #------------------------------------------------------------------------------
-# [REQUIRED] Map your CSV/parquet column names to dashboard expectations
-#
-# Your data MUST contain:
-#   - A date column (ISO date strings)
-#   - An observation column (actual values)
-#
-# If multi-location or multi-target:
-#   - A location column (location codes)
-#   - A target column (target keys matching target_key_in_data above)
-#
-# For historical data support (single file only):
-#   - An as_of column (data version timestamps)
-#------------------------------------------------------------------------------
-
-- target_data_header_mapping:
-    - date_col_name: "date" # [REQUIRED]
-    - observation_col_name: "observation" # [REQUIRED]
-    - location_col_name: "location" # [REQUIRED for multi-location]
-    - location_name_col_name: "location_name" # [OPTIONAL] Can be enriched from mapping
-    - target_col_name: "target" # [REQUIRED for multi-target]
-    - as_of_col_name: "as_of" # [OPTIONAL] For historical data versioning
+# [REQUIRED] Map your data file's column names to the dashboard's expected names.
+target_data_header_mapping:
+  date_col_name: "date" # [REQUIRED]
+  observation_col_name: "observation" # [REQUIRED] The observed value. Missing data is filled with -1.
+  location_col_name: "location" # [REQUIRED for multi-location]
+  location_name_col_name: "location_name" # [OPTIONAL]
+  target_col_name: "target" # [REQUIRED for multi-target]
+  as_of_col_name: "as_of" # [OPTIONAL] Enables historical data versioning.
 
 #==============================================================================
 # MODEL-OUTPUT CONFIGURATION
 #==============================================================================
-# Configure which models to display and how to read prediction data.
+# Configure which models to display and how to read their prediction data.
 #------------------------------------------------------------------------------
 
-# [RECOMMENDED] List of models to include in dashboard
-# Each model name must match a subdirectory in /model-output/
-# If omitted: Attempts to use all subdirectories found
-- available_models:
-    - "MOBS-GLEAM_COVID":
-        - color_hex: "#9ceb94" # [OPTIONAL] Hex color, auto-assigned if null
-    - "CEPH-Rtrend_covid":
-        - color_hex: null
-    - "CovidHub-baseline":
-        - color_hex: null
-    - "CovidHub-ensemble":
-        - color_hex: null
-    - "NEU_ISI-AdaptiveEnsemble":
-        - color_hex: null
-    - "TEST1":
-        - color_hex: "#abcabc"
-    - "TEST2":
-        - color_hex: "#888888"
-    - "TEST3":
-        - color_hex: "#329abc"
-    - "NON-EXISTENT-MODEL": # Will show warning if directory not found
-        - color_hex: "#000000"
+# [RECOMMENDED] List of models to include in the dashboard.
+# Each model name here MUST match a subdirectory name in `/model-output/`.
+# If this section is omitted, the dashboard will try to use all subdirectories.
+available_models:
+  "MOBS-GLEAM_COVID":
+    color_hex: "#9ceb94" # [OPTIONAL] Hex color for charts. Auto-assigned if null.
+  "CEPH-Rtrend_covid":
+    color_hex: null
+  "CovidHub-baseline":
+    color_hex: null
+  "CovidHub-ensemble":
+    color_hex: null
+  "NEU_ISI-AdaptiveEnsemble":
+    color_hex: null
+  "TEST1":
+    color_hex: "#abcabc"
+  "TEST2":
+    color_hex: "#888888"
+  "TEST3":
+    color_hex: "#329abc"
+  "NON-EXISTENT-MODEL": # Will show warning if directory not found
+    color_hex: "#000000"
 
 #------------------------------------------------------------------------------
 # Model Output File Structure
@@ -246,7 +226,7 @@
 
 # [OPTIONAL] Model output directory naming convention (default: "ISODate")
 # Options: "ISODate" (2024-01-15) or "Alphanumeric" (round-1, round-2, etc.)
-- model_output_data_file_naming_standard: "ISODate"
+model_output_data_file_naming_standard: "ISODate"
 
 # [REQUIRED] Map your model-output column names
 # See: https://docs.hubverse.io/en/latest/user-guide/model-output.html
@@ -260,15 +240,15 @@
 #   - output_type: Must include "quantile"
 #   - output_type_id: Quantile values (0.0 to 1.0)
 #   - value: Predicted value
-- model_output_data_header_mapping:
-    - reference_date_col_name: "reference_date"
-    - target_end_date_col_name: "target_end_date"
-    - target_col_name: "target"
-    - horizon_col_name: "horizon"
-    - location_col_name: "location"
-    - output_type_col_name: "output_type"
-    - output_type_id_col_name: "output_type_id"
-    - value_col_name: "value"
+model_output_data_header_mapping:
+  reference_date_col_name: "reference_date"
+  target_end_date_col_name: "target_end_date"
+  target_col_name: "target"
+  horizon_col_name: "horizon"
+  location_col_name: "location"
+  output_type_col_name: "output_type"
+  output_type_id_col_name: "output_type_id"
+  value_col_name: "value"
 
 #------------------------------------------------------------------------------
 # Prediction Intervals Configuration
@@ -277,55 +257,76 @@
 # [RECOMMENDED] Prediction intervals to display in forecast charts
 # Each interval needs exactly 2 quantiles (lower and upper bounds)
 # Quantiles must be between 0.0 and 1.0
-- prediction_intervals:
-    - "25": # 25% prediction interval
-        - uses_output_type_ids: ["0.375", "0.625"] # [REQUIRED] Ascending order
-    - "50":
-        - uses_output_type_ids: ["0.25", "0.75"]
-    - "75":
-        - uses_output_type_ids: ["0.125", "0.875"]
-    - "90":
-        - uses_output_type_ids: ["0.05", "0.95"]
+prediction_intervals:
+  "25": # 25% prediction interval
+    uses_output_type_ids: ["0.375", "0.625"] # [REQUIRED] Ascending order
+  "50":
+    uses_output_type_ids: ["0.25", "0.75"]
+  "75":
+    uses_output_type_ids: ["0.125", "0.875"]
+  "90":
+    uses_output_type_ids: ["0.05", "0.95"]
 
 # [OPTIONAL] Default selected PIs to display when dashboard first loads.
 # Enter them into a list, using the same string you specified above.
 # If null or commented out, will default to using all provided prediction_intervals.
-- default_selected_prediction_intervals: ["50", "90"]
+default_selected_prediction_intervals: ["50", "90"]
 
 # [REQUIRED] Forecast horizons your models produce
 # Negative values = nowcasting (predicting past/present)
 # Zero = same-day prediction
 # Positive = future forecasting
-- horizons: [-1, 0, 1, 2, 3]
+horizons: [-1, 0, 1, 2, 3]
 
 # [OPTIONAL] Default selected horizon.
-- default_selected_horizon: 3 # Single Choice Selection.
+default_selected_horizon: 3 # Single Choice Selection.
 
 #==============================================================================
 # MODEL EVALUATION CONFIGURATION
 #==============================================================================
 # Settings for calculating model performance metrics.
+# This entire section is ignored if you run the builder with --skip-evaluations.
 #------------------------------------------------------------------------------
 
-# [OPTIONAL] Prediction intervals for coverage calculations
-# Typically same as prediction_intervals above
-- evaluations_prediction_intervals:
-    - "25":
-        - uses_output_type_ids: ["0.375", "0.625"]
-    - "50":
-        - uses_output_type_ids: ["0.25", "0.75"]
-    - "75":
-        - uses_output_type_ids: ["0.125", "0.875"]
-    - "90":
-        - uses_output_type_ids: ["0.05", "0.95"]
+# [OPTIONAL] Prediction intervals used for coverage calculations.
+# If omitted, this will default to using the same `prediction_intervals` from above.
+evaluations_prediction_intervals:
+  "25":
+    uses_output_type_ids: ["0.375", "0.625"]
+  "50":
+    uses_output_type_ids: ["0.25", "0.75"]
+  "75":
+    uses_output_type_ids: ["0.125", "0.875"]
+  "90":
+    uses_output_type_ids: ["0.05", "0.95"]
 
-# [OPTIONAL] Default selected PIs to display when dashboard first loads, in Evaluations page.
-# Enter them into a list, using the same string you specified above.
-- default_selected_prediction_intervals_for_evaluations: ["50", "90"]
+# [OPTIONAL] Default selected PIs for the Evaluations page.
+default_selected_prediction_intervals_for_evaluations: ["50", "90"]
 
-# [REQUIRED] Baseline model for relative WIS calculations
-# Must have a directory in /model-output/ even if not in available_models
-- baseline_model_for_relative_WIS: "CovidHub-baseline"
+# [REQUIRED] The model to use as a benchmark for Relative WIS calculations.
+# Relative WIS = (WIS of a model) / (WIS of this baseline model).
+# This model's data must exist in /model-output/, even if it's not in `available_models`.
+baseline_model_for_relative_WIS: "CovidHub-baseline"
+
+# [OPTIONAL] Define the coverage levels (in percentage) to be used for:
+# 1. Calculating coverage metrics (e.g., "Did the 95% PI cover the truth?")
+#    These values populate the "Coverage" chart in the evaluations section.
+#    Note: The necessary quantiles must be available in your model output data.
+#    (e.g., 95% requires 0.025 and 0.975 quantiles).
+#
+# If omitted, defaults to [50, 95].
+evaluation_coverage_levels: [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98]
+
+# [OPTIONAL] Define the intervals (in percentage) used to summarize the distribution of
+# evaluation scores (WIS, MAPE) in the boxplots.
+#
+# The boxplots will display:
+# - Median score
+# - Inner Box: Defined by the interval closest to 50% (e.g., 25th-75th percentile of scores)
+# - Whiskers: Defined by the largest specified interval (e.g., 5th-95th percentile of scores for 90%)
+#
+# If omitted, defaults to [50, 90].
+evaluation_score_boxplot_intervals: [50, 90]
 
 #==============================================================================
 # DASHBOARD DISPLAY SETTINGS
@@ -333,51 +334,52 @@
 # [OPTIONAL] Change dashboard's UI elements, displays and information pop-ups here.
 # A detailed illustration on what each configuration option controls, can be found in documentation at https://github.com/mobs-lab/hubverse-dashboard/wiki
 
-# Change Header and Navigation Buttons
-# ------------------------------------
-# Note: this component will be changed for both Forecast and Evaluation page.
-# Special Note: If your header title naming follows the convention "XxxxForecast", the dashboard supports selectively bolding the "Xxxx" part for you.
-#               Any other kind of naming will just be all bold.
-- ui_header_title_name: "COVID-19Forecast"
+# UI customization options grouped together
+ui_customization:
+  # Change Header and Navigation Buttons
+  # ------------------------------------
+  # Note: this component will be changed for both Forecast and Evaluation page.
+  # Special Note: If your header title naming follows the convention "XxxxForecast", the dashboard supports selectively bolding the "Xxxx" part for you.
+  #               Any other kind of naming will just be all bold.
+  ui_header_title_name: "COVID-19Forecast"
 
-# Declare and change navigation buttons UI and behaviour
-# [Recommended] to have one button each for Forecast and Evaluation page.
-# Support external hyperlink option that may help directing to documentation, further resources, etc.
-- ui_header_nav_btn:
+  # Declare and change navigation buttons UI and behaviour
+  # [Recommended] to have one button each for Forecast and Evaluation page.
+  # Support external hyperlink option that may help directing to documentation, further resources, etc.
+  ui_header_nav_btn:
     # Order of these options below will be preserved
     # An button can only direct to either external or Forecast/Evaluation, cannot be both
-    - "About Epistorm": # This will become the display text
-        - nav_to_external: True
-        - nav_to_link: "https://www.epistorm.org/flu-forecast-about"
-    - "COVID Forecast":
-        - nav_to_page: "Forecast" # Can only be "Forecast" or "Evaluation"
-    - "Evaluation":
-        - nav_to_page: "Evaluation" # Note this will still be hidden if no-evalution mode is used
-    - "TestExternal-Hubverse":
-        - nav_to_external: True
-        - nav_to_link: "https://hubverse.io"
+    - button_text: "About Epistorm" # This will become the display text
+      nav_to_external: true
+      nav_to_link: "https://www.epistorm.org/flu-forecast-about"
+    - button_text: "COVID Forecast"
+      nav_to_page: "Forecast" # Can only be "Forecast" or "Evaluation"
+    - button_text: "Evaluation"
+      nav_to_page: "Evaluation" # Note this will still be hidden if no-evalution mode is used
+    - button_text: "TestExternal-Hubverse"
+      nav_to_external: true
+      nav_to_link: "https://hubverse.io"
 
-# Forecast Page Visualization Components Customizations
-# -----------------------------------------------------
-# [OPTIONAL] Changes chart header title for the main line chart visualization.
-- ui_forecast_header_chart_name: "Weekly Hospital COVID-19 Admissions Forecast"
+  # Forecast Page Visualization Components Customizations
+  # -----------------------------------------------------
+  # [OPTIONAL] Changes chart header title for the main line chart visualization.
+  ui_forecast_header_chart_name: "Weekly Hospital COVID-19 Admissions Forecast"
 
-# [OPTIONAL] Change chart header historical target data toggle text display.
-# Note this will still be hidden when no-historical-target-data mode is turned on.
-- ui_forecast_header_hist_td_toggle_text: "Show COVID-19 Admissions at Time of Forecast"
+  # [OPTIONAL] Change chart header historical target data toggle text display.
+  # Note this will still be hidden when no-historical-target-data mode is turned on.
+  ui_forecast_header_hist_td_toggle_text: "Show COVID-19 Admissions at Time of Forecast"
 
-# [OPTIONAL] Disables the location name display on top of chart header.
-- disable_location_info_display: False
+  # [OPTIONAL] Disables the location name display on top of chart header.
+  disable_location_info_display: false
 
-# [OPTIONAL]
-# Changes the infobutton title and text, for 2 located in Forecast page
-- ui_forecast_header_infobutton_content:
-    - title: "Test infobutton title"
-    - content: "A very, very long test string. Dorum Ipsum ..."
-- ui_forecast_settings_horizon_infobutton_content:
-    - title: "Test About Horizon"
-    - content: "Horizon Horizon Horizon Horizon Horizon"
+  # [OPTIONAL]
+  # Changes the infobutton title and text, for 2 located in Forecast page
+  ui_forecast_header_infobutton_content:
+    title: "Test infobutton title"
+    content: "A very, very long test string. Dorum Ipsum ..."
+  ui_forecast_settings_horizon_infobutton_content:
+    title: "Test About Horizon"
+    content: "Horizon Horizon Horizon Horizon Horizon"
 # TODO: Evaluation Page Visualization Components Customizations
 # -------------------------------------------------------------
-
 # - ui_evaluation_header_name: "something soemething"

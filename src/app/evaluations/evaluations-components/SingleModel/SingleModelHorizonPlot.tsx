@@ -2,7 +2,7 @@
 
 import { useAppSelector } from "@/store/hooks";
 import { selectIsCoreDataLoaded, selectSingleModelTimeSeriesData } from "@/store/selectors/singleModelSelectors";
-import { modelColorMap } from "@/types/common";
+import { selectModelColorMap } from "@/store/selectors";
 import { normalizeToUTCMidDay } from "@/utils/date";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import * as d3 from "d3";
@@ -15,6 +15,7 @@ const SingleModelHorizonPlot: React.FC = () => {
   // New selector for using new Core App Data
   const timeSeriesData = useAppSelector(selectSingleModelTimeSeriesData);
   const isCoreDataLoaded = useAppSelector(selectIsCoreDataLoaded);
+  const modelColorMap = useAppSelector(selectModelColorMap);
 
   const { evaluationsSingleModelViewSelectedStateCode, evaluationsSingleModelViewModel, evaluationSingleModelViewHorizon } = useAppSelector(
     (state) => state.evaluationsSingleModelSettings

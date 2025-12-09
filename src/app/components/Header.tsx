@@ -2,7 +2,7 @@
 import Link from "next/link";
 import React, { useEffect, useRef } from "react";
 import { useAppSelector } from "@/store/hooks";
-import { selectEvaluationsEnabled } from "@/store/selectors/forecastSelectors";
+import { selectEvaluationsEnabled } from "@/store/selectors";
 
 const Header: React.FC = () => {
   const headerRef = useRef<HTMLElement>(null);

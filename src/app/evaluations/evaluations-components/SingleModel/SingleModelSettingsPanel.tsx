@@ -2,13 +2,12 @@
 
 import React, { useState } from "react";
 
-import { modelColorMap, modelNames } from "@/types/common";
+import { selectModelColorMap, selectModelNames, selectLocationData } from "@/store/selectors";
 import { ForecastPeriodOption } from "@/types/domains/forecasting";
 
 import SettingsStateMap from "@/shared-components/SettingsStateMap";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectLocationData } from "@/store/selectors";
 
 import {
   updateEvaluationScores,
@@ -18,6 +17,7 @@ import {
   updateEvaluationSingleModelViewSelectedState,
   updateEvaluationsSingleModelViewModel,
   updateEvaluationsSingleModelViewSeasonId,
+  setSingleModelSelectedTargetId,
 } from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
 
 import { Radio, Typography } from "@/styles/material-tailwind-wrapper";
@@ -29,6 +29,9 @@ import { horizonSelectorsInfo } from "types/infobutton-content";
 const SingleModelSettingsPanel: React.FC = () => {
   /* Redux-Managed State Variables */
   const dispatch = useAppDispatch();
+  const modelColorMap = useAppSelector(selectModelColorMap);
+  const modelNames = useAppSelector(selectModelNames);
+  const locationData = useAppSelector(selectLocationData);
 
   const [scoreOptions] = useState(["WIS/Baseline", "MAPE"]);
 
@@ -42,9 +45,9 @@ const SingleModelSettingsPanel: React.FC = () => {
     evaluationSingleModelViewDateEnd,
     evaluationsSingleModelViewSeasonId, // <-- Use seasonId from state
     evaluationSingleModelViewSeasonOptions,
+    selectedTargetId,
+    availableTargets,
   } = useAppSelector((state) => state.evaluationsSingleModelSettings);
-
-  const locationData = useAppSelector((state) => state.auxiliaryDataStore["locations"]);
 
   // State selection handlers (reused from forecast)
   const onStateSelectionChange = (stateNum: string) => {
@@ -86,6 +89,11 @@ const SingleModelSettingsPanel: React.FC = () => {
   // Add handler
   const onScoreSelectionChange = (value: string) => {
     dispatch(updateEvaluationScores(value));
+  };
+
+  // Target selection handler
+  const onTargetSelectionChange = (targetId: string) => {
+    dispatch(setSingleModelSelectedTargetId(targetId));
   };
 
   return (
@@ -155,6 +163,25 @@ const SingleModelSettingsPanel: React.FC = () => {
             />
           ))}
         </div>
+
+        {/* Target Selection - only show if multiple targets available */}
+        {availableTargets.length > 1 && (
+          <div className='w-full mb-2'>
+            <Typography variant='h6' className='text-white'>
+              Target
+            </Typography>
+            <select
+              value={selectedTargetId}
+              onChange={(e) => onTargetSelectionChange(e.target.value)}
+              className='text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2'>
+              {availableTargets.map((target) => (
+                <option key={target.targetId} value={target.targetId}>
+                  {target.displayString}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className='w-full mb-2'>
           <Typography variant='h6' className='text-white'>

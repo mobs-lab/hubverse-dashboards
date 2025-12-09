@@ -7,15 +7,22 @@ export interface PredictionIntervalConfig {
   quantiles: [string, string]; // ["0.25", "0.75"]
 }
 
-export interface ModelConfig {
-  modelName: string;
-  color?: string;
-}
-
 export interface TargetConfig {
   targetId: string;
   targetKeyInData: string;
   displayString: string;
+  dataValueProcessing?: DataValueProcessingConfig;
+}
+
+export interface DataValueProcessingConfig {
+  scaling_factor: {
+    target_data: number;
+    model_output: number;
+  };
+  rounding_decimals: {
+    target_data: number;
+    model_output: number;
+  };
 }
 
 export interface InfoButtonContentConfig {
@@ -69,7 +76,6 @@ export interface DashboardConfig {
   locationMapping: LocationMappingData;
 
   // Models
-  models: ModelConfig[];
   modelColorMap: Record<string, string>;
 
   // Targets
@@ -78,19 +84,26 @@ export interface DashboardConfig {
 
   // Prediction intervals
   predictionIntervals: PredictionIntervalConfig[];
-  defaultPredictionIntervals: string[]; // ["50", "90"]
+  defaultPredictionIntervals: string[];
 
   // Dates
   defaultSelectedDate?: string;
   earliestDate?: string;
   latestDate?: string;
-  
+
+  // Evaluation Configuration
+  evaluationCoverageLevels?: number[];
+  evaluationAvailablePeriodIds?: string[]; // List of period IDs that have evaluation data files
+
   // Default selections for UI initialization
   defaultLocation?: string;
   defaultHorizon?: number;
 
   // UI Customization
   uiCustomization: UICustomizationConfig;
+
+  // TODO: Add customizable UI components configuration here for Evaluation Page
+
 }
 
 interface ConfigState {

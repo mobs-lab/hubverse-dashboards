@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from datetime import datetime, timedelta
 from yaml_config_processor_pydantic import DashboardConfig
 
+
 class CSVShapeGenerator:
     """Generates sample CSV structures for validation"""
 
@@ -22,7 +23,7 @@ class CSVShapeGenerator:
         if isinstance(date_input, str):
             try:
                 # Handle formats with 'Z' for UTC
-                return datetime.fromisoformat(date_input.replace('Z', '+00:00'))
+                return datetime.fromisoformat(date_input.replace("Z", "+00:00"))
             except ValueError:
                 # Fallback for other valid ISO formats
                 return datetime.fromisoformat(date_input)
@@ -71,15 +72,14 @@ class CSVShapeGenerator:
 
         # Target column (required unless single-target mode)
         targets = self.config.targets or []
-        if not self.config.is_single_forecast_target:
-            if target_mapping.target_col_name:
-                required_cols.append(
-                    {
-                        "user_name": target_mapping.target_col_name,
-                        "description": "Target identifier",
-                        "example": targets[0].target_key_in_data if targets else "target_value",
-                    }
-                )
+        if target_mapping.target_col_name:
+            required_cols.append(
+                {
+                    "user_name": target_mapping.target_col_name,
+                    "description": "Target identifier",
+                    "example": targets[0].target_key_in_data if targets else "target_value",
+                }
+            )
 
         # Optional columns
         if target_mapping.location_name_col_name:
@@ -115,7 +115,6 @@ class CSVShapeGenerator:
             date1 = datetime(2024, 8, 3)
             date2 = datetime(2024, 8, 10)
 
-
         # Sample row 1
         sample_row_1 = {
             target_mapping.date_col_name: self._format_date(date1),
@@ -134,10 +133,7 @@ class CSVShapeGenerator:
             target_mapping.observation_col_name: "132.1",
         }
 
-        if (
-            not self.config.is_single_location_forecast
-            and target_mapping.location_col_name
-        ):
+        if not self.config.is_single_location_forecast and target_mapping.location_col_name:
             sample_row_1[target_mapping.location_col_name] = "01"
             sample_row_2[target_mapping.location_col_name] = "02"
             sample_row_3[target_mapping.location_col_name] = "01"
@@ -147,12 +143,8 @@ class CSVShapeGenerator:
                 sample_row_2[target_mapping.location_name_col_name] = "Alaska"
                 sample_row_3[target_mapping.location_name_col_name] = "Alabama"
 
-        if not self.config.is_single_forecast_target and target_mapping.target_col_name:
-            target_value = (
-                targets[0].target_key_in_data
-                if targets
-                else "target_value"
-            )
+        if target_mapping.target_col_name:
+            target_value = targets[0].target_key_in_data if targets else "target_value"
             sample_row_1[target_mapping.target_col_name] = target_value
             sample_row_2[target_mapping.target_col_name] = target_value
             sample_row_3[target_mapping.target_col_name] = target_value
@@ -173,7 +165,7 @@ class CSVShapeGenerator:
         # Required columns
         model_mapping = self.config.model_output_data_header_mapping
         targets = self.config.targets or []
-        
+
         required_cols.append(
             {
                 "user_name": model_mapping.reference_date_col_name,
@@ -202,9 +194,7 @@ class CSVShapeGenerator:
             {
                 "user_name": model_mapping.horizon_col_name,
                 "description": "Forecast horizon",
-                "example": "0"
-                if 0 in self.config.horizons
-                else str(self.config.horizons[0]),
+                "example": "0" if 0 in self.config.horizons else str(self.config.horizons[0]),
             }
         )
 
@@ -242,9 +232,7 @@ class CSVShapeGenerator:
         )
 
         # Get expected values
-        expected_targets = [
-            t.target_key_in_data for t in targets
-        ]
+        expected_targets = [t.target_key_in_data for t in targets]
         expected_horizons = self.config.horizons
         expected_quantiles = self.config.get_all_quantiles()
 
@@ -287,7 +275,7 @@ class CSVShapeGenerator:
             sorted_quantiles = sorted([float(q) for q in expected_quantiles])
             if len(sorted_quantiles) >= 3:
                 demo_quantiles.insert(0, str(sorted_quantiles[0]))  # Lowest
-                demo_quantiles.append(str(sorted_quantiles[-1]))     # Highest
+                demo_quantiles.append(str(sorted_quantiles[-1]))  # Highest
             elif len(sorted_quantiles) >= 1 and "0.5" not in demo_quantiles:
                 demo_quantiles.append(str(sorted_quantiles[0]))
         else:
@@ -433,9 +421,7 @@ class CSVShapeGenerator:
         print("\n" + "=" * 80)
         print("TARGET-DATA Expected Structure")
         print("=" * 80)
-        print(
-            "\nBased on your configuration, your target-data CSV should have these columns:\n"
-        )
+        print("\nBased on your configuration, your target-data CSV should have these columns:\n")
 
         print("Required Columns:")
         for col in sample["required_columns"]:
@@ -456,9 +442,7 @@ class CSVShapeGenerator:
         print("\n" + "=" * 80)
         print("MODEL-OUTPUT Expected Structure")
         print("=" * 80)
-        print(
-            "\nBased on your configuration, your model-output CSV should have these columns:\n"
-        )
+        print("\nBased on your configuration, your model-output CSV should have these columns:\n")
 
         print("Required Columns:")
         for col in sample["required_columns"]:
@@ -543,48 +527,30 @@ class CSVShapeGenerator:
 
         targets = self.config.targets or []
         special_periods = self.config.special_forecast_periods or []
-        
+
         print(f"\n[OK] Time Unit: {self.config.time_unit} days")
         print(f"[OK] Horizons: {self.config.horizons}")
-        print(
-            f"[OK] Forecast Periods: {len(self.config.forecast_periods)} standard period(s)"
-        )
+        print(f"[OK] Forecast Periods: {len(self.config.forecast_periods)} standard period(s)")
         if special_periods:
-            print(
-                f"[OK] Special Periods: {len(special_periods)} special period(s)"
-            )
+            print(f"[OK] Special Periods: {len(special_periods)} special period(s)")
         print(f"[OK] Targets: {len(targets)} modelling task(s)")
         for target in targets:
-            print(
-                f"    - ({target.task_display_string}) -> {target.target_key_in_data}"
-            )
+            print(f"    - ({target.task_display_string}) -> {target.target_key_in_data}")
         print(f"[OK] Models: {len(self.config.available_models)} model(s) configured")
         for model in self.config.available_models:
             print(f"    - {model.model_name}")
-        print(
-            f"[OK] Prediction Intervals: {len(self.config.prediction_intervals)} level(s)"
-        )
+        print(f"[OK] Prediction Intervals: {len(self.config.prediction_intervals)} level(s)")
         for interval in self.config.prediction_intervals:
             print(f"    - {interval.level}% (quantiles: {interval.uses_output_type_ids})")
-        print(
-            f"[OK] Single Location Mode: {'Yes' if self.config.is_single_location_forecast else 'No'}"
-        )
+        print(f"[OK] Single Location Mode: {'Yes' if self.config.is_single_location_forecast else 'No'}")
         if self.config.is_single_location_forecast:
             location_mapping = self.config.get_location_mapping()
-            location_name = location_mapping.get(
-                self.config.single_location_mapping, "Unknown"
-            )
-            print(
-                f"    Location: {self.config.single_location_mapping} ({location_name})"
-            )
+            location_name = location_mapping.get(self.config.single_location_mapping, "Unknown")
+            print(f"    Location: {self.config.single_location_mapping} ({location_name})")
         else:
-            print(
-                "    Locations will be auto-detected from your data files"
-            )
+            print("    Locations will be auto-detected from your data files")
 
-        print(
-            f"[OK] Single Target Mode: {'Yes' if self.config.is_single_forecast_target else 'No'}"
-        )
+        print(f"[OK] Single Target Mode: {'Yes' if self.config.is_single_forecast_target else 'No'}")
 
         print("\n" + "=" * 80)
 
@@ -598,5 +564,3 @@ def generate_and_print_samples(config: DashboardConfig):
 
     # Print model-output sample
     generator.print_model_output_sample()
-
-    

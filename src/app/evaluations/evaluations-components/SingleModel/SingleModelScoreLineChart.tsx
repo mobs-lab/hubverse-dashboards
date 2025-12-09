@@ -4,8 +4,8 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { useAppSelector } from "@/store/hooks";
 import { selectSingleModelScoreDataFromJSON } from "@/store/selectors/index";
 import { selectSingleModelTimeSeriesData } from "@/store/selectors/singleModelSelectors";
+import { selectModelColorMap } from "@/store/selectors";
 
-import { modelColorMap } from "@/types/common";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import { normalizeToUTCMidDay } from "@/utils/date";
 
@@ -27,8 +27,8 @@ const SingleModelScoreLineChart: React.FC = () => {
   const isDraggingRef = useRef(false);
 
   const scoreDataFromJSON = useAppSelector(selectSingleModelScoreDataFromJSON);
-
   const timeSeriesData = useAppSelector(selectSingleModelTimeSeriesData);
+  const modelColorMap = useAppSelector(selectModelColorMap);
 
   const {
     evaluationsSingleModelViewModel,

@@ -2,7 +2,7 @@
 
 import React from "react";
 
-import { modelColorMap, modelNames } from "@/types/common";
+import { selectModelColorMap, selectModelNames } from "@/store/selectors";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -10,6 +10,7 @@ import {
   updateSelectedDynamicTimePeriod,
   toggleModelSelection,
   selectAllModels,
+  setSelectedTargetId,
 } from "@/store/data-slices/settings/SettingsSliceEvaluationSeasonOverview";
 
 import { Radio, Typography, List, ListItem, ListItemPrefix } from "@/styles/material-tailwind-wrapper";
@@ -21,8 +22,16 @@ import InfoButton from "@/shared-components/InfoButton";
 // Season Overview Settings Panel
 export const SeasonOverviewSettings = () => {
   const dispatch = useAppDispatch();
-  const { evaluationSeasonOverviewHorizon, selectedDynamicTimePeriod, evalSOTimeRangeOptions, evaluationSeasonOverviewSelectedModels } =
-    useAppSelector((state) => state.evaluationsSeasonOverviewSettings);
+  const { 
+    evaluationSeasonOverviewHorizon, 
+    selectedDynamicTimePeriod, 
+    evalSOTimeRangeOptions, 
+    evaluationSeasonOverviewSelectedModels,
+    selectedTargetId,
+    availableTargets,
+  } = useAppSelector((state) => state.evaluationsSeasonOverviewSettings);
+  const modelColorMap = useAppSelector(selectModelColorMap);
+  const modelNames = useAppSelector(selectModelNames);
 
   // Check if "Last 2 Weeks" is selected
   const isLastTwoWeeksSelected = selectedDynamicTimePeriod === "last-2-weeks";
@@ -89,6 +98,11 @@ export const SeasonOverviewSettings = () => {
     }
   };
 
+  // Target selection handler
+  const onTargetSelectionChange = (targetId: string) => {
+    dispatch(setSelectedTargetId(targetId));
+  };
+
   return (
     <div className='bg-mobs-lab-color-filterspane text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings'>
       <div className='flex-grow nowrap overflow-y-auto p-4 util-no-sb-length'>
@@ -152,6 +166,25 @@ export const SeasonOverviewSettings = () => {
             </button>
           </div>
         </div>
+
+        {/* Target Selection - only show if multiple targets available */}
+        {availableTargets.length > 1 && (
+          <div className='mb-4 w-full'>
+            <Typography variant='h6' className='text-white mb-1' placeholder=''>
+              Target
+            </Typography>
+            <select
+              value={selectedTargetId}
+              onChange={(e) => onTargetSelectionChange(e.target.value)}
+              className='text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2'>
+              {availableTargets.map((target) => (
+                <option key={target.targetId} value={target.targetId}>
+                  {target.displayString}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className='mb-2'>
           <Typography variant='h6' className='text-white mb-1' placeholder=''>

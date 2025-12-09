@@ -30,7 +30,7 @@ from typing import Optional
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from yaml_config_processor_pydantic import load_config_pydantic, DashboardConfig
+from yaml_config_processor_pydantic import load_and_validate_config, DashboardConfig
 from csv_shape_generator import generate_and_print_samples
 from data_processor import process_data
 
@@ -87,7 +87,7 @@ class DashboardBuilder:
 
         # Call the YAML config processor's load_config method
         try:
-            self.config = load_config_pydantic(self.config_path, dev_mode=self.dev_mode)
+            self.config = load_and_validate_config(self.config_path, dev_mode=self.dev_mode)
             print("[OK] Configuration loaded and validated successfully\n")
             return True
 

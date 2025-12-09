@@ -24,7 +24,7 @@ import {
   selectModelNames,
   selectPredictionIntervalOptions,
   selectTargets,
-} from '@/store/selectors/forecastSelectors';
+} from '@/store/selectors';
 import { Radio, Typography } from '@/styles/material-tailwind-wrapper';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -85,10 +85,10 @@ const SettingsPanel: React.FC = () => {
     if (!locationSearchText) return locationList;
     const searchLower = locationSearchText.toLowerCase();
     return locationList.filter(
-      (loc: { code: string; name: string; nameAlt?: string }) =>
-        loc.name.toLowerCase().includes(searchLower) ||
-        loc.code.toLowerCase().includes(searchLower) ||
-        (loc.nameAlt && loc.nameAlt.toLowerCase().includes(searchLower))
+      (loc: { locationCode: string; locationName: string; locationNameAlt?: string }) =>
+        loc.locationName.toLowerCase().includes(searchLower) ||
+        loc.locationCode.toLowerCase().includes(searchLower) ||
+        (loc.locationNameAlt && loc.locationNameAlt.toLowerCase().includes(searchLower))
     );
   }, [locationList, locationSearchText]);
 
@@ -190,8 +190,8 @@ const SettingsPanel: React.FC = () => {
 
   // Get selected location name for display
   const selectedLocationName = useMemo(() => {
-    const location = locationList.find((loc) => loc.code === selectedLocationCode);
-    return location ? location.name : '';
+    const location = locationList.find((loc) => loc.locationCode === selectedLocationCode);
+    return location ? location.locationName : '';
   }, [locationList, selectedLocationCode]);
 
   return (
@@ -240,19 +240,19 @@ const SettingsPanel: React.FC = () => {
               <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
                 {filteredLocations.length > 0 ? (
                   filteredLocations.map(
-                    (location: { code: string; name: string; nameAlt?: string }) => (
+                    (location: { locationCode: string; locationName: string; locationNameAlt?: string }) => (
                       <div
-                        key={location.code}
+                        key={location.locationCode}
                         onClick={() => {
-                          onLocationChange(location.code);
+                          onLocationChange(location.locationCode);
                           setLocationSearchText('');
                           setIsLocationDropdownOpen(false);
                         }}
                         className={`px-3 py-2 cursor-pointer hover:bg-gray-700 ${
-                          location.code === selectedLocationCode ? 'bg-gray-700' : ''
+                          location.locationCode === selectedLocationCode ? 'bg-gray-700' : ''
                         }`}
                       >
-                        {location.name}
+                        {location.locationName}
                       </div>
                     )
                   )
@@ -271,7 +271,7 @@ const SettingsPanel: React.FC = () => {
           Models
         </Typography>
         <div className="relative">
-          <div 
+          <div
             className={`space-y-2 overflow-y-auto pr-1 transition-all duration-300 ${
               isModelListExpanded ? 'max-h-96' : 'max-h-40'
             }`}
@@ -420,7 +420,11 @@ const SettingsPanel: React.FC = () => {
           <InfoButton
             content={
               uiConfig?.forecastPage.infoButtons.horizonInfo?.content ? (
-                <div dangerouslySetInnerHTML={{ __html: uiConfig.forecastPage.infoButtons.horizonInfo.content }} />
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: uiConfig.forecastPage.infoButtons.horizonInfo.content,
+                  }}
+                />
               ) : (
                 horizonSelectorsInfo
               )

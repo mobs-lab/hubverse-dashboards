@@ -1,106 +1,187 @@
-// Forecast Periods Interfaces
-// ---------------------------
+// ============================================
+// Forecast Periods
+// ============================================
 
-// Coming from user-specified forecast periods, the options available for selecting,
-// Filtering data to be within the time range.
+/**
+ * Collection of available forecast periods indexed by their ID
+ * Used by: Date range selector, time filtering
+ */
 export interface ForecastPeriodOptions {
   [forecastPeriodId: string]: ForecastPeriod;
 }
 
+/**
+ * Individual forecast period configuration
+ * Represents a specific time window for forecasting (e.g., "Season 2023-2024", "Last 4 Weeks")
+ */
 export interface ForecastPeriod {
-  forecastPeriodId: string; // Redundantly stored for data selector to use
+  /** Unique identifier (redundantly stored for selector efficiency) */
+  forecastPeriodId: string;
+  /** Whether this period should be selected by default */
   isDefaultSelected?: boolean;
+  /** Human-readable name shown in UI */
   displayString: string;
+  /** Formatted time value for display (e.g., "2023-08-01/2024-05-31") */
   timeValue: string;
+  /** Period start date */
   startDate: Date;
+  /** Period end date */
   endDate: Date;
 }
 
-// Location (Spatial) Data Interfaces
-// ---------------------------------------
+/**
+ * Forecast period option for dropdowns and selectors
+ * Simplified version with index for array-based operations
+ */
+export interface ForecastPeriodOption {
+  /** Unique identifier matching ForecastPeriod.forecastPeriodId */
+  forecastPeriodID: string;
+  /** Human-readable display name */
+  displayString: string;
+  /** Formatted time value (e.g., "2023-08-01/2024-05-31") */
+  timeValue: string;
+  /** Period start date */
+  startDate: Date;
+  /** Period end date */
+  endDate: Date;
+  /** Array index for UI ordering */
+  index: number;
+}
+
+// ============================================
+// Location (Spatial) Data
+// ============================================
+
+/**
+ * Location mapping data indexed by location code
+ * Maps location codes (e.g., "US", "01") to their human-readable names
+ */
 export interface LocationMappingData {
   [locationCode: string]: {
-    locationNameAlt?: string;
+    /** Primary location name (e.g., "United States", "Alabama") */
     locationName: string;
+    /** Alternative location name (e.g., abbreviations) */
+    locationNameAlt?: string;
   };
 }
 
-// Modelling Task Target Interfaces
-// ---------------------------------
+// ============================================
+// Modelling Task Targets
+// ============================================
+
+/**
+ * Modelling task target configuration
+ * Defines what outcome is being forecasted (e.g., hospital admissions, deaths)
+ */
 export interface ModellingTaskTarget {
   [targetId: string]: {
+    /** Display string for this target in UI */
     taskTargetDisplayString: string;
   };
 }
 
-// Target-Data Interfaces
-// ---------------------------
+// ============================================
+// Target Data (Ground Truth)
+// ============================================
+
+/**
+ * Current target data (ground truth / observed values)
+ * 
+ * Structure: location → date → target → observation data
+ * This is the primary data structure used by forecast visualizations
+ */
 export interface TargetData {
   [locationCode: string]: {
     [date: string]: {
+      /** ISO date string (YYYY-MM-DD) */
       [targetId: string]: {
+        /** Observed value (-1 indicates missing data) */
         observation: number | null;
+        /** Optional location name for convenience */
         location_name?: string;
       };
     };
   };
 }
 
-// Target Data Collection partitioned by forecast period
-export interface TargetDataCollection {
-  [forecastPeriodId: string]: TargetData;
-}
-
-// Historical Target-Data: Entire Collection organized by as_of date
-// Structure: as_of -> date -> location -> {observation, target}
-// 
-// IMPORTANT: The 'target' field should contain the target_id (e.g., "covid19-admission")
-// that matches the target_id in the config, NOT the raw target key from source data.
-// The Python processor maps raw target keys to target_ids using target_key_to_id_map.
+/**
+ * Historical target data collection organized by "as_of" date
+ * Enables viewing what the data looked like at a specific point in time
+ * 
+ * Structure: as_of_date → date → location → target → observation data
+ * Used by: Historical Target Data toggle feature
+ */
 export interface HistoricalTargetDataCollection {
   [asOfDate: string]: {
+    /** ISO date string (YYYY-MM-DD) */
     [date: string]: {
       [locationCode: string]: {
-        observation: number | null;
-        location_name?: string;
-        target: string; // Required - the target_id this observation belongs to
-      };
-    };
-  };
-}
-
-// Model Output Interfaces
-// ---------------------------
-
-// A single prediction data point from a model
-export interface PredictionPointInterval {
-  horizon: number | null;
-  targetId?: string;
-  value_median: number; // The median value, always needed, calculated by Python using quantiles and put directly here
-  prediction_intervals: {
-    [
-      prediction_interval_name: string // "25", "50", "75", "90", used to display the PI level name in the visualization
-    ]: SinglePredictionIntervalInfo;
-  };
-}
-
-// Collection of all model output data, structured for the frontend
-export interface ModelOutputCollection {
-  [forecastPeriodId: string]: {
-    [modelName: string]: {
-      [locationCode: string]: {
-        [referenceDate: string]: {
-          predictions: {
-            // Each date's prediction contains that day's median and the available PI information.
-            [targetDate: string]: PredictionPointInterval;
-          };
+        [targetId: string]: {
+          /** Observed value at this as_of snapshot */
+          observation: number | null;
+          /** Optional location name */
+          location_name?: string;
+          /** Target ID (redundant but kept for data integrity) */
+          target: string;
         };
       };
     };
   };
 }
 
+// ============================================
+// Model Output (Predictions)
+// ============================================
+
+/**
+ * A single prediction interval's bounds
+ */
 export interface SinglePredictionIntervalInfo {
-  pi_value_high: number; // The high value of the PI, upper bound for the shaded interval regions in visualizations
-  pi_value_low: number; // The low value of the PI, lower bound for the same
+  /** Upper bound of this prediction interval */
+  pi_value_high: number;
+  /** Lower bound of this prediction interval */
+  pi_value_low: number;
+}
+
+/**
+ * A single prediction data point from a model
+ * Contains the median forecast and all configured prediction intervals
+ */
+export interface PredictionPointInterval {
+  /** Forecast horizon (in time_unit units from reference_date) */
+  horizon: number | null;
+  /** Target being predicted (for multi-target dashboards) */
+  targetId?: string;
+  /** Median (point) prediction value */
+  value_median: number;
+  /** 
+   * Available prediction intervals for this forecast
+   * Keyed by interval level (e.g., "25", "50", "90")
+   */
+  prediction_intervals: {
+    [prediction_interval_name: string]: SinglePredictionIntervalInfo;
+  };
+}
+
+/**
+ * Complete collection of all model output data
+ * 
+ * Structure: model → location → reference_date → predictions
+ * This nested structure enables efficient lookup by the forecast visualization components
+ */
+export interface ModelOutputCollection {
+  [modelName: string]: {
+    [locationCode: string]: {
+      [referenceDate: string]: {
+        /** ISO date string (YYYY-MM-DD) */
+        predictions: {
+          /** 
+           * Predictions keyed by target_end_date
+           * Each prediction includes median and prediction intervals
+           */
+          [targetDate: string]: PredictionPointInterval;
+        };
+      };
+    };
+  };
 }

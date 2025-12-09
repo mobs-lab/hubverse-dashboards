@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 import yaml
 from pydantic import (
@@ -39,15 +39,17 @@ class ForecastPeriodConfig(BaseModel):
         pattern=r"^[a-zA-Z0-9_-]+$",
         examples=["season-2024-2025", "round-1"],
     )
-    start_date: datetime = Field(..., description="Start date of forecast period (ISO format)")
-    end_date: datetime = Field(..., description="End date of forecast period (ISO format)")
-    display_string: str = Field(..., description="Human-readable name shown in dashboard", min_length=1, max_length=100)
-    is_default_selected: bool = Field(default=False, description="Whether this period is selected by default (only one allowed)")
+    start_date: datetime = Field(..., description="The inclusive start date of the forecast period (ISO format).")
+    end_date: datetime = Field(..., description="The inclusive end date of the forecast period (ISO format).")
+    display_string: str = Field(..., description="Human-readable name shown in the dashboard's period selector.", min_length=1, max_length=100)
+    is_default_selected: bool = Field(
+        default=False, description="If true, this period will be selected by default when the dashboard loads. Only one period can be the default."
+    )
 
     @field_validator("end_date")
     @classmethod
     def end_after_start(cls, v: datetime, info) -> datetime:
-        """Validate end_date is after start_date"""
+        """Validates that the period end date occurs after the start date."""
         if "start_date" in info.data and v <= info.data["start_date"]:
             raise ValueError("end_date must be after start_date")
         return v
@@ -74,28 +76,65 @@ class SpecialForecastPeriodConfig(BaseModel):
     time_anchor: TimeAnchorConfig
 
 
+class ScalingFactorConfig(BaseModel):
+    """Configuration for scaling target and model output data values."""
+
+    target_data: float = Field(default=1.0)
+    model_output: float = Field(default=1.0)
+
+
+class RoundingDecimalsConfig(BaseModel):
+    """Configuration for rounding data values"""
+
+    # Can only be non-negative integer, representing number of decimals places
+    target_data: float = Field(default=2, ge=0)
+    model_output: float = Field(default=2, ge=0)
+
+
+class DataValueProcessingConfig(BaseModel):
+    """Configuration for processing data values (scaling and rounding)."""
+
+    scaling_factor: Optional[ScalingFactorConfig] = Field(default_factory=ScalingFactorConfig)
+    rounding_decimals: Optional[RoundingDecimalsConfig] = Field(default_factory=RoundingDecimalsConfig)
+
+
 class TargetConfig(BaseModel):
-    """Configuration for a forecasting target/task"""
+    """
+    Configuration for a forecasting target.
+    Each target represents a distinct outcome you are predicting, such as 'COVID-19 Admissions' or 'Flu-related ED Visits'.
+    """
 
     target_id: str = Field(..., description="Unique identifier for this target", pattern=r"^[a-zA-Z0-9_-]+$")
-    task_display_string: str = Field(..., description="Display name in dashboard", min_length=1)
-    target_key_in_data: str = Field(..., description="Key to match in target/output_type column")
-    for_forecast_periods: Optional[List[str]] = Field(default=None, description="Forecast period IDs to use (null = all periods)")
-    is_default_selected: bool = Field(default=False, description="Whether this target is selected by default (only one allowed)")
+    task_display_string: str = Field(..., description="Display name for this target in the dashboard UI.", min_length=1)
+    target_key_in_data: str = Field(
+        ...,
+        description="The exact string identifier for this target as it appears in the 'target' column of your data files.",
+        examples=["wk inc covid hosp", "wk flu hosp"],
+    )
+    for_forecast_periods: Optional[List[str]] = Field(
+        default=None,
+        description="If specified, this target will only be available for the listed forecast period IDs. If null, it is available for all periods.",
+    )
+    is_default_selected: bool = Field(default=False, description="If true, this target will be selected by default. Only one target can be the default.")
+    data_value_processing: Optional[DataValueProcessingConfig] = Field(default_factory=DataValueProcessingConfig)
 
 
 class PredictionIntervalConfig(BaseModel):
-    """Configuration for a prediction interval"""
+    """
+    Configuration for a single prediction interval.
+    This defines the shaded confidence interval regions around the median prediction line in the forecast chart.
+    """
 
-    level: int = Field(..., ge=1, le=99, description="Prediction interval level (1-99)")
+    level: int = Field(..., ge=1, le=99, description="The prediction interval level (e.g., 50, 90, 95). This is the value shown to the user.")
     uses_output_type_ids: List[str] = Field(
         ...,
-        description="Quantile values for lower and upper bounds",
+        description="A pair of quantile values [lower, upper] that define the bounds of the interval.",
         min_length=2,
         max_length=2,
+        examples=[["0.05", "0.95"], ["0.25", "0.75"]],
     )
 
-    @field_validator("uses_output_type_ids")
+    @field_validator("uses_output_type_ids", mode="after")
     @classmethod
     def validate_quantiles(cls, v: List[str]) -> List[str]:
         """Ensure quantiles are valid and in ascending order"""
@@ -104,10 +143,10 @@ class PredictionIntervalConfig(BaseModel):
         except ValueError:
             raise ValueError("Quantiles must be numeric strings")
 
-        if not all(0 <= q <= 1 for q in quantiles):
+        if not all(0 <= float(q) <= 1 for q in quantiles):
             raise ValueError("Quantiles must be between 0 and 1")
 
-        if quantiles[0] >= quantiles[1]:
+        if float(quantiles[0]) >= float(quantiles[1]):
             raise ValueError("Quantiles must be in ascending order")
 
         return v
@@ -122,14 +161,6 @@ class ModelConfig(BaseModel):
         pattern=r"^#[0-9a-fA-F]{6}$",
         description="Hex color code for visualization",
     )
-    display_name: Optional[str] = Field(default=None, description="Display name (defaults to model_name)")
-
-    @model_validator(mode="after")
-    def set_display_name(self):
-        """Set display_name to model_name if not provided"""
-        if not self.display_name:
-            self.display_name = self.model_name
-        return self
 
 
 class SpatialDataConfig(BaseModel):
@@ -143,27 +174,39 @@ class SpatialDataConfig(BaseModel):
 
 
 class TargetDataHeaderMapping(BaseModel):
-    """Column name mappings for target data"""
+    """Column name mappings for your ground truth (target) data file."""
 
-    date_col_name: str = Field(default="date")
-    observation_col_name: str = Field(default="observation")
-    location_col_name: str = Field(default="location")
-    location_name_col_name: Optional[str] = Field(default="location_name")
-    target_col_name: Optional[str] = Field(default="target")
-    as_of_col_name: Optional[str] = Field(default=None)
+    date_col_name: str = Field(default="date", description="Column containing the date of the observation.")
+    observation_col_name: str = Field(
+        default="observation", description="Column containing the observed numerical value. Missing values will be filled with -1."
+    )
+    location_col_name: str = Field(
+        default="location", description="Column containing the location code (e.g., 'US', '01'). Required for multi-location dashboards."
+    )
+    location_name_col_name: Optional[str] = Field(
+        default="location_name", description="Column containing the human-readable location name (e.g., 'Massachusetts', 'Washington')."
+    )
+    target_col_name: Optional[str] = Field(
+        default="target", description="Column containing the target identifier (e.g., 'wk inc covid hosp'). Required for multi-target dashboards."
+    )
+    as_of_col_name: Optional[str] = Field(
+        default=None, description="If provided, enables historical data versioning. This column should contain the date the data was reported."
+    )
 
 
 class ModelOutputHeaderMapping(BaseModel):
-    """Column name mappings for model output data"""
+    """Column name mappings for your model output files."""
 
-    reference_date_col_name: str = Field(default="reference_date")
-    target_end_date_col_name: str = Field(default="target_end_date")
-    target_col_name: str = Field(default="target")
-    horizon_col_name: str = Field(default="horizon")
-    location_col_name: str = Field(default="location")
-    output_type_col_name: str = Field(default="output_type")
-    output_type_id_col_name: str = Field(default="output_type_id")
-    value_col_name: str = Field(default="value")
+    reference_date_col_name: str = Field(default="reference_date", description="Column containing the date when the forecast was made.")
+    target_end_date_col_name: str = Field(default="target_end_date", description="Column containing the date that is being forecasted.")
+    target_col_name: str = Field(default="target", description="Column containing the target identifier being predicted.")
+    horizon_col_name: str = Field(default="horizon", description="Column containing the forecast horizon value (in units of `time_unit`).")
+    location_col_name: str = Field(default="location", description="Column containing the location code.")
+    output_type_col_name: str = Field(default="output_type", description="Column identifying the prediction type. Must contain 'quantile'.")
+    output_type_id_col_name: str = Field(
+        default="output_type_id", description="Column containing the quantile level for 'quantile' rows (e.g., 0.05, 0.5, 0.95)."
+    )
+    value_col_name: str = Field(default="value", description="Column containing the predicted numerical value.")
 
 
 class InfoButtonContent(BaseModel):
@@ -234,10 +277,13 @@ class DashboardConfig(BaseModel):
     helpful error messages for common mistakes.
     """
 
-    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
+    # Strip whitespace, re-evaluate when data change, and ignore unwarranted configurations
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="ignore")
 
     # Data Source
-    link_to_hubverse_compatible_data: Optional[str] = Field(default=None, description="Set to null for local data")
+    link_to_hubverse_compatible_data: Optional[str] = Field(
+        default=None, description="URL to a remote, Hubverse-compatible data repository on GitHub. Set to null for local data."
+    )
     target_data_link: Optional[HttpUrl] = None
     model_output_link: Optional[HttpUrl] = None
 
@@ -251,9 +297,10 @@ class DashboardConfig(BaseModel):
     spatial_config: SpatialDataConfig = Field(default_factory=SpatialDataConfig)
 
     # Target Configuration
-    is_single_forecast_target: bool = Field(default=False)
-    targets: Optional[List[TargetConfig]] = None
-    time_unit: int = Field(..., ge=1, le=365, description="Time unit in days (typically 1 or 7)")
+    targets: List[TargetConfig]
+    time_unit: int = Field(
+        ..., ge=1, le=365, description="The time unit in days between forecast points. This is crucial for calculating forecast horizons correctly."
+    )
 
     # Target Data Configuration
     target_data_file_format: Literal["csv", "parquet"] = Field(default="csv")
@@ -273,10 +320,15 @@ class DashboardConfig(BaseModel):
 
     # Evaluation Configuration
     evaluations_prediction_intervals: Optional[List[PredictionIntervalConfig]] = None
-    baseline_model_for_relative_WIS: str
+    baseline_model_for_relative_WIS: str = Field(
+        ..., description="The model ID to use as a baseline for calculating Relative WIS. This model acts as a benchmark for performance comparison."
+    )
+    evaluation_coverage_levels: List[int] = Field(default=[50, 95], description="List of integer percentages (0-100) for evaluation coverage calculation.")
 
     # Default Selections
-    default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(default=None, description="Default location code or dict mapping")
+    default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(
+        default=None, description="Default location to display when the dashboard loads. Can be a location code string or a code-name dictionary."
+    )
     default_selected_prediction_intervals: Optional[List[str]] = Field(default=None, description="Default prediction interval levels")
     default_selected_horizon: Optional[int] = Field(default=None, description="Default horizon value")
     default_selected_prediction_intervals_for_evaluations: Optional[List[str]] = Field(
@@ -286,47 +338,47 @@ class DashboardConfig(BaseModel):
     # UI Customizations
     ui_customization: UICustomizationConfig = Field(default_factory=UICustomizationConfig)
 
+    @field_validator("evaluation_coverage_levels")
+    @classmethod
+    def validate_coverage_levels(cls, v: List[int]) -> List[str]:
+        """Validate coverage levels and convert to list of strings"""
+        if not v:
+            # Return empty list or defaults depending on logic downstream,
+            # but defaults are set in Field().
+            # However, if user provides empty list [], we might want defaults.
+            # But Field default only applies if key is missing.
+            return []
+
+        for level in v:
+            if not isinstance(level, int):
+                raise ValueError(f"Coverage level must be an integer, got {type(level)}")
+            if level <= 0 or level >= 100:
+                raise ValueError(f"Coverage level must be between 0 and 100 (exclusive), got {level}")
+
+        # Sort and convert to strings as requested
+        return sorted([str(level) for level in set(v)], key=lambda x: int(x))
+
     # ==========================================================================
     # Cross-Field Validators
     # ==========================================================================
 
     @model_validator(mode="after")
-    def ensure_targets_is_list(self):
-        """Ensure targets is always a list, never None (for compatibility)"""
-        # Only convert None to [] if in single-target mode
-        if self.targets is None and self.is_single_forecast_target:
-            object.__setattr__(self, "targets", [])
-        return self
-
-    @model_validator(mode="after")
     def validate_single_location_requires_mapping(self):
-        """Ensure single_location_mapping provided when in single-location mode"""
+        """Ensures `single_location_mapping` is provided when in single-location mode."""
         if self.is_single_location_forecast and not self.single_location_mapping:
             raise ValueError("single_location_mapping is REQUIRED when is_single_location_forecast is True")
         return self
 
-    @model_validator(mode="after")
-    def populate_target_forecast_periods(self):
-        """Populate for_forecast_periods with all period IDs when None"""
-        if self.targets:
-            all_period_ids = self.get_all_period_ids()
-            for target in self.targets:
-                if target.for_forecast_periods is None:
-                    # Use object.__setattr__ to bypass frozen/validation
-                    object.__setattr__(target, "for_forecast_periods", all_period_ids)
-        return self
-
-    @model_validator(mode="after")
-    def validate_multi_target_requires_targets(self):
-        """Ensure targets defined when not in single-target mode"""
-        if not self.is_single_forecast_target:
-            if not self.targets or len(self.targets) == 0:
-                raise ValueError("targets list is REQUIRED when is_single_forecast_target is False")
-        return self
+    # @model_validator(mode="after")
+    # def validate_multi_target_requires_targets(self):
+    #     """Ensure targets defined when not in single-target mode"""
+    #     if not self.targets or len(self.targets) == 0:
+    #         raise ValueError("At least one modelling task target is required.")
+    #     return self
 
     @model_validator(mode="after")
     def validate_single_file_name_required(self):
-        """Ensure single_target_data_file_name provided when needed"""
+        """Ensures `single_target_data_file_name` is provided for CSV or non-partitioned Parquet data."""
         if self.target_data_file_format in ["csv", "parquet"]:
             if not self.parquet_partitioned_by_as_of:
                 if not self.single_target_data_file_name:
@@ -335,7 +387,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_only_one_default_period(self):
-        """Ensure only one forecast period is default"""
+        """Ensures that only one forecast period has `is_default_selected` set to true."""
         default_count = sum(1 for period in self.forecast_periods if period.is_default_selected)
         if default_count > 1:
             raise ValueError(f"Only one forecast period can be default, found {default_count}")
@@ -343,16 +395,15 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_only_one_default_target(self):
-        """Ensure only one target is default"""
-        if self.targets:
-            default_targets = [t.target_id for t in self.targets if t.is_default_selected]
-            if len(default_targets) > 1:
-                raise ValueError(f"Only one target can be default. Found: {', '.join(default_targets)}")
+        """Ensures that only one target has `is_default_selected` set to true."""
+        default_targets = [t.target_id for t in self.targets if t.is_default_selected]
+        if len(default_targets) > 1:
+            raise ValueError(f"Only one target can be default. Found: {', '.join(default_targets)}")
         return self
 
     @model_validator(mode="after")
     def assign_model_colors(self):
-        """Assign colors to models that don't have one"""
+        """Assigns unique colors from a default palette to any models that do not have a `color_hex` specified."""
         default_palette = [
             "#9ceb94",
             "#3fc49e",
@@ -389,7 +440,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_baseline_in_models(self):
-        """Warn if baseline model not in available_models"""
+        """Warns the user if the specified baseline model is not in the list of available models."""
         model_names = [m.model_name for m in self.available_models]
         if self.baseline_model_for_relative_WIS not in model_names:
             logger.warning(f"Baseline model '{self.baseline_model_for_relative_WIS}' not in available_models: {model_names}")
@@ -397,7 +448,7 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_special_periods_anchor(self):
-        """Ensure special period anchors reference valid periods"""
+        """Ensures that special period anchors reference valid, defined forecast periods."""
         if not self.special_forecast_periods:
             return self
 
@@ -410,14 +461,14 @@ class DashboardConfig(BaseModel):
 
     @model_validator(mode="after")
     def set_evaluation_intervals_default(self):
-        """Set evaluation intervals to prediction intervals if not provided"""
+        """Sets `evaluations_prediction_intervals` to match `prediction_intervals` if it's not explicitly provided."""
         if not self.evaluations_prediction_intervals:
             self.evaluations_prediction_intervals = self.prediction_intervals
         return self
 
     @model_validator(mode="after")
     def validate_default_selections(self):
-        """Validate default selection values"""
+        """Validates that the default selections for PIs and horizons exist in the available options."""
         # Validate default prediction intervals
         if self.default_selected_prediction_intervals:
             available_levels = {str(pi.level) for pi in self.prediction_intervals}
@@ -446,6 +497,20 @@ class DashboardConfig(BaseModel):
         if self.evaluations_prediction_intervals:
             for interval in self.evaluations_prediction_intervals:
                 quantiles.update(interval.uses_output_type_ids)
+
+        # Add quantiles needed for configured coverage levels
+        if self.evaluation_coverage_levels:
+            for level_str in self.evaluation_coverage_levels:
+                # level_str is now a string like "50", "95"
+                level = int(level_str)
+                alpha = 1.0 - (level / 100.0)
+                lower = alpha / 2.0
+                upper = 1.0 - (alpha / 2.0)
+
+                # Round to reasonable precision to match data (usually 3 or 4 decimals)
+                # Hubverse data typically uses 0.025, 0.975, etc.
+                quantiles.add(f"{lower:.3g}")
+                quantiles.add(f"{upper:.3g}")
 
         return sorted(list(quantiles), key=lambda x: float(x))
 
@@ -479,219 +544,16 @@ class DashboardConfig(BaseModel):
 # =============================================================================
 
 
-def flatten_yaml_list_structure(raw_config: List[Dict]) -> Dict[str, Any]:
+def load_and_validate_config(config_path: Union[str, Path] = "config.yaml", dev_mode: bool = False) -> DashboardConfig:
     """
-    Flatten the YAML list-of-dicts structure to single dict.
-    Handles nested structures for forecast_periods, targets, etc.
-    """
-    flat_config = {}
-
-    for item in raw_config:
-        if not isinstance(item, dict):
-            continue
-
-        for key, value in item.items():
-            # Handle nested list structures (forecast_periods, targets, etc.)
-            if key in [
-                "forecast_periods",
-                "special_forecast_periods",
-                "targets",
-                "available_models",
-                "prediction_intervals",
-                "evaluations_prediction_intervals",
-            ]:
-                if isinstance(value, list):
-                    processed_list = []
-                    for list_item in value:
-                        if isinstance(list_item, dict):
-                            # Extract the nested structure
-                            for sub_key, sub_value in list_item.items():
-                                if isinstance(sub_value, list):
-                                    # Flatten nested list of dicts
-                                    flattened = {}
-                                    for prop in sub_value:
-                                        if isinstance(prop, dict):
-                                            # Handle time_anchor specially
-                                            if "time_anchor" in prop:
-                                                anchor_list = prop["time_anchor"]
-                                                anchor_dict = {}
-                                                for anchor_item in anchor_list:
-                                                    if isinstance(anchor_item, dict):
-                                                        anchor_dict.update(anchor_item)
-                                                flattened["time_anchor"] = anchor_dict
-                                            else:
-                                                flattened.update(prop)
-
-                                    # For models and intervals, preserve the name as key
-                                    if key in ["available_models", "prediction_intervals", "evaluations_prediction_intervals"]:
-                                        if key == "available_models":
-                                            flattened["model_name"] = sub_key
-                                        elif key in ["prediction_intervals", "evaluations_prediction_intervals"]:
-                                            flattened["level"] = int(sub_key)
-
-                                    processed_list.append(flattened)
-                    flat_config[key] = processed_list
-            elif key == "spatial_config":
-                # Flatten spatial config if it exists
-                continue  # Will be handled by extracting individual fields
-            elif key == "target_data_header_mapping":
-                # Flatten target data header mapping
-                if isinstance(value, list):
-                    mapping_dict = {}
-                    for mapping in value:
-                        if isinstance(mapping, dict):
-                            mapping_dict.update(mapping)
-                    flat_config["target_data_header_mapping"] = mapping_dict
-            elif key == "model_output_data_header_mapping":
-                # Flatten model output header mapping
-                if isinstance(value, list):
-                    mapping_dict = {}
-                    for mapping in value:
-                        if isinstance(mapping, dict):
-                            mapping_dict.update(mapping)
-                    flat_config["model_output_data_header_mapping"] = mapping_dict
-            # Handle UI customization - navigation buttons
-            elif key == "ui_header_nav_btn":
-                if isinstance(value, list):
-                    nav_buttons = []
-                    for btn_item in value:
-                        if isinstance(btn_item, dict):
-                            # Extract button text from key
-                            for btn_text, btn_config_list in btn_item.items():
-                                btn_config = {"button_text": btn_text}
-                                if isinstance(btn_config_list, list):
-                                    for config_dict in btn_config_list:
-                                        if isinstance(config_dict, dict):
-                                            btn_config.update(config_dict)
-                                nav_buttons.append(btn_config)
-                    flat_config[key] = nav_buttons
-            # Handle UI customization - InfoButton content (flatten list of dicts to single dict)
-            elif key in ["ui_forecast_header_infobutton_content", "ui_forecast_settings_horizon_infobutton_content"]:
-                if isinstance(value, list):
-                    content_dict = {}
-                    for content_item in value:
-                        if isinstance(content_item, dict):
-                            content_dict.update(content_item)
-                    flat_config[key] = content_dict
-            else:
-                flat_config[key] = value
-
-    # Extract spatial config fields
-    spatial_fields = [
-        "disable_map_in_dashboard",
-        "custom_shape_file_name",
-        "custom_location_mapping_file_name",
-        "location_code_col_header_name",
-        "location_name_col_header_name",
-    ]
-    spatial_config = {}
-    for field in spatial_fields:
-        if field in flat_config:
-            spatial_config[field] = flat_config.pop(field)
-    if spatial_config:
-        flat_config["spatial_config"] = spatial_config
-
-    # Extract UI customization fields
-    ui_fields = [
-        "ui_header_title_name",
-        "ui_header_nav_btn",
-        "ui_forecast_header_chart_name",
-        "ui_forecast_header_hist_td_toggle_text",
-        "disable_location_info_display",
-        "ui_forecast_header_infobutton_content",
-        "ui_forecast_settings_horizon_infobutton_content",
-    ]
-    ui_customization = {}
-    for field in ui_fields:
-        if field in flat_config:
-            ui_customization[field] = flat_config.pop(field)
-    if ui_customization:
-        flat_config["ui_customization"] = ui_customization
-
-    return flat_config
-
-
-def _load_us_state_fips_mapping() -> Dict[str, str]:
-    """Load US state FIPS code to name mapping from reference file"""
-    reference_path = Path(__file__).parent / "us_state_fips_mapping.json"
-
-    try:
-        with open(reference_path, "r") as f:
-            mapping = json.load(f)
-            logger.info(f"  [OK] Loaded US state FIPS mapping ({len(mapping)} locations)")
-            return mapping
-    except FileNotFoundError:
-        logger.warning(f"  [!] US state FIPS mapping file not found at {reference_path}")
-        return {}
-    except json.JSONDecodeError as e:
-        logger.warning(f"  [!] Error parsing US state FIPS mapping: {e}")
-        return {}
-
-
-def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode: bool) -> Dict[str, str]:
-    """
-    Load location mapping with precedence:
-    1. Custom location mapping file (highest priority)
-    2. Default US FIPS mapping (fallback)
-
-    Note: Locations from target-data/model-output are detected at runtime by data_processor
-    """
-    # Determine base path
-    project_root = config_path.parent
-    data_base_path = project_root / "test-data-input" if dev_mode else project_root
-    auxiliary_data_dir = data_base_path / "auxiliary-data"
-
-    # Check if custom location mapping is specified
-    custom_location_file = config.spatial_config.custom_location_mapping_file_name
-
-    if custom_location_file:
-        mapping_path = auxiliary_data_dir / custom_location_file
-        if mapping_path.exists():
-            try:
-                import pandas as pd
-
-                # Read location code as string to preserve leading zeros (e.g., "01" for Alabama)
-                mapping_df = pd.read_csv(mapping_path, dtype={config.spatial_config.location_code_col_header_name: str})
-
-                # Validate required columns exist
-                code_col = config.spatial_config.location_code_col_header_name
-                name_col = config.spatial_config.location_name_col_header_name
-
-                if code_col not in mapping_df.columns:
-                    logger.error(f"  [X] Column '{code_col}' not found in {custom_location_file}")
-                    logger.warning(f"  [!] Falling back to default US FIPS mapping")
-                    return _load_us_state_fips_mapping()
-
-                if name_col not in mapping_df.columns:
-                    logger.error(f"  [X] Column '{name_col}' not found in {custom_location_file}")
-                    logger.warning(f"  [!] Falling back to default US FIPS mapping")
-                    return _load_us_state_fips_mapping()
-
-                location_mapping = dict(zip(mapping_df[code_col].astype(str), mapping_df[name_col].astype(str)))
-
-                logger.info(f" [OK] Loaded custom location mapping with {len(location_mapping)} entries from {custom_location_file}")
-                return location_mapping
-            except Exception as e:
-                logger.warning(f"  [!] Failed to load custom location mapping: {e}")
-                logger.warning(f"  [!] Falling back to default US FIPS mapping")
-
-    # Use default US FIPS mapping as fallback
-    return _load_us_state_fips_mapping()
-
-
-def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode: bool = False) -> DashboardConfig:
-    """
-    Load and validate dashboard configuration using Pydantic
+    Load and validate dashboard configuration using Pydantic from a structured YAML file.
 
     Args:
-        config_path: Path to config.yaml file
-        dev_mode: If True, look for data in test-data-input/ instead of project root
+        config_path: Path to config.yaml file.
+        dev_mode: If True, look for data in test-data-input/ instead of project root.
 
     Returns:
-        DashboardConfig: Validated configuration object
-
-    Raises:
-        ValidationError: If configuration is invalid
+        DashboardConfig: Validated configuration object.
     """
     from pydantic import ValidationError
 
@@ -702,26 +564,24 @@ def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode
     config_path = Path(config_path)
 
     try:
-        # Load YAML file
+        # 1. Load YAML file
         with open(config_path, "r") as f:
             raw_config = yaml.safe_load(f)
-            if not raw_config or not isinstance(raw_config, list):
-                raise ValueError("Config file must have a list of dictionaries at root level")
+            if not raw_config or not isinstance(raw_config, dict):
+                raise ValueError("Config file must be a dictionary (mapping) at the root level.")
 
-        # Flatten structure
-        flat_config = flatten_yaml_list_structure(raw_config)
+        # 2. Pre-process dictionary-based structures into lists for Pydantic
+        if "available_models" in raw_config and isinstance(raw_config.get("available_models"), dict):
+            raw_config["available_models"] = [{"model_name": name, **props} for name, props in raw_config["available_models"].items()]
 
-        # Validate with Pydantic
-        config = DashboardConfig(**flat_config)
+        for key in ["prediction_intervals", "evaluations_prediction_intervals"]:
+            if key in raw_config and isinstance(raw_config.get(key), dict):
+                raw_config[key] = [{"level": int(level), **props} for level, props in raw_config[key].items()]
 
-        logger.info("[OK] Configuration validated successfully with Pydantic!")
-        logger.info(f"[OK] Found {len(config.forecast_periods)} forecast periods")
-        logger.info(f"[OK] Found {len(config.targets or [])} target(s)")
-        logger.info(f"[OK] Found {len(config.available_models)} model(s)")
-        logger.info(f"[OK] Time unit: {config.time_unit} days")
-        logger.info(f"[OK] Horizons: {config.horizons}")
+        # 3. Validate with Pydantic
+        config = DashboardConfig(**raw_config)
 
-        # Load location mapping (bypass Pydantic's extra="forbid" with object.__setattr__)
+        # Load location mapping
         location_mapping = _load_location_mapping(config, config_path, dev_mode)
         object.__setattr__(config, "_location_mapping", location_mapping)
 
@@ -751,6 +611,72 @@ def load_config_pydantic(config_path: Union[str, Path] = "config.yaml", dev_mode
         raise
 
 
+def _load_us_state_fips_mapping() -> Dict[str, str]:
+    """Load US state FIPS code to name mapping from reference file"""
+    reference_path = Path(__file__).parent / "us_state_fips_mapping.json"
+
+    try:
+        with open(reference_path, "r") as f:
+            mapping = json.load(f)
+            logger.info(f"  [OK] Loaded US state FIPS mapping ({len(mapping)} locations)")
+            return mapping
+    except FileNotFoundError:
+        logger.warning(f"  [!] US state FIPS mapping file not found at {reference_path}")
+        return {}
+    except json.JSONDecodeError as e:
+        logger.warning(f"  [!] Error parsing US state FIPS mapping: {e}")
+        return {}
+
+
+def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode: bool) -> Dict[str, str]:
+    """
+    Load location mapping with the following order:
+    1. Custom location mapping file (highest priority)
+    2. Default US FIPS mapping (fallback)
+    """
+    # Determine base path
+    project_root = config_path.parent
+    data_base_path = project_root / "test-data-input" if dev_mode else project_root
+    auxiliary_data_dir = data_base_path / "auxiliary-data"
+
+    # Check if custom location mapping is specified
+    custom_location_file = config.spatial_config.custom_location_mapping_file_name
+
+    if custom_location_file:
+        mapping_path = auxiliary_data_dir / custom_location_file
+        if mapping_path.exists():
+            try:
+                import pandas as pd
+
+                # Read location code as string to preserve leading zeros (e.g., "01" for Alabama)
+                mapping_df = pd.read_csv(mapping_path, dtype={config.spatial_config.location_code_col_header_name: str})
+
+                # Validate required columns exist
+                code_col = config.spatial_config.location_code_col_header_name
+                name_col = config.spatial_config.location_name_col_header_name
+
+                if code_col not in mapping_df.columns:
+                    logger.error(f"  [X] Column '{code_col}' not found in {custom_location_file}")
+                    logger.warning("  [!] Falling back to default US FIPS mapping")
+                    return _load_us_state_fips_mapping()
+
+                if name_col not in mapping_df.columns:
+                    logger.error(f"  [X] Column '{name_col}' not found in {custom_location_file}")
+                    logger.warning("  [!] Falling back to default US FIPS mapping")
+                    return _load_us_state_fips_mapping()
+
+                location_mapping = dict(zip(mapping_df[code_col].astype(str), mapping_df[name_col].astype(str)))
+
+                logger.info(f" [OK] Loaded custom location mapping with {len(location_mapping)} entries from {custom_location_file}")
+                return location_mapping
+            except Exception as e:
+                logger.warning(f"  [!] Failed to load custom location mapping: {e}")
+                logger.warning("  [!] Falling back to default US FIPS mapping")
+
+    # Use default US FIPS mapping as fallback
+    return _load_us_state_fips_mapping()
+
+
 def export_json_schema(output_path: str = "config_schema.json"):
     """Export configuration schema as JSON Schema for documentation and tooling"""
     schema = DashboardConfig.model_json_schema()
@@ -774,7 +700,7 @@ def test_pydantic_config():
         print("Testing Pydantic YAML Config Processor...")
         print("=" * 80 + "\n")
 
-        config = load_config_pydantic()
+        config = load_and_validate_config()
 
         print("\n" + "=" * 80)
         print("CONFIGURATION SUMMARY")

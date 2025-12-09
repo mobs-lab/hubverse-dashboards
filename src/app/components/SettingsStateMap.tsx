@@ -1,7 +1,7 @@
 import { updateEvaluationSingleModelViewSelectedState } from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
 import { updateSelectedLocation } from "@/store/data-slices/settings/SettingsSliceForecastPage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectLocationData, selectMapData, selectSelectedLocationName } from "@/store/selectors/forecastSelectors";
+import { selectLocationData, selectMapData, selectSelectedLocationName } from "@/store/selectors";
 import { useResponsiveSVG } from "@/utils/responsiveSVG";
 import * as d3 from "d3";
 import { zoom, ZoomBehavior, zoomIdentity } from "d3-zoom";
@@ -29,7 +29,7 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   const locationData = useAppSelector(selectLocationData);
   const { selectedLocationCode } = useAppSelector((state) => state.forecastSettings);
   const selectedStateName = useAppSelector(selectSelectedLocationName);
-  const { evaluationsSingleModelViewSelectedStateName } = useAppSelector(
+  const { evaluationsSingleModelViewSelectedLocationName: evaluationsSingleModelViewSelectedStateName } = useAppSelector(
     (state) => state.evaluationsSingleModelSettings
   );
 
