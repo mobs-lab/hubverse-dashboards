@@ -195,8 +195,8 @@ const SettingsPanel: React.FC = () => {
   }, [locationList, selectedLocationCode]);
 
   return (
-    <div className="bg-mobs-lab-color-filterspane text-white fill-white flex-col h-full w-full rounded-md overflow-scroll p-4 pb-20 util-responsive-text-settings">
-      {/* <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length"> */}
+    <div className="bg-mobs-lab-color-filterspane text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings">
+      <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length">
       {/* Location Selector */}
       {!isSingleLocation && (
         <div className="mb-6 w-full justify-stretch items-stretch">
@@ -214,12 +214,17 @@ const SettingsPanel: React.FC = () => {
               <input
                 type="text"
                 placeholder="Search or select location..."
-                value={locationSearchText || selectedLocationName}
+                value={isLocationDropdownOpen || locationSearchText ? locationSearchText : selectedLocationName}
                 onChange={(e) => {
                   setLocationSearchText(e.target.value);
+                  if (!isLocationDropdownOpen) {
+                    setIsLocationDropdownOpen(true);
+                  }
+                }}
+                onFocus={() => {
+                  setLocationSearchText('');
                   setIsLocationDropdownOpen(true);
                 }}
-                onFocus={() => setIsLocationDropdownOpen(true)}
                 className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 pr-10"
               />
               <button
@@ -530,11 +535,11 @@ const SettingsPanel: React.FC = () => {
           </button>
         </div>
       </div>
-      {/* </div> */}
+      </div>
 
-      {/* <div className="mt-auto p-2 border-t border-gray-700">
-        <Image src="/epistorm-logo.png" width={300} height={120} alt="Epistorm Logo" priority />
-      </div> */}
+      <div className="mt-auto p-2 border-t border-gray-700">
+        {/* <Image src="/epistorm-logo.png" width={300} height={120} alt="Epistorm Logo" className="mx-auto" /> */}
+      </div>
     </div>
   );
 };

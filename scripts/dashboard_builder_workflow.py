@@ -24,6 +24,7 @@ Main orchestrator for the Hubverse Dashboard data processing pipeline.
 
 import sys
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -146,6 +147,54 @@ class DashboardBuilder:
             else:
                 print("  Please enter 'yes' or 'no'")
 
+    def _copy_auxiliary_files(self):
+        """
+        Copy auxiliary files (like custom shapefiles) from data input to public directory.
+        This ensures custom map files are available for the frontend.
+        """
+        logger.info("Checking for auxiliary files to copy...")
+        
+        # Determine source directory based on dev_mode
+        if self.dev_mode:
+            auxiliary_source = self.project_root / "test-data-input" / "auxiliary-data"
+        else:
+            auxiliary_source = self.project_root / "auxiliary-data"
+        
+        # Target directory is always public
+        public_dir = self.project_root / "public"
+        public_dir.mkdir(exist_ok=True, parents=True)
+        
+        # Check if custom shapefile is specified in config
+        custom_shape_file = self.config.spatial_config.custom_shape_file_name
+        
+        if custom_shape_file:
+            logger.info(f"Custom shapefile specified: {custom_shape_file}")
+            
+            # Check if auxiliary directory exists
+            if not auxiliary_source.exists():
+                logger.warning(f"Auxiliary data directory not found: {auxiliary_source}")
+                logger.warning("  Custom shapefile will not be available")
+                return
+            
+            # Look for the shapefile in auxiliary directory
+            shapefile_path = auxiliary_source / custom_shape_file
+            
+            if not shapefile_path.exists():
+                logger.warning(f"Custom shapefile not found: {shapefile_path}")
+                logger.warning("  The dashboard will fall back to default map")
+                return
+            
+            # Copy to public directory
+            target_path = public_dir / custom_shape_file
+            try:
+                shutil.copy2(shapefile_path, target_path)
+                logger.info(f"  [OK] Copied custom shapefile to: {target_path.relative_to(self.project_root)}")
+            except Exception as e:
+                logger.error(f"Failed to copy shapefile: {e}")
+                raise
+        else:
+            logger.info("  No custom shapefile specified, using default")
+
     def run_data_processing(self):
         """
         Data Processing
@@ -156,6 +205,7 @@ class DashboardBuilder:
         - Filtering and structuring data based on forecast periods and targets
         - Optionally calculating evaluations (if not skipped)
         - Exporting to frontend JSON format
+        - Copying auxiliary files (custom shapefiles) to public directory
         """
         print("\n" + "=" * 80)
         print("Data Processing")
@@ -166,6 +216,10 @@ class DashboardBuilder:
             print("  The dashboard will not include evaluation metrics (WIS, Coverage, MAPE)")
 
         try:
+            # Copy auxiliary files before main processing
+            self._copy_auxiliary_files()
+            
+            # Run main data processing
             process_data(self.config, dev_mode=self.dev_mode, skip_evaluations=self.skip_evaluations)
             print("\n[OK] Data processing core logic completed successfully.")
         except Exception as e:

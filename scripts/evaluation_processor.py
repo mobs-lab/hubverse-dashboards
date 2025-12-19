@@ -130,6 +130,21 @@ class EvaluationProcessor:
         # Calculate ratio
         ratio_df['wis_ratio'] = ratio_df['wis'] / ratio_df['baseline_wis']
         
+        # Detect and log NaN/Infinity values
+        invalid_mask = ~np.isfinite(ratio_df['wis_ratio'])
+        if invalid_mask.any():
+            invalid_count = invalid_mask.sum()
+            logger.warning(f"[NaN/Inf Detection] Found {invalid_count} invalid WIS ratio values")
+            
+            # Log details about invalid values
+            invalid_rows = ratio_df[invalid_mask]
+            for idx, row in invalid_rows.iterrows():
+                logger.warning(
+                    f"  Invalid WIS Ratio: model={row['model']}, location={row['location']}, "
+                    f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
+                    f"wis={row['wis']}, baseline_wis={row['baseline_wis']}, ratio={row['wis_ratio']}"
+                )
+        
         # Drop baseline_wis column to keep output clean
         ratio_df = ratio_df.drop(columns=['baseline_wis'])
         
@@ -220,6 +235,21 @@ class EvaluationProcessor:
         # Add WIS scores to result
         pivot_df['wis'] = wis_scores
         
+        # Detect and log NaN/Infinity values
+        invalid_mask = ~np.isfinite(wis_scores)
+        if invalid_mask.any():
+            invalid_count = invalid_mask.sum()
+            logger.warning(f"[NaN/Inf Detection] Found {invalid_count} invalid WIS values")
+            
+            # Log details about invalid values, especially for negative horizons
+            invalid_rows = pivot_df[invalid_mask]
+            for idx, row in invalid_rows.head(10).iterrows():  # Limit to first 10 to avoid spam
+                logger.warning(
+                    f"  Invalid WIS: model={row['model']}, location={row['location']}, "
+                    f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
+                    f"truth={row['truth_value']}, wis={row['wis']}"
+                )
+        
         # Return only the group columns + wis
         result_cols = [c for c in group_cols if c in pivot_df.columns] + ['wis']
         result_df = pivot_df[result_cols].copy()
@@ -259,8 +289,29 @@ class EvaluationProcessor:
             logger.warning("No non-zero truth values found for MAPE calculation")
             return pd.DataFrame()
         
-        # Calculate MAPE
-        median_df['mape'] = np.abs(median_df['truth_value'] - median_df['value']) / np.abs(median_df['truth_value'])
+        # Calculate MAPE as percentage (multiply by 100)
+        # MAPE = |truth - median| / |truth| * 100
+        # This way, a 3% error is stored as 3.0, not 0.03
+        median_df['mape'] = (np.abs(median_df['truth_value'] - median_df['value']) / np.abs(median_df['truth_value'])) * 100
+        
+        # Detect and log NaN/Infinity values
+        invalid_mask = ~np.isfinite(median_df['mape'])
+        if invalid_mask.any():
+            invalid_count = invalid_mask.sum()
+            logger.warning(f"[NaN/Inf Detection] Found {invalid_count} invalid MAPE values")
+            
+            # Log details about invalid values, especially for negative horizons
+            invalid_rows = median_df[invalid_mask]
+            horizon_breakdown = invalid_rows.groupby('horizon').size() if 'horizon' in invalid_rows.columns else {}
+            if horizon_breakdown:
+                logger.warning(f"  Invalid MAPE by horizon: {dict(horizon_breakdown)}")
+            
+            for idx, row in invalid_rows.head(10).iterrows():  # Limit to first 10 to avoid spam
+                logger.warning(
+                    f"  Invalid MAPE: model={row['model']}, location={row['location']}, "
+                    f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
+                    f"truth={row['truth_value']}, median_pred={row['value']}, mape={row['mape']}"
+                )
         
         # Select output columns
         output_cols = ['model', 'location', 'reference_date', 'target_end_date', 'horizon']

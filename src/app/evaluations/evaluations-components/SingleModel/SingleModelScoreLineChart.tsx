@@ -329,26 +329,40 @@ const SingleModelScoreLineChart: React.FC = () => {
     const linesGroup = visualContainer.append("g").attr("class", "lines");
     const pointsGroup = visualContainer.append("g").attr("class", "points");
 
-    // Modified line generator
+    // Sort data by target date to ensure proper line drawing
+    const sortedData = [...processedData].sort((a, b) => a.targetDate.getTime() - b.targetDate.getTime());
+
+    // Modified line generator - ensure data is sorted
     const line = d3
       .line<ProcessedScoreDataPoint>()
-      .defined((d) => !isNaN(d.score))
+      .defined((d) => {
+        const xPos = xScale(d.targetDate.toISOString());
+        const isValid = !isNaN(d.score) && isFinite(d.score) && xPos !== undefined;
+        if (!isValid) {
+          console.warn(`[renderVisualElements] Skipping invalid point:`, {
+            date: d.targetDate.toISOString(),
+            score: d.score,
+            xPos,
+          });
+        }
+        return isValid;
+      })
       .x((d) => (xScale(d.targetDate.toISOString()) || 0) + xScale.bandwidth() / 2)
       .y((d) => yScale(d.score));
 
-    // Draw line
+    // Draw line with sorted data
     linesGroup
       .append("path")
-      .datum(processedData)
+      .datum(sortedData)
       .attr("fill", "none")
       .attr("stroke", modelColorMap[modelName])
       .attr("stroke-width", 2)
       .attr("d", line);
 
-    // Draw points
+    // Draw points with sorted data
     pointsGroup
       .selectAll("circle")
-      .data(processedData)
+      .data(sortedData)
       .enter()
       .append("circle")
       .attr("cx", (d) => (xScale(d.targetDate.toISOString()) || 0) + xScale.bandwidth() / 2)
@@ -432,12 +446,35 @@ const SingleModelScoreLineChart: React.FC = () => {
     // Get the time range from metadata to sync up with horizon plot
     const { displayStartDate, displayEndDate } = timeSeriesData.metadata;
 
-    // Get actual score data dates
+    // Get actual score data dates and normalize to UTC midday
     const normalizedScoreData = scoreDataFromJSON.map((entry) => ({
       ...entry,
       targetEndDate: normalizeToUTCMidDay(entry.targetEndDate),
       referenceDate: normalizeToUTCMidDay(entry.referenceDate),
     }));
+
+    // Check for duplicate dates or invalid scores
+    const seenDates = new Set<string>();
+    const duplicates: string[] = [];
+    normalizedScoreData.forEach((entry) => {
+      const dateKey = entry.targetEndDate.toISOString();
+      if (seenDates.has(dateKey)) {
+        duplicates.push(dateKey);
+      }
+      seenDates.add(dateKey);
+      
+      if (!isFinite(entry.score) || isNaN(entry.score)) {
+        console.warn(`[SingleModelScoreLineChart] Invalid score detected:`, {
+          date: dateKey,
+          score: entry.score,
+          refDate: entry.referenceDate.toISOString()
+        });
+      }
+    });
+
+    if (duplicates.length > 0) {
+      console.warn(`[SingleModelScoreLineChart] Duplicate dates found:`, duplicates);
+    }
 
     const actualScoreDates = normalizedScoreData.map((d) => d.targetEndDate).sort((a, b) => a.getTime() - b.getTime());
 
@@ -461,12 +498,19 @@ const SingleModelScoreLineChart: React.FC = () => {
       .map((dateStr) => new Date(dateStr))
       .sort((a, b) => a.getTime() - b.getTime());
 
-    // Create processed data directly from scoreDataFromJSON
-    const processedData = normalizedScoreData.map((entry) => ({
-      targetDate: entry.targetEndDate,
-      referenceDate: entry.referenceDate,
-      score: entry.score,
-    }));
+    // Create processed data directly from scoreDataFromJSON, filtering out invalid scores
+    const processedData = normalizedScoreData
+      .filter((entry) => isFinite(entry.score) && !isNaN(entry.score))
+      .map((entry) => ({
+        targetDate: entry.targetEndDate,
+        referenceDate: entry.referenceDate,
+        score: entry.score,
+      }));
+
+    console.debug(`[SingleModelScoreLineChart] Processed ${processedData.length} valid data points`, {
+      firstPoint: processedData[0],
+      lastPoint: processedData[processedData.length - 1],
+    });
 
     // Setup dimensions
     const width = dimensions.width;
