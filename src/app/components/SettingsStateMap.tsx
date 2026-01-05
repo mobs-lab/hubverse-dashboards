@@ -29,7 +29,7 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   const locationData = useAppSelector(selectLocationData);
   const { selectedLocationCode } = useAppSelector((state) => state.forecastSettings);
   const selectedStateName = useAppSelector(selectSelectedLocationName);
-  const { evaluationsSingleModelViewSelectedLocationName: evaluationsSingleModelViewSelectedStateName } = useAppSelector(
+  const { evaluationsSingleModelViewSelectedStateCode: evaluationsSingleModelViewSelectedStateCode } = useAppSelector(
     (state) => state.evaluationsSingleModelSettings
   );
 
@@ -114,15 +114,17 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
     initializeZoom();
 
     const us = mapData;
+    const statesFeatureCollection = topojson.feature(us, us.objects.states) as any;
+    const statesFeatures = statesFeatureCollection.features;
     const states = g
       .selectAll("path")
-      .data(topojson.feature(us, us.objects.states).features)
+      .data(statesFeatures)
       .join("path")
       .attr("fill", "#252a33")
       .attr("stroke", "#5c636b")
       .attr("cursor", "pointer")
       .on("click", (event, d) => handleClick(event, d, path))
-      .attr("d", path);
+      .attr("d", path as any);
 
     states.append("title").text((d: any) => d.properties.name);
 
@@ -161,11 +163,11 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
     // Resets all state color before highlighting the newly selected one
     paths.transition().style('fill', '#252a33');
 
-    // Determine which state name to use based on pageSelected
+    // Determine which location code to use based on pageSelected
     const currentSelectedStateCode =
       pageSelected === 'forecast'
         ? selectedLocationCode
-        : evaluationsSingleModelViewSelectedStateName;
+        : evaluationsSingleModelViewSelectedStateCode;
 
     if (currentSelectedStateCode) {
       const selectedState = paths.filter((d: any) => d && d.id === currentSelectedStateCode);
@@ -174,7 +176,7 @@ const SettingsStateMap: React.FC<SettingsStateMapProps> = ({ pageSelected }) => 
   }, [
     pageSelected,
     selectedLocationCode,
-    evaluationsSingleModelViewSelectedStateName,
+    evaluationsSingleModelViewSelectedStateCode,
     isMapReady,
   ]);
 

@@ -1,7 +1,6 @@
 // Updated SeasonOverviewUSStateMap.tsx
 "use client";
 
-import { useDataContext } from "@/providers/DataProvider";
 import { useAppSelector } from "@/store/hooks";
 import { selectLocationData } from "@/store/selectors";
 import { selectSeasonOverviewData } from "@/store/selectors/evaluationSelectors";
@@ -20,7 +19,9 @@ const NO_DATA_COLOR = "#363b43"; // Color for states with no data
 const SeasonOverviewLocationHotMap: React.FC = () => {
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
   const svgRef = useRef<SVGSVGElement>(null);
-  const { mapData } = useDataContext();
+  
+  // Get map data from Redux store
+  const mapData = useAppSelector((state) => state.auxiliaryDataStore.mapData);
 
   // Get data from selectors
   const seasonOverviewData = useAppSelector(selectSeasonOverviewData);
@@ -121,8 +122,8 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
       }
 
       // Size the tooltip background
-      const textBBox = valueText.node()?.getBBox() || { width: 100, height: 20 };
-      const titleBBox = tooltip.select("text").node()?.getBBox() || { width: 100, height: 20 };
+      const textBBox = (valueText.node() as SVGTextElement)?.getBBox() || { width: 100, height: 20 };
+      const titleBBox = (tooltip.select("text").node() as SVGTextElement)?.getBBox() || { width: 100, height: 20 };
       const textWidth = Math.max(textBBox.width, titleBBox.width);
       tooltipRect.attr("width", textWidth + 20).attr("height", 45);
 
@@ -168,7 +169,8 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
     const mapHeight = height - margin.top - margin.bottom;
 
     // Extract state features from topojson
-    const stateFeatures = topojson.feature(mapData, mapData.objects.states).features;
+    const stateFeatureCollection = topojson.feature(mapData, mapData.objects.states) as any;
+    const stateFeatures = stateFeatureCollection.features;
 
     // Get performance data values for scale calculation
     const performanceValues = Array.from(modelPerformanceData.values());
@@ -247,7 +249,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
 
       // Create color scales
       if (useLogColorScale) {
-        colorScale = d3.scaleSymlog<string>().domain(colorDomain).range(colorRange).interpolate(d3.interpolateRgb).constant(symlogConstant);
+        colorScale = d3.scaleSymlog<string>().domain(colorDomain).range(colorRange).constant(symlogConstant) as any;
 
         legendScale = d3.scaleSymlog().domain(legendDomain).range(legendRangePixels).constant(symlogConstant);
       } else {
@@ -285,7 +287,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
 
       // Create the appropriate scale
       if (useLogColorScale) {
-        colorScale = d3.scaleSymlog<string>().domain(colorDomain).range(colorRange).interpolate(d3.interpolateRgb).constant(symlogConstant);
+        colorScale = d3.scaleSymlog<string>().domain(colorDomain).range(colorRange).constant(symlogConstant) as any;
 
         legendScale = d3.scaleSymlog().domain(legendDomain).range(legendRangePixels).constant(symlogConstant);
       } else {
@@ -471,7 +473,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
       .data(stateFeatures)
       .join("path")
       .attr("class", "state") // Add class
-      .attr("d", path)
+      .attr("d", path as any)
       .attr("fill", (d: any) => {
         // Explicitly type d if possible, or use any
         const stateId = d.id?.toString().padStart(2, "0"); // Ensure consistent ID format

@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 
-import { selectModelColorMap, selectModelNames } from "@/store/selectors";
+import { selectModelColorMap, selectModelNames, selectHorizons } from "@/store/selectors";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -15,6 +15,7 @@ import {
 
 import { Radio, Typography, List, ListItem, ListItemPrefix } from "@/styles/material-tailwind-wrapper";
 import Image from "next/image";
+import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/outline";
 
 import { horizonSelectorsInfo } from "types/infobutton-content";
 import InfoButton from "@/shared-components/InfoButton";
@@ -32,6 +33,23 @@ export const SeasonOverviewSettings = () => {
   } = useAppSelector((state) => state.evaluationsSeasonOverviewSettings);
   const modelColorMap = useAppSelector(selectModelColorMap);
   const modelNames = useAppSelector(selectModelNames);
+  const availableHorizons = useAppSelector(selectHorizons);
+
+  // Local state for horizon dropdown
+  const [isHorizonDropdownOpen, setIsHorizonDropdownOpen] = useState(false);
+  const horizonDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Handle clicking outside horizon dropdown to close it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (horizonDropdownRef.current && !horizonDropdownRef.current.contains(event.target as Node)) {
+        setIsHorizonDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Check if "Last 2 Weeks" is selected
   const isLastTwoWeeksSelected = selectedDynamicTimePeriod === "last-2-weeks";
@@ -58,7 +76,8 @@ export const SeasonOverviewSettings = () => {
         console.debug("Cannot select horizon 2 or 3 with Last 2 Weeks period");
         return; // Prevent selection
       }
-      newHorizons = [...evaluationSeasonOverviewHorizon, selected];
+      // Add and sort the horizons
+      newHorizons = [...evaluationSeasonOverviewHorizon, selected].sort((a, b) => a - b);
     } else {
       // Removing a horizon
       newHorizons = evaluationSeasonOverviewHorizon.filter((h) => h !== selected);
@@ -90,12 +109,17 @@ export const SeasonOverviewSettings = () => {
 
   const handleShowAllHorizons = () => {
     if (isLastTwoWeeksSelected) {
-      // Only show 0 and 1 for Last 2 Weeks period
-      dispatch(setEvaluationSeasonOverviewHorizon([0, 1]));
+      // Only show compatible horizons for Last 2 Weeks period
+      const compatibleHorizons = availableHorizons.filter((h) => h < 2);
+      dispatch(setEvaluationSeasonOverviewHorizon(compatibleHorizons));
     } else {
-      // Show all horizons
-      dispatch(setEvaluationSeasonOverviewHorizon([0, 1, 2, 3]));
+      // Show all available horizons from config
+      dispatch(setEvaluationSeasonOverviewHorizon([...availableHorizons]));
     }
+  };
+
+  const handleDeselectAllHorizons = () => {
+    dispatch(setEvaluationSeasonOverviewHorizon([]));
   };
 
   // Target selection handler
@@ -137,32 +161,71 @@ export const SeasonOverviewSettings = () => {
           </button>
         </div>
 
-        <div className='mb-4 flex-col flex-nowrap'>
-          <div className='flex flex-row flex-nowrap justify-start items-center gap-1'>
+        <div className='mb-4 w-full'>
+          <div className='flex flex-row flex-nowrap justify-start items-center gap-1 mb-2'>
             <Typography variant='h6' className='text-white flex-shrink' placeholder=''>
               Horizon
             </Typography>
-
             <InfoButton content={horizonSelectorsInfo} title={"Forecast Horizons"}></InfoButton>
           </div>
-          <div className='flex flex-row justify-start items-center'>
-            {[0, 1, 2, 3].map((hrzn) => (
-              <label
-                key={hrzn}
-                className={`mr-6 flex items-center text-white ${isHorizonDisabled(hrzn) ? "opacity-50 cursor-not-allowed" : ""}`}>
-                <input
-                  type='checkbox'
-                  className='form-checkbox text-blue-600 mr-1'
-                  defaultChecked={false}
-                  checked={evaluationSeasonOverviewHorizon.includes(hrzn)}
-                  onChange={(e) => onHorizonChange(hrzn, e.target.checked)}
-                  disabled={isHorizonDisabled(hrzn)}
-                />
-                <span>{hrzn}</span>
-              </label>
-            ))}
-            <button onClick={handleShowAllHorizons} className='text-xs bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded'>
-              Show All
+
+          {/* Multi-select Dropdown for Horizons */}
+          <div className="flex gap-2 items-stretch">
+            <div ref={horizonDropdownRef} className="relative flex-1">
+              <button
+                type="button"
+                onClick={() => setIsHorizonDropdownOpen(!isHorizonDropdownOpen)}
+                className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 flex items-center justify-between"
+              >
+                <span>
+                  {evaluationSeasonOverviewHorizon.length === 0
+                    ? "No horizons selected"
+                    : evaluationSeasonOverviewHorizon.length === availableHorizons.length
+                    ? "All horizons selected"
+                    : `${evaluationSeasonOverviewHorizon.length} horizon${evaluationSeasonOverviewHorizon.length !== 1 ? "s" : ""} selected`}
+                </span>
+                {isHorizonDropdownOpen ? <ChevronUpIcon className="h-5 w-5" /> : <ChevronDownIcon className="h-5 w-5" />}
+              </button>
+
+              {/* Dropdown menu */}
+              {isHorizonDropdownOpen && (
+                <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+                  {availableHorizons.map((horizon) => {
+                    const disabled = isHorizonDisabled(horizon);
+                    return (
+                      <label
+                        key={horizon}
+                        className={`flex items-center px-3 py-2 hover:bg-gray-700 cursor-pointer ${
+                          disabled ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="form-checkbox text-blue-600 mr-2 h-4 w-4"
+                          checked={evaluationSeasonOverviewHorizon.includes(horizon)}
+                          onChange={(e) => onHorizonChange(horizon, e.target.checked)}
+                          disabled={disabled}
+                        />
+                        <span>{horizon}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Select All / None buttons */}
+            <button
+              className="px-4 py-2 rounded bg-[#5d636a] text-white hover:bg-blue-600"
+              onClick={handleShowAllHorizons}
+            >
+              All
+            </button>
+            <button
+              className="px-4 py-2 rounded bg-[#5d636a] text-white hover:bg-blue-600"
+              onClick={handleDeselectAllHorizons}
+            >
+              None
             </button>
           </div>
         </div>
@@ -190,7 +253,7 @@ export const SeasonOverviewSettings = () => {
           <Typography variant='h6' className='text-white mb-1' placeholder=''>
             Time Period
           </Typography>
-          <List>
+          <List placeholder=''>
             {evalSOTimeRangeOptions.map((period) => (
               <ListItem
                 key={period.name}

@@ -176,7 +176,7 @@ class DataProcessor:
             # Step 6b: Aggregate evaluation metrics by periods (for Season Overview)
             aggregated_evaluations = self._generate_aggregated_evaluation_collection(raw_evaluations)
 
-            # Step 6c: Organize raw scores by period (for Single Model view)
+            # Step 6c: Organize raw scores (all data, no period filtering, for Single Model view)
             raw_scores_by_period = self._generate_raw_scores_by_period(raw_evaluations)
         else:
             logger.info("Skipping evaluation calculations (disabled by user)")
@@ -1410,6 +1410,26 @@ class DataProcessor:
                     precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name] = {}
 
                     if "location" in model_df.columns and "horizon" in model_df.columns:
+                        # Detect invalid values before filtering
+                        invalid_mask = ~np.isfinite(model_df[val_col])
+                        if invalid_mask.any():
+                            invalid_count = invalid_mask.sum()
+                            logger.warning(
+                                f"[NaN/Inf Detection] Found {invalid_count} invalid {metric_name} values for "
+                                f"model={model_name}, target={target_id}, period={period_id}"
+                            )
+                            # Log horizon breakdown
+                            invalid_df = model_df[invalid_mask]
+                            horizon_breakdown = invalid_df.groupby("horizon").size()
+                            logger.warning(f"  Invalid values by horizon: {dict(horizon_breakdown)}")
+                            
+                            # Log sample invalid entries
+                            for idx, row in invalid_df.head(5).iterrows():
+                                logger.warning(
+                                    f"    location={row['location']}, horizon={row['horizon']}, "
+                                    f"target_end_date={row['target_end_date']}, {val_col}={row[val_col]}"
+                                )
+                        
                         # Filter out NaN and Infinity values before aggregation
                         model_df = model_df[np.isfinite(model_df[val_col])]
                         
@@ -1474,75 +1494,63 @@ class DataProcessor:
                                 precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon] = {}
 
                             precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon][str(level)] = {
-                                "sum": float(row["sum"]),
+                                # Frontend Visualization displays Coverage Percentage, so we transform it here
+                                "sum": float(row["sum"]) * 100,
                                 "count": int(row["count"]),
                             }
 
     def _generate_raw_scores_by_period(self, raw_evaluations: dict) -> dict:
         """
-        Organize raw scores by forecast period for Single Model view.
+        Organize ALL raw scores (not bounded by periods) for Single Model view.
+        
+        This allows the frontend to filter by any custom date range.
+        Structure: target → metric → model → location → horizon → [all scores]
 
         Args:
             raw_evaluations: Dictionary of raw evaluation DataFrames
 
         Returns:
-            dict: Raw scores organized by period for frontend consumption
+            dict: Raw scores organized by target for frontend consumption
         """
         logger.info("=" * 60)
-        logger.info("STEP 3: ORGANIZING RAW SCORES BY PERIOD")
+        logger.info("STEP 3: ORGANIZING ALL RAW SCORES (NO PERIOD FILTERING)")
         logger.info("=" * 60)
 
         raw_scores_data = {}
 
-        # Define all periods
-        special_periods = self.config.special_forecast_periods or []
-        all_periods = list(self.config.forecast_periods) + list(special_periods)
+        # Process WIS Ratio
+        if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
+            logger.info("Organizing WIS/Baseline raw scores...")
+            self._organize_metric_all_data(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", raw_scores_data)
 
-        for period in all_periods:
-            # Get date range for this period
-            date_range = self._get_period_date_range(period, self.fixed_target_data, self.model_output_unpivoted)
-            if not date_range:
-                continue
-            start, end = date_range
+        # Process MAPE
+        if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
+            logger.info("Organizing MAPE raw scores...")
+            self._organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data)
 
-            period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
-            logger.info(f"Organizing raw scores for period: '{period_id}'")
-
-            raw_scores_data[period_id] = {}
-
-            # Process WIS Ratio
-            if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
-                self._organize_metric_by_period(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", start, end, raw_scores_data[period_id])
-
-            # Process MAPE
-            if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
-                self._organize_metric_by_period(raw_evaluations["mape"], "MAPE", "mape", start, end, raw_scores_data[period_id])
-
-        logger.info("Raw scores organization complete.")
+        logger.info("Raw scores organization complete.")  
         return raw_scores_data
 
-    def _organize_metric_by_period(self, df: pd.DataFrame, metric_name: str, val_col: str, start, end, period_dict: dict):
-        """Helper to organize a specific metric's raw scores by period."""
-        # Filter for period
+    def _organize_metric_all_data(self, df: pd.DataFrame, metric_name: str, val_col: str, raw_scores_dict: dict):
+        """
+        Helper to organize a specific metric's raw scores for ALL data (no period filtering).
+        
+        Structure: target → metric → model → location → horizon → [scores]
+        """
         if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
             df["target_end_date"] = pd.to_datetime(df["target_end_date"])
 
-        period_df = df[(df["target_end_date"] >= start) & (df["target_end_date"] <= end)]
-
-        if period_df.empty:
-            return
-
         # Group by target
-        unique_targets = period_df["target"].unique() if "target" in period_df.columns else ["default"]
+        unique_targets = df["target"].unique() if "target" in df.columns else ["default"]
 
         for target in unique_targets:
             target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
-            target_df = period_df if target == "default" else period_df[period_df["target"] == target]
+            target_df = df if target == "default" else df[df["target"] == target]
 
-            if target_id not in period_dict:
-                period_dict[target_id] = {}
+            if target_id not in raw_scores_dict:
+                raw_scores_dict[target_id] = {}
 
-            period_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
+            raw_scores_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
 
     def _calculate_boxplot_stats(self, location_averages: list) -> dict:
         """
@@ -1615,13 +1623,13 @@ class DataProcessor:
         - forecast/modelOutputData.json
         - forecast/historical-target-data.json (optional)
         - evaluations/{period_id}/aggregates.json (per period)
-        - evaluations/{period_id}/rawScores.json (per period)
+        - evaluations/rawScores.json (single file with all raw scores)
 
         Args:
             target_data: Processed target data for forecast visualization
             model_output_data: Processed model output data for forecast visualization
             metadata: Metadata object
-            raw_scores_by_period: Raw evaluation scores organized by period
+            raw_scores_by_period: Raw evaluation scores (all data, not filtered by period)
             aggregated_evaluations: Aggregated evaluation statistics (iqr, locationMap_aggregates, detailedCoverage_aggregates)
         """
         logger.info("=" * 60)
@@ -1659,44 +1667,45 @@ class DataProcessor:
                 json.dump(self.historical_target_data, f, cls=NpEncoder, separators=(",", ":"))
             self._track_file_written(historical_file)
 
-        # Create and populate evaluations subdirectory with per-period folders
-        if aggregated_evaluations and raw_scores_by_period:
+        # Create and populate evaluations subdirectory
+        if aggregated_evaluations or raw_scores_by_period:
             eval_base_dir = self.output_base_path / "evaluations"
             eval_base_dir.mkdir(exist_ok=True, parents=True)
 
-            # Get all period IDs from the aggregated data
-            # Use iqr keys as the source of truth for period IDs
-            period_ids = set(aggregated_evaluations.get("iqr", {}).keys())
-            period_ids.update(raw_scores_by_period.keys())
+            # Write aggregated evaluations (organized by period)
+            if aggregated_evaluations:
+                # Get all period IDs from the aggregated data
+                period_ids = set(aggregated_evaluations.get("iqr", {}).keys())
+                
+                logger.info(f"Writing aggregated evaluation data for {len(period_ids)} periods...")
 
-            logger.info(f"Writing evaluation data for {len(period_ids)} periods...")
+                for period_id in period_ids:
+                    # Create period-specific folder
+                    period_dir = eval_base_dir / period_id
+                    period_dir.mkdir(exist_ok=True, parents=True)
 
-            for period_id in period_ids:
-                # Create period-specific folder
-                period_dir = eval_base_dir / period_id
-                period_dir.mkdir(exist_ok=True, parents=True)
+                    # Extract aggregated data for this period
+                    period_aggregates = {
+                        "iqr": aggregated_evaluations.get("iqr", {}).get(period_id, {}),
+                        "locationMap_aggregates": aggregated_evaluations.get("locationMap_aggregates", {}).get(period_id, {}),
+                        "detailedCoverage_aggregates": aggregated_evaluations.get("detailedCoverage_aggregates", {}).get(period_id, {}),
+                    }
 
-                # Extract aggregated data for this period
-                period_aggregates = {
-                    "iqr": aggregated_evaluations.get("iqr", {}).get(period_id, {}),
-                    "locationMap_aggregates": aggregated_evaluations.get("locationMap_aggregates", {}).get(period_id, {}),
-                    "detailedCoverage_aggregates": aggregated_evaluations.get("detailedCoverage_aggregates", {}).get(period_id, {}),
-                }
+                    # Write aggregates for this period
+                    aggregates_file = period_dir / "aggregates.json"
+                    with open(aggregates_file, "w") as f:
+                        json.dump(period_aggregates, f, cls=NpEncoder, separators=(",", ":"))
+                    self._track_file_written(aggregates_file)
 
-                # Write aggregates for this period
-                aggregates_file = period_dir / "aggregates.json"
-                with open(aggregates_file, "w") as f:
-                    json.dump(period_aggregates, f, cls=NpEncoder, separators=(",", ":"))
-                self._track_file_written(aggregates_file)
+                    logger.info(f"  [OK] Written aggregated evaluation data for period: {period_id}")
 
-                # Extract and write raw scores for this period
-                period_raw_scores = raw_scores_by_period.get(period_id, {})
-                raw_file = period_dir / "rawScores.json"
-                with open(raw_file, "w") as f:
-                    json.dump(period_raw_scores, f, cls=NpEncoder, separators=(",", ":"))
-                self._track_file_written(raw_file)
-
-                logger.info(f"  [OK] Written evaluation data for period: {period_id}")
+            # Write raw scores (all data, not organized by period)
+            if raw_scores_by_period:
+                raw_scores_file = eval_base_dir / "rawScores.json"
+                with open(raw_scores_file, "w") as f:
+                    json.dump(raw_scores_by_period, f, cls=NpEncoder, separators=(",", ":"))
+                self._track_file_written(raw_scores_file)
+                logger.info("  [OK] Written all raw evaluation scores to evaluations/rawScores.json")
 
         logger.info("All output files written successfully!")
 

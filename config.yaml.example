@@ -43,9 +43,9 @@ link_to_hubverse_compatible_data: null
 
 forecast_periods:
   - forecast_period_id: "season-2024-2025"
-    start_date: "2024-11-16T00:00:00"
-    end_date: "2025-09-27T00:00:00"
-    display_string: "COVID-19 2024-2025 Forecast"
+    start_date: "2025-03-01T00:00:00"
+    end_date: "2025-10-20T00:00:00"
+    display_string: "COVID-19 2024-2025 Forecast (Sample Portion) "
     is_default_selected: true # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
 
   # Example of a dynamic forecast period where the end_date is in the future.
@@ -66,13 +66,12 @@ forecast_periods:
 #------------------------------------------------------------------------------
 
 special_forecast_periods:
-  # Example configuration (currently disabled):
-  # - special_period_id: "last-4-weeks"
-  #   display_string: "Last 4 Weeks"
+  # - special_period_id: "last-2-weeks"
+  #   display_string: "Last 2 Weeks"
   #   time_anchor:
-  #     anchor_on: "season-2025-2026"  # Must be a dynamic period ID from above
-  #     anchor_mode: "model-output"     # Use latest model output date as 'today'
-  #     range_calculation: -4           # Go 4 time units (weeks) back from 'today'
+  #     anchor_on: "season-2024-2025"  # Must be a dynamic period ID from above
+  #     anchor_mode: "model-output"     # Use latest model output date (reference date) as 'today'
+  #     range_calculation: -2           # Include data ranging 4 time units (weeks in this example) back from 'today'
 
 #==============================================================================
 # LOCATION DATA CONFIGURATION
@@ -287,46 +286,18 @@ default_selected_horizon: 3 # Single Choice Selection.
 # Settings for calculating model performance metrics.
 # This entire section is ignored if you run the builder with --skip-evaluations.
 #------------------------------------------------------------------------------
-
-# [OPTIONAL] Prediction intervals used for coverage calculations.
-# If omitted, this will default to using the same `prediction_intervals` from above.
-evaluations_prediction_intervals:
-  "25":
-    uses_output_type_ids: ["0.375", "0.625"]
-  "50":
-    uses_output_type_ids: ["0.25", "0.75"]
-  "75":
-    uses_output_type_ids: ["0.125", "0.875"]
-  "90":
-    uses_output_type_ids: ["0.05", "0.95"]
-
-# [OPTIONAL] Default selected PIs for the Evaluations page.
-default_selected_prediction_intervals_for_evaluations: ["50", "90"]
-
 # [REQUIRED] The model to use as a benchmark for Relative WIS calculations.
 # Relative WIS = (WIS of a model) / (WIS of this baseline model).
 # This model's data must exist in /model-output/, even if it's not in `available_models`.
 baseline_model_for_relative_WIS: "CovidHub-baseline"
 
 # [OPTIONAL] Define the coverage levels (in percentage) to be used for:
-# 1. Calculating coverage metrics (e.g., "Did the 95% PI cover the truth?")
-#    These values populate the "Coverage" chart in the evaluations section.
+# 1. Calculating coverage metrics. These values populate the "Coverage" chart in the evaluations section.
 #    Note: The necessary quantiles must be available in your model output data.
-#    (e.g., 95% requires 0.025 and 0.975 quantiles).
+#    (95% requires 0.025 and 0.975 quantiles).
 #
 # If omitted, defaults to [50, 95].
 evaluation_coverage_levels: [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98]
-
-# [OPTIONAL] Define the intervals (in percentage) used to summarize the distribution of
-# evaluation scores (WIS, MAPE) in the boxplots.
-#
-# The boxplots will display:
-# - Median score
-# - Inner Box: Defined by the interval closest to 50% (e.g., 25th-75th percentile of scores)
-# - Whiskers: Defined by the largest specified interval (e.g., 5th-95th percentile of scores for 90%)
-#
-# If omitted, defaults to [50, 90].
-evaluation_score_boxplot_intervals: [50, 90]
 
 #==============================================================================
 # DASHBOARD DISPLAY SETTINGS

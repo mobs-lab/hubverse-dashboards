@@ -156,49 +156,44 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
 
   /**
    * Load raw scores for a specific period
+   * With checking to make sure we stop at any error
+   * And prevent repetitive loading
    */
   const loadRawScoresForPeriod = useCallback(
     async (periodId: string) => {
-      // Guard: No period ID provided
+      // Check 1: No period ID provided
       if (!periodId) {
         console.warn('No period ID provided for loading raw scores');
         return;
       }
 
-      // Guard: Already loaded successfully
-      if (loadedRawScoreSeasons.includes(periodId)) {
-        console.debug(`Raw scores for period ${periodId} already loaded, skipping`);
+      // Check 2: Already loaded (we only need to load once since it's a single file with all data)
+      if (loadedRawScoreSeasons.length > 0) {
+        console.debug(`Raw scores already loaded, skipping`);
         return;
       }
 
-      // Guard: Previously failed - don't retry automatically
-      if (failedRawScorePeriodsRef.current.has(periodId)) {
-        console.debug(`Raw scores for period ${periodId} previously failed, skipping`);
+      // Check 3: Previously failed
+      if (failedRawScorePeriodsRef.current.has('all')) {
+        console.debug(`Raw scores previously failed, skipping`);
         return;
       }
 
-      // Guard: Currently loading - prevent duplicate fetches
-      if (rawScoresLoadingRef.current.has(periodId)) {
-        console.debug(`Raw scores for period ${periodId} already loading, skipping`);
-        return;
-      }
-
-      // Guard: Period not in available list (if list is provided)
-      if (availablePeriodIds.length > 0 && !availablePeriodIds.includes(periodId)) {
-        console.warn(`Period ${periodId} not in available period IDs:`, availablePeriodIds);
-        failedRawScorePeriodsRef.current.add(periodId);
+      // Check 4: Currently loading
+      if (rawScoresLoadingRef.current.has('all')) {
+        console.debug(`Raw scores is currently loading, skipping`);
         return;
       }
 
       // Mark as loading
-      rawScoresLoadingRef.current.add(periodId);
+      rawScoresLoadingRef.current.add('all');
       setIsLoading(true);
 
       try {
-        console.log(`Loading raw scores for period: ${periodId}`);
+        console.log(`Loading all raw scores (single file)...`);
         const dataPath = getDataPath();
 
-        const response = await fetch(`${dataPath}/evaluations/${periodId}/rawScores.json`);
+        const response = await fetch(`${dataPath}/evaluations/rawScores.json`);
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -218,27 +213,28 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
           throw new Error('Invalid raw scores data format');
         }
 
-        // Dispatch to store
+        // Dispatch all raw scores to store
+        // Structure: target → metric → model → location → horizon → [scores]
         dispatch(
           addRawScores({
-            seasonId: periodId,
+            seasonId: 'all',
             data: rawScoresData,
           })
         );
 
-        console.log(`Raw scores for period ${periodId} loaded successfully`);
+        console.log(`All raw scores loaded successfully`);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        console.error(`Failed to load raw scores for period ${periodId}:`, errorMessage);
+        console.error(`Failed to load raw scores:`, errorMessage);
 
         // Mark as failed to prevent repetitive fetches
-        failedRawScorePeriodsRef.current.add(periodId);
-        setError(`Failed to load raw scores for ${periodId}: ${errorMessage}`);
+        failedRawScorePeriodsRef.current.add('all');
+        setError(`Failed to load raw scores: ${errorMessage}`);
 
-        // Don't break the app - just continue with empty data
+        // No panicking - just continue with empty data
       } finally {
         // Clean up loading state
-        rawScoresLoadingRef.current.delete(periodId);
+        rawScoresLoadingRef.current.delete('all');
         setIsLoading(false);
       }
     },
