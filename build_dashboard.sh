@@ -24,7 +24,7 @@ print_error() {
 }
 
 print_success() {
-    echo -e "${GREEN}✓ $1${RD}"
+    echo -e "${GREEN}✓ $1${RD}" 
 }
 
 print_warning() {
