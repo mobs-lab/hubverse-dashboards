@@ -137,6 +137,10 @@ const forecastSettingsSlice = createSlice({
     updateTimeFilterEnd: (state, action: PayloadAction<Date>) => {
       state.timeFilterRangeEnd = action.payload;
     },
+    updateTimeFilterRange: (state, action: PayloadAction<{ start: Date; end: Date }>) => {
+      state.timeFilterRangeStart = action.payload.start;
+      state.timeFilterRangeEnd = action.payload.end;
+    },
 
     // Visualization
     updateYScale: (state, action: PayloadAction<'linear' | 'log'>) => {
@@ -168,6 +172,7 @@ export const {
   updateSelectedForecastPeriod,
   updateTimeFilterStart,
   updateTimeFilterEnd,
+  updateTimeFilterRange,
   updateYScale,
   updateSelectedPredictionIntervals,
   updateHistoricalDataMode,
