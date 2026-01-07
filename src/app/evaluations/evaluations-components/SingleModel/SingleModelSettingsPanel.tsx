@@ -37,6 +37,10 @@ const SingleModelSettingsPanel: React.FC = () => {
   const availableHorizons = useAppSelector(selectHorizons);
   const { earliestDate, latestDate } = useAppSelector(selectDateConstraints);
 
+  // Get UI customization from config
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const horizonInfoConfig = uiConfig?.evaluationsPage?.infoButtons?.singleModelHorizonInfo;
+
   const [scoreOptions] = useState(["WIS/Baseline", "MAPE"]);
   
   // Local state for location dropdown
@@ -258,7 +262,10 @@ const SingleModelSettingsPanel: React.FC = () => {
             <Typography variant='h6' className='text-white flex-shrink'>
               Horizon
             </Typography>
-            <InfoButton content={horizonSelectorsInfo} title={"Forecast Horizons"}></InfoButton>
+            <InfoButton 
+              content={horizonInfoConfig?.content || horizonSelectorsInfo} 
+              title={horizonInfoConfig?.title || "Forecast Horizons"}
+            ></InfoButton>
           </div>
           <select
             value={evaluationSingleModelViewHorizon}

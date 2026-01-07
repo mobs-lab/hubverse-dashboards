@@ -37,6 +37,13 @@ export interface NavButtonConfig {
   navToLink?: string;
 }
 
+export interface MapColorScaleConfig {
+  colorTop: string;
+  colorBase: string;
+  colorBottom: string;
+  colorNull: string;
+}
+
 export interface UICustomizationConfig {
   header: {
     titleName: string;
@@ -50,6 +57,21 @@ export interface UICustomizationConfig {
       headerInfo?: InfoButtonContentConfig;
       horizonInfo?: InfoButtonContentConfig;
     };
+  };
+  evaluationsPage: {
+    tabNames: {
+      overviewTab: string;
+      singleModelTab: string;
+    };
+    chartLogModeIndicatorText: string;
+    overviewLocationMapTitle: string;
+    infoButtons: {
+      overviewInfo?: InfoButtonContentConfig;
+      singleModelInfo?: InfoButtonContentConfig;
+      overviewHorizonInfo?: InfoButtonContentConfig;
+      singleModelHorizonInfo?: InfoButtonContentConfig;
+    };
+    locationMapColorScale: MapColorScaleConfig;
   };
 }
 

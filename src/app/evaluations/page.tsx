@@ -32,12 +32,17 @@ const SeasonOverviewContent: React.FC = () => {
     (state) => state.evaluationsSeasonOverviewSettings
   );
 
+  // Get UI customization from config
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const overviewInfoConfig = uiConfig?.evaluationsPage?.infoButtons?.overviewInfo;
+  const logModeText = uiConfig?.evaluationsPage?.chartLogModeIndicatorText || 'Use Log Scale';
+
   return (
     <div className="flex flex-col h-full gap-4 overflow-y-auto overflow-x-hidden util-no-sb-length">
       <div className="items-center self-end">
         <InfoButton
-          content={seasonOverviewInfo}
-          title="Season Overview"
+          content={overviewInfoConfig?.content || seasonOverviewInfo}
+          title={overviewInfoConfig?.title || "Season Overview"}
           displayStyle="icon"
           size="md"
           dialogSize="lg"
@@ -54,7 +59,7 @@ const SeasonOverviewContent: React.FC = () => {
               }
               className="bg-blue-500 hover:bg-blue-600 text-white text-xs py-1 px-2 rounded"
             >
-              {wisChartScaleType === 'log' ? 'Use Linear Scale' : 'Use Log Scale'}
+              {wisChartScaleType === 'log' ? `Use Linear Scale` : logModeText}
             </button>
           </div>
           <div className="w-full h-[92%]">
@@ -71,7 +76,7 @@ const SeasonOverviewContent: React.FC = () => {
               }
               className="bg-blue-500 hover:bg-blue-600 text-white text-xs py-1 px-2 rounded"
             >
-              {mapeChartScaleType === 'log' ? 'Use Linear Scale' : 'Use Log Scale'}
+              {mapeChartScaleType === 'log' ? `Use Linear Scale` : logModeText}
             </button>
           </div>
           <div className="w-full h-[92%]">
@@ -107,6 +112,10 @@ const SingleModelContent = () => {
   const { evaluationsSingleModelViewSelectedLocationName: evaluationsSingleModelViewSelectedStateName, evaluationSingleModelViewScoresOption } =
     useAppSelector((state) => state.evaluationsSingleModelSettings);
 
+  // Get UI customization from config
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const singleModelInfoConfig = uiConfig?.evaluationsPage?.infoButtons?.singleModelInfo;
+
   // Trigger load when component mounts
   useEffect(() => {
     if (!areRawScoresLoaded && !isLoading) {
@@ -131,8 +140,8 @@ const SingleModelContent = () => {
         </h1>
         <div className="items-center">
           <InfoButton
-            content={singleModelInfo}
-            title="Single Model Evaluations"
+            content={singleModelInfoConfig?.content || singleModelInfo}
+            title={singleModelInfoConfig?.title || "Single Model Evaluations"}
             displayStyle="icon"
           ></InfoButton>
         </div>
@@ -158,6 +167,11 @@ const EvaluationsPage = () => {
     (state) => state.configStore.config?.evaluationsEnabled ?? false
   );
   const configLoaded = useAppSelector((state) => state.configStore.isLoaded);
+
+  // Get UI customization from config
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const overviewTabName = uiConfig?.evaluationsPage?.tabNames?.overviewTab || 'Season Overview';
+  const singleModelTabName = uiConfig?.evaluationsPage?.tabNames?.singleModelTab || 'Single Model';
 
   const defaultTab = 'season-overview';
   const [activeTab, setActiveTab] = useState(defaultTab);
@@ -256,7 +270,7 @@ const EvaluationsPage = () => {
                 zIndex: activeTab === 'season-overview' ? 1 : 0,
               }}
             >
-              Season Overview
+              {overviewTabName}
             </button>
 
             <button
@@ -271,7 +285,7 @@ const EvaluationsPage = () => {
                 zIndex: activeTab === 'single-model' ? 1 : 0,
               }}
             >
-              Single Model
+              {singleModelTabName}
             </button>
           </div>
         </div>

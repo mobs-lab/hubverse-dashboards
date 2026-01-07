@@ -10,12 +10,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as topojson from "topojson-client";
 import MapSelectorPanel from "./MapSelectorPanel";
 
-// Define color constants
-const NAVY_BLUE = "#00495F";
-const WHITE = "#E9E9E9";
-const GREEN = "#6A9629";
-const NO_DATA_COLOR = "#363b43"; // Color for states with no data
-
 const SeasonOverviewLocationHotMap: React.FC = () => {
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -31,6 +25,17 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
   const { mapSelectedModel, mapSelectedScoringOption, useLogColorScale } = useAppSelector(
     (state) => state.evaluationsSeasonOverviewSettings
   );
+
+  // Get UI customization from config
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const colorConfig = uiConfig?.evaluationsPage?.locationMapColorScale;
+  const mapTitlePrefix = uiConfig?.evaluationsPage?.overviewLocationMapTitle || 'Location-Specific';
+
+  // Define color constants from config or use defaults
+  const WORSE_END_COLOR = colorConfig?.colorTop || "#00495F"; 
+  const BASE_COLOR = colorConfig?.colorBase || "#E9E9E9";
+  const BETTER_END_COLOR_FOR_WIS = colorConfig?.colorBottom || "#6A9629";
+  const NO_DATA_COLOR = colorConfig?.colorNull || "#363b43"; // Color for states with no data
 
   // Calculate location performance data based on selected criteria
   const modelPerformanceData = useMemo(() => {
@@ -231,7 +236,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
 
       // Define the 3-point domain around the pivot
       colorDomain = [effectiveMin, pivotValue, effectiveMax];
-      colorRange = [GREEN, WHITE, NAVY_BLUE]; // GREEN -> White (at 1) -> Navy Blue
+      colorRange = [BETTER_END_COLOR_FOR_WIS, BASE_COLOR, WORSE_END_COLOR]; // GREEN -> White (at 1) -> Navy Blue
 
       // Create a scale for calculating the pivot pixel position
       const tempPixelScale = useLogColorScale
@@ -280,9 +285,9 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
       legendRangePixels = [legendHeight, 0]; // Bottom to Top
 
       if (mapSelectedScoringOption === "Coverage") {
-        colorRange = [NAVY_BLUE, WHITE];
+        colorRange = [WORSE_END_COLOR, BASE_COLOR];
       } else {
-        colorRange = [WHITE, NAVY_BLUE];
+        colorRange = [BASE_COLOR, WORSE_END_COLOR];
       }
 
       // Create the appropriate scale
@@ -335,12 +340,12 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
 
       if (minValue >= 1) {
         // All values above baseline: White to Navy
-        gradient.append("stop").attr("offset", "0%").attr("stop-color", WHITE);
-        gradient.append("stop").attr("offset", "100%").attr("stop-color", NAVY_BLUE);
+        gradient.append("stop").attr("offset", "0%").attr("stop-color", BASE_COLOR);
+        gradient.append("stop").attr("offset", "100%").attr("stop-color", WORSE_END_COLOR);
       } else if (maxValue <= 1) {
         // All values below baseline: GREEN to White
-        gradient.append("stop").attr("offset", "0%").attr("stop-color", GREEN);
-        gradient.append("stop").attr("offset", "100%").attr("stop-color", WHITE);
+        gradient.append("stop").attr("offset", "0%").attr("stop-color", BETTER_END_COLOR_FOR_WIS);
+        gradient.append("stop").attr("offset", "100%").attr("stop-color", BASE_COLOR);
       } else {
         const transitionPower = 0.5; // Adjust between 0.2-0.7 for different effects
 
@@ -356,7 +361,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
           const offset = pivotPercent * nonLinearT;
 
           // Calculate color - reversed so we get GREEN→WHITE
-          const color = d3.interpolateRgb(GREEN, WHITE)(nonLinearT);
+          const color = d3.interpolateRgb(BETTER_END_COLOR_FOR_WIS, BASE_COLOR)(nonLinearT);
 
           gradient
             .append("stop")
@@ -376,7 +381,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
           const offset = pivotPercent + (1 - pivotPercent) * nonLinearT;
 
           // Calculate color
-          const color = d3.interpolateRgb(WHITE, NAVY_BLUE)(nonLinearT);
+          const color = d3.interpolateRgb(BASE_COLOR, WORSE_END_COLOR)(nonLinearT);
 
           gradient
             .append("stop")
@@ -458,7 +463,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
       .attr("text-anchor", "left")
       .style("font-size", "16px")
       .style("font-weight", "bold")
-      .text(`State-Specific ${mapSelectedScoringOption || "Performance"}`);
+      .text(`${mapTitlePrefix} ${mapSelectedScoringOption || "Performance"}`);
 
     // --- State Map Drawing ---
     const projection = d3.geoAlbersUsa().fitSize([mapWidth, mapHeight], topojson.feature(mapData, mapData.objects.states));
@@ -612,7 +617,7 @@ const SeasonOverviewLocationHotMap: React.FC = () => {
       .attr("dy", "0.05em") // Slight vertical adjustment
       .style("pointer-events", "none") // Prevent text from blocking circle hover
       .text("DC");
-  }, [dimensions, locationData, mapData, mapSelectedScoringOption, modelPerformanceData, updateTooltip, useLogColorScale]);
+  }, [dimensions, locationData, mapData, mapSelectedScoringOption, modelPerformanceData, updateTooltip, useLogColorScale, WORSE_END_COLOR, BASE_COLOR, BETTER_END_COLOR_FOR_WIS, NO_DATA_COLOR, mapTitlePrefix]);
 
   // Render map when dimensions or data change
   useEffect(() => {

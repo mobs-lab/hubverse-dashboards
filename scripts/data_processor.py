@@ -1048,6 +1048,54 @@ class DataProcessor:
                         ),
                     },
                 },
+                "evaluationsPage": {
+                    "tabNames": {
+                        "overviewTab": self.config.ui_customization.ui_evaluation_overview_tab_name,
+                        "singleModelTab": self.config.ui_customization.ui_evaluation_single_model_tab_name,
+                    },
+                    "chartLogModeIndicatorText": self.config.ui_customization.ui_evaluation_chart_log_mode_indicator_text,
+                    "overviewLocationMapTitle": self.config.ui_customization.ui_evaluation_overview_location_map_title,
+                    "infoButtons": {
+                        "overviewInfo": (
+                            {
+                                "title": self.config.ui_customization.ui_evaluation_overview_infobutton_content.title,
+                                "content": self.config.ui_customization.ui_evaluation_overview_infobutton_content.content,
+                            }
+                            if self.config.ui_customization.ui_evaluation_overview_infobutton_content
+                            else None
+                        ),
+                        "singleModelInfo": (
+                            {
+                                "title": self.config.ui_customization.ui_evaluation_single_model_infobutton_content.title,
+                                "content": self.config.ui_customization.ui_evaluation_single_model_infobutton_content.content,
+                            }
+                            if self.config.ui_customization.ui_evaluation_single_model_infobutton_content
+                            else None
+                        ),
+                        "overviewHorizonInfo": (
+                            {
+                                "title": self.config.ui_customization.ui_evaluation_overview_horizon_infobutton_content.title,
+                                "content": self.config.ui_customization.ui_evaluation_overview_horizon_infobutton_content.content,
+                            }
+                            if self.config.ui_customization.ui_evaluation_overview_horizon_infobutton_content
+                            else None
+                        ),
+                        "singleModelHorizonInfo": (
+                            {
+                                "title": self.config.ui_customization.ui_evaluation_single_model_horizon_infobutton_content.title,
+                                "content": self.config.ui_customization.ui_evaluation_single_model_horizon_infobutton_content.content,
+                            }
+                            if self.config.ui_customization.ui_evaluation_single_model_horizon_infobutton_content
+                            else None
+                        ),
+                    },
+                    "locationMapColorScale": {
+                        "colorTop": self.config.ui_customization.ui_evaluation_overview_location_map_color_scale.color_top,
+                        "colorBase": self.config.ui_customization.ui_evaluation_overview_location_map_color_scale.color_base,
+                        "colorBottom": self.config.ui_customization.ui_evaluation_overview_location_map_color_scale.color_bottom,
+                        "colorNull": self.config.ui_customization.ui_evaluation_overview_location_map_color_scale.color_null,
+                    },
+                },
             },
             # === METADATA INFO ===
             "_meta": {

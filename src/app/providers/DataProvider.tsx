@@ -248,6 +248,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           horizonInfo: undefined,
         },
       },
+      evaluationsPage: {
+        tabNames: {
+          overviewTab: 'Season Overview',
+          singleModelTab: 'Single Model',
+        },
+        chartLogModeIndicatorText: 'Use Log Scale',
+        overviewLocationMapTitle: 'Location-Specific',
+        infoButtons: {
+          overviewInfo: undefined,
+          singleModelInfo: undefined,
+          overviewHorizonInfo: undefined,
+          singleModelHorizonInfo: undefined,
+        },
+        locationMapColorScale: {
+          colorTop: '#00495F',
+          colorBase: '#E9E9E9',
+          colorBottom: '#6A9629',
+          colorNull: '#363b43',
+        },
+      },
     };
 
     return {

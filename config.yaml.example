@@ -310,8 +310,7 @@ ui_customization:
   # Change Header and Navigation Buttons
   # ------------------------------------
   # Note: this component will be changed for both Forecast and Evaluation page.
-  # Special Note: If your header title naming follows the convention "XxxxForecast", the dashboard supports selectively bolding the "Xxxx" part for you.
-  #               Any other kind of naming will just be all bold.
+  # Special Note: If your header title naming follows the convention "AbcdeForecast", the dashboard supports selectively bolding the "Abcde" part for you. Any other kind of naming will just be all bold.
   ui_header_title_name: "COVID-19Forecast"
 
   # Declare and change navigation buttons UI and behaviour
@@ -351,6 +350,42 @@ ui_customization:
   ui_forecast_settings_horizon_infobutton_content:
     title: "Test About Horizon"
     content: "Horizon Horizon Horizon Horizon Horizon"
-# TODO: Evaluation Page Visualization Components Customizations
-# -------------------------------------------------------------
-# - ui_evaluation_header_name: "something soemething"
+
+  # Evaluation Page Customizations
+  # -------------------------------------------------------------
+  # [OPTIONAL]
+  # Changes the infobutton title and text for evaluation overview page & single-model page
+  ui_evaluation_overview_infobutton_content:
+    title: "Season Overview"
+    content: "evaluation overview page infobutton test string, test test test"
+  ui_evaluation_overview_horizon_infobutton_content:
+    title: "Forecast Horizons"
+    content: "This is also a test."
+  
+  ui_evaluation_single_model_infobutton_content:
+    title: "Single Model Evaluations"
+    content: "This should be different from the text of the infobutton on overview page's horizon selector."
+  
+  ui_evaluation_single_model_horizon_infobutton_content:
+    title: "Forecast Horizons"
+    content: "This is the horizon selector infobutton for the single-model tab."
+
+  # Evaluation page's tab bar UI customization. This changes what the text in the two tabs display in the built dashboard.
+  # Currently we support two tabs: 
+  #   - "Overview", for visualizations on location-aggregated evaluation metrics
+  #   - "Single-Model", for comprehensive visualizations on metrics associated with one model's performance, allowing multi-dimensional criteria filtering such as spatial & temporal.
+  ui_evaluation_overview_tab_name: "Location-Aggregated Overview" # Default is "Season Overview".
+  ui_evaluation_single_model_tab_name: "Single-Model Evaluation Tab" # Default is "Single-Model"
+
+  # Evaluation Overview page UI customizations
+  ui_evaluation_chart_log_mode_indicator_text: "Use Log Scale" # This changes the text display for the log scale toggle button for the two location-aggregated IQR box plots on Overview page.
+  ui_evaluation_overview_location_map_title: "Location-Specific" # This string will be appended to the Evaluation Metric dynamically displayed depending on your selection on the dashboard. For example, "Location-Specific WIS/Baseline" in this case, when you select "WIS/Baseline".
+
+  # [Optional] Location-Specific Evaluation Overview Map Color Scale customization:
+  # This determines the end stops for the gradient-color scale used for the map visualization on Overview page. See documentation for a detailed explanation on which color on which end represents better/worse performance, for different metrics.
+  ui_evaluation_overview_location_map_color_scale:
+    # These are default values, using a navy blue-white-green scheme.
+    color_top: "#00495F"
+    color_base: "#E9E9E9"
+    color_bottom: "#6A9629"
+    color_null: "#363b43" # Optional, Color for location with no data

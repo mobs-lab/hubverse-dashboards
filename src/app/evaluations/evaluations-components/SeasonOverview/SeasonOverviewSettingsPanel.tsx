@@ -35,6 +35,10 @@ export const SeasonOverviewSettings = () => {
   const modelNames = useAppSelector(selectModelNames);
   const availableHorizons = useAppSelector(selectHorizons);
 
+  // Get UI customization from config
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const horizonInfoConfig = uiConfig?.evaluationsPage?.infoButtons?.overviewHorizonInfo;
+
   // Local state for horizon dropdown
   const [isHorizonDropdownOpen, setIsHorizonDropdownOpen] = useState(false);
   const horizonDropdownRef = useRef<HTMLDivElement>(null);
@@ -166,7 +170,10 @@ export const SeasonOverviewSettings = () => {
             <Typography variant='h6' className='text-white flex-shrink' placeholder=''>
               Horizon
             </Typography>
-            <InfoButton content={horizonSelectorsInfo} title={"Forecast Horizons"}></InfoButton>
+            <InfoButton 
+              content={horizonInfoConfig?.content || horizonSelectorsInfo} 
+              title={horizonInfoConfig?.title || "Forecast Horizons"}
+            ></InfoButton>
           </div>
 
           {/* Multi-select Dropdown for Horizons */}
