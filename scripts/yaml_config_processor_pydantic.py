@@ -333,6 +333,18 @@ class DashboardConfig(BaseModel):
     single_target_data_file_name: Optional[str] = None
     target_data_header_mapping: TargetDataHeaderMapping = Field(default_factory=TargetDataHeaderMapping)
     target_data_observation_format: Literal["integer", "float"] = Field(default="float")
+    as_of_column_date_shift: int = Field(default=0, description="Shift 'as_of' dates by this many days. Useful if as_of dates are on a different grid than target/reference dates.")
+
+    @model_validator(mode="after")
+    def validate_as_of_shift(self):
+        """Validate that as_of_column_date_shift is within reasonable bounds (less than time_unit)"""
+        if abs(self.as_of_column_date_shift) > self.time_unit:
+            raise ValueError(
+                f"as_of_column_date_shift ({self.as_of_column_date_shift}) cannot be larger than time_unit ({self.time_unit}). "
+                "This would cause misalignment of forecast cycles."
+            )
+        return self
+
 
     # Model Output Configuration
     available_models: List[ModelConfig] = Field(..., min_length=1)

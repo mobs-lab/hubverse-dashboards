@@ -97,7 +97,10 @@ export const selectSingleModelTimeSeriesData = createSelector(
     // Add ground truth data within date range
     Object.entries(locationTargetData).forEach(([dateStr, dateData]: [string, any]) => {
       const date = new Date(dateStr);
-      if (date < dateStart || date > dateEnd) return;
+      if (date < dateStart || date > dateEnd){
+        console.debug("No target data for date:", date);
+        return;
+      }
 
       const targetInfo = dateData[targetId];
       if (targetInfo && targetInfo.observation !== null && targetInfo.observation >= 0) {

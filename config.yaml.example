@@ -47,6 +47,18 @@ forecast_periods:
     end_date: "2025-10-20T00:00:00"
     display_string: "COVID-19 2024-2025 Forecast (Sample Portion) "
     is_default_selected: true # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
+  
+  - forecast_period_id: "season-2024-2025-test2"
+    start_date: "2024-10-01T00:00:00"
+    end_date: "2025-02-01T00:00:00"
+    display_string: "Oct2024 to Feb2025 Test portion"
+    is_default_selected: false # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
+
+  - forecast_period_id: "test-season-2022-2023"
+    start_date: "2022-08-01T00:00:00"
+    end_date: "2023-07-31T00:00:00"
+    display_string: "test out of range time period option"
+    is_default_selected: false # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
 
   # Example of a dynamic forecast period where the end_date is in the future.
   # This is useful for ongoing forecasting efforts.
@@ -134,7 +146,6 @@ targets:
   - target_id: "covid19-admission" # [REQUIRED] A unique machine-readable ID.
     task_display_string: "COVID19 Admissions" # [REQUIRED] Human-readable name for the UI.
     target_key_in_data: "wk inc covid hosp" # [REQUIRED] The exact string that appears in the 'target' column of your data files.
-    for_forecast_periods: ["season-2024-2025"] # [OPTIONAL] Link this target to specific periods. Defaults to all periods if omitted.
     is_default_selected: true # [OPTIONAL, unique] This target will be selected by default.
 
     # [OPTIONAL] Apply scaling or rounding to data values for this target.
@@ -150,7 +161,6 @@ targets:
   - target_id: "covid19-test-target"
     task_display_string: "COVID19 Admissions Test"
     target_key_in_data: "wk inc covid prop ed visits"
-    for_forecast_periods: ["season-2024-2025"]
     data_value_processing:
       scaling_factor:
         target_data: 100 # Example: Convert a 0-1 proportion to a 0-100 percentage
@@ -162,7 +172,7 @@ targets:
 #==============================================================================
 # TARGET-DATA CONFIGURATION
 #==============================================================================
-# Configure how to read your ground truth / observed data.
+# Configure how the dashboard handles your ground truth / observed data.
 # See Hubverse docs for details: https://docs.hubverse.io/en/latest/user-guide/target-data.html
 #------------------------------------------------------------------------------
 
@@ -178,6 +188,15 @@ parquet_partitioned_by_as_of: false
 # The filename (without extension) of your single target data file.
 single_target_data_file_name: "time-series"
 
+# [Optional] Special Flag for turning off the historical target data functionalities.
+# Default is "false". If this flag is "true", then "as_of" settings will be ignored and dashboard will not process that column in target data, and frontend visualization related to historical target data will be disabled. If using single file target data, then dashboard will 
+disable_historical_target_data: false
+
+# [Optional] Config to shift "as_of" column date values by a number of days so they align with the respective reference date within the same model forecast cycle.
+# This is to ensure that dashboard visualization's historical target data functionality works as intended.
+# The number's absolute value cannot be bigger than `time_unit` or it will misalign with other forecast cycles.
+as_of_column_date_shift: -5 # Shift all the "as_of" column dates by 5 days back
+
 #------------------------------------------------------------------------------
 # Target Data Column Mapping
 #------------------------------------------------------------------------------
@@ -188,7 +207,7 @@ target_data_header_mapping:
   location_col_name: "location" # [REQUIRED for multi-location]
   location_name_col_name: "location_name" # [OPTIONAL]
   target_col_name: "target" # [REQUIRED for multi-target]
-  as_of_col_name: "as_of" # [OPTIONAL] Enables historical data versioning.
+  as_of_col_name: "as_of" # [CONDITIONAL] If historical target data is not disabled & not using partitioned parquet files then this is required.
 
 #==============================================================================
 # MODEL-OUTPUT CONFIGURATION
@@ -364,11 +383,11 @@ ui_customization:
   
   ui_evaluation_single_model_infobutton_content:
     title: "Single Model Evaluations"
-    content: "This should be different from the text of the infobutton on overview page's horizon selector."
-  
+    content: "Something something"
   ui_evaluation_single_model_horizon_infobutton_content:
     title: "Forecast Horizons"
-    content: "This is the horizon selector infobutton for the single-model tab."
+    content: "This should be different from the text of the infobutton on overview page's horizon selector"
+
 
   # Evaluation page's tab bar UI customization. This changes what the text in the two tabs display in the built dashboard.
   # Currently we support two tabs: 
@@ -382,7 +401,7 @@ ui_customization:
   ui_evaluation_overview_location_map_title: "Location-Specific" # This string will be appended to the Evaluation Metric dynamically displayed depending on your selection on the dashboard. For example, "Location-Specific WIS/Baseline" in this case, when you select "WIS/Baseline".
 
   # [Optional] Location-Specific Evaluation Overview Map Color Scale customization:
-  # This determines the end stops for the gradient-color scale used for the map visualization on Overview page. See documentation for a detailed explanation on which color on which end represents better/worse performance, for different metrics.
+  # This determines the end stops for the gradient-color scale used for the map visualization on Overview page. See documentation for a detailed explanation on which color on which end represents better/worse performance, for different metrics. Use Hex code.
   ui_evaluation_overview_location_map_color_scale:
     # These are default values, using a navy blue-white-green scheme.
     color_top: "#00495F"

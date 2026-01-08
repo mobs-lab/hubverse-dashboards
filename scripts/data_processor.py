@@ -131,60 +131,81 @@ class DataProcessor:
 
         Steps:
         1.  **Ingestion**: Loads target data and model output data.
-        2.  **Preprocessing**: Fixes missing time intervals in target data.
-        3.  **Discovery**: Detects locations present in the data.
-        4.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
-        5.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
-        6.  **Export**: Writes all processed data to JSON files in the public directory.
+        2.  **Discovery**: Detects locations present in the data.
+        3.  **Filtering**: Filters data by config-specified targets and detected locations.
+        4.  **Preprocessing**: Fixes missing time intervals in target data (using filtered data).
+        5.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
+        6.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
+        7.  **Export**: Writes all processed data to JSON files in the public directory.
 
         Returns:
             bool: True if the pipeline completes successfully.
         """
         logger.info("Starting data processing...")
 
-        # 2: Data Ingestion
+        # 1: Data Ingestion
         target_data_df = self._load_target_data()
         self.processing_stats["target_data_rows"] = len(target_data_df)
 
         model_output_df = self._load_model_output_data()
         self.processing_stats["model_output_rows"] = len(model_output_df)
 
-        # 2b: Fix missing time intervals
-        fixed_target_data_df = self._fix_missing_time_intervals(target_data_df, model_output_df)
-        self.fixed_target_data = fixed_target_data_df
-
-        # 3: Location detection
+        # 2: Location detection
         locations = self._detect_locations(target_data_df, model_output_df)
         self.processing_stats["locations_detected"] = len(locations)
 
-        # 4: Process all target data (periods are now frontend presets)
+        # 3: Filter data by config specifications (targets and locations)
+        # This ensures date range calculations are based only on relevant data
+        target_data_df, model_output_df = self._filter_data_by_config_specs(
+            target_data_df, model_output_df, locations
+        )
+        logger.info(f"After filtering - Target data: {len(target_data_df)} rows, Model output: {len(model_output_df)} rows")
+
+        # Update unpivoted model output with filtered data (needed for evaluations)
+        # We must filter the unpivoted data separately because model_output_df is potentially pivoted (wide format)
+        # while evaluations require long format. Reusing the filter method works as it filters by 'target' and 'location' columns.
+        _, self.model_output_unpivoted = self._filter_data_by_config_specs(
+            target_data_df, self.model_output_unpivoted, detected_locations=locations
+        )
+        logger.info(f"Filtered unpivoted model output data: {len(self.model_output_unpivoted)} rows")
+
+        # 3b: Extract Latest Ground Truth & Process History (from filtered data)
+        # This ensures historical data json only contains relevant locations/targets
+        # and that downstream processing only uses the latest 'as_of' slice.
+        target_data_df = self._extract_latest_ground_truth_and_history(target_data_df)
+
+        # 4: Fix missing time intervals (now operates on pre-filtered data)
+        fixed_target_data_df = self._fix_missing_time_intervals(target_data_df, model_output_df)
+        self.fixed_target_data = fixed_target_data_df
+
+        # 5: Process all target data (periods are now frontend presets)
         processed_target_data = self._process_target_data(fixed_target_data_df)
 
-        # 5: Process all model output data
+        # 6: Process all model output data
         processed_model_output = self._process_model_output_data(model_output_df)
         self.processing_stats["forecast_periods"] = len(self.config.forecast_periods)
 
-        # 6: Calculate evaluations (3-step process)
+        # 7: Calculate evaluations (3-step process)
         raw_evaluations = {}
         aggregated_evaluations = None
         raw_scores_by_period = {}
 
         if not self.skip_evaluations:
-            # Step 6a: Generate raw evaluation metrics for all available data
+            # Step 7a: Generate raw evaluation metrics for all available data
             raw_evaluations = self._generate_raw_evaluation_collection(fixed_target_data_df, self.model_output_unpivoted)
 
-            # Step 6b: Aggregate evaluation metrics by periods (for Season Overview)
+            # Step 7b: Aggregate evaluation metrics by periods (for Season Overview)
             aggregated_evaluations = self._generate_aggregated_evaluation_collection(raw_evaluations)
 
-            # Step 6c: Organize raw scores (all data, no period filtering, for Single Model view)
+            # Step 7c: Organize raw scores (all data, no period filtering, for Single Model view)
             raw_scores_by_period = self._generate_raw_scores_by_period(raw_evaluations)
         else:
             logger.info("Skipping evaluation calculations (disabled by user)")
 
-        # 7: Generate Metadata
+        # 8: Generate Metadata
         metadata = self._generate_metadata(locations, model_output_df, target_data_df)
 
-        # 8: Write output files
+        # 9: Write output files
         self._write_output_files(
             processed_target_data,
             processed_model_output,
@@ -298,11 +319,40 @@ class DataProcessor:
 
         df["date"] = pd.to_datetime(df["date"])
 
-        # Handle historical target-data if 'as_of' column is present
+        # Handle 'as_of' column processing
         if "as_of" in df.columns:
-            logger.info("Found 'as_of' column, processing historical data.")
+            logger.info("Found 'as_of' column.")
             df["as_of"] = pd.to_datetime(df["as_of"])
 
+            # Apply as_of date shift if configured
+            shift_days = self.config.as_of_column_date_shift
+            if shift_days != 0:
+                logger.info(f"Applying as_of date shift of {shift_days} days.")
+                df["as_of"] = df["as_of"] + pd.Timedelta(days=shift_days)
+
+        return df
+
+    def _extract_latest_ground_truth_and_history(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extracts the latest ground truth data from the target data and processes historical snapshots.
+        
+        If an 'as_of' column is present:
+        1. Identifies the latest 'as_of' date.
+        2. Filters the DataFrame to only include rows from that latest date (Current Ground Truth).
+        3. Processes the full DataFrame into historical snapshots.
+        
+        If no 'as_of' column:
+        Returns the original DataFrame as the ground truth.
+        
+        Args:
+            df (pd.DataFrame): The standardized target data (potentially containing multiple as_of versions).
+            
+        Returns:
+            pd.DataFrame: The current ground truth (latest as_of slice).
+        """
+        if "as_of" in df.columns:
+            logger.info("Processing target data with 'as_of' versions...")
+            
             # The actual most recent "as_of" date will be used as "Ground Truth",
             # Used for the default rendered target-data lines/values for all visualizations.
             # Other historical snapshots will be shown only when "Historical Target-Data Mode" toggle is on.
@@ -311,12 +361,12 @@ class DataProcessor:
             current_df = df[df["as_of"] == latest_as_of].copy()
 
             # Process historical snapshots: Map<as_of_date, Map<date, Map<location, data>>>
-            logger.info("Processing historical target data snapshots...")
+            logger.info("Processing historical target data snapshots from filtered data...")
             self.historical_target_data = self._process_historical_target_data(df)
             logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
 
             return current_df
-
+        
         return df
 
     def _load_partitioned_parquet(self) -> pd.DataFrame:
@@ -600,6 +650,83 @@ class DataProcessor:
 
         return historical_data
 
+    def _filter_data_by_config_specs(
+        self,
+        target_data_df: pd.DataFrame,
+        model_output_df: pd.DataFrame,
+        detected_locations: list,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Filters both target data and model output data by config-specified targets and detected locations.
+        
+        This ensures that downstream processing (including date range calculations) only operates
+        on data that will actually be used by the dashboard, preventing wasted computation and
+        incorrect date ranges from irrelevant data.
+        
+        Args:
+            target_data_df (pd.DataFrame): Raw target data before filtering.
+            model_output_df (pd.DataFrame): Raw model output data before filtering.
+            detected_locations (list): List of location dictionaries with 'location' keys.
+            
+        Returns:
+            tuple[pd.DataFrame, pd.DataFrame]: Filtered (target_data_df, model_output_df).
+        """
+        logger.info("Filtering data by config specifications...")
+        
+        # Extract valid location codes
+        valid_location_codes = {loc["location"] for loc in detected_locations}
+        logger.info(f"  → Valid locations: {len(valid_location_codes)} codes")
+        
+        # Extract valid target keys from config
+        targets = self.config.targets or []
+        valid_target_keys = {t.target_key_in_data for t in targets}
+        logger.info(f"  → Valid targets: {valid_target_keys}")
+        
+        # Filter target data
+        target_data_initial_rows = len(target_data_df)
+        
+        # Filter by location (if location column exists)
+        if "location" in target_data_df.columns and valid_location_codes:
+            # Normalize location codes in dataframe to string for comparison
+            target_data_df = target_data_df[
+                target_data_df["location"].astype(str).isin(valid_location_codes)
+            ].copy()
+            logger.info(f"  → Target data after location filter: {len(target_data_df)} rows (removed {target_data_initial_rows - len(target_data_df)})")
+        
+        # Filter by target (if target column exists)
+        if "target" in target_data_df.columns and valid_target_keys:
+            target_data_df = target_data_df[
+                target_data_df["target"].isin(valid_target_keys)
+            ].copy()
+            logger.info(f"  → Target data after target filter: {len(target_data_df)} rows (removed {target_data_initial_rows - len(target_data_df)})")
+        
+        # Filter model output data
+        model_output_initial_rows = len(model_output_df)
+        
+        # Filter by location
+        if "location" in model_output_df.columns and valid_location_codes:
+            model_output_df = model_output_df[
+                model_output_df["location"].astype(str).isin(valid_location_codes)
+            ].copy()
+            logger.info(f"  → Model output after location filter: {len(model_output_df)} rows (removed {model_output_initial_rows - len(model_output_df)})")
+        
+        # Filter by target
+        if "target" in model_output_df.columns and valid_target_keys:
+            model_output_df = model_output_df[
+                model_output_df["target"].isin(valid_target_keys)
+            ].copy()
+            logger.info(f"  → Model output after target filter: {len(model_output_df)} rows (removed {model_output_initial_rows - len(model_output_df)})")
+        
+        # Ensure we still have data after filtering
+        if target_data_df.empty:
+            logger.warning("  [!] WARNING: Target data is empty after filtering!")
+        if model_output_df.empty:
+            logger.warning("  [!] WARNING: Model output data is empty after filtering!")
+        
+        logger.info(f"  [OK] Filtering complete: Target={len(target_data_df)} rows, Model output={len(model_output_df)} rows")
+        
+        return target_data_df, model_output_df
+
     def _fix_missing_time_intervals(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> pd.DataFrame:
         """
         Fills in missing time intervals in target data to ensure a complete time series.
@@ -609,15 +736,16 @@ class DataProcessor:
         for all locations and targets, filling missing observations with -1.
 
         Args:
-            target_data_df (pd.DataFrame): The raw target data.
-            model_output_df (pd.DataFrame): The model output data (used to determine the full date range).
+            target_data_df (pd.DataFrame): The pre-filtered target data.
+            model_output_df (pd.DataFrame): The pre-filtered model output data (used to determine the full date range).
 
         Returns:
             pd.DataFrame: A DataFrame with continuous date ranges for every location/target.
         """
         logger.info("Fixing missing time intervals in target data...")
 
-        # Determine the overall date range
+        # Determine the overall date range from pre-filtered data
+        # This ensures we only generate date grids for data that will actually be used
         earliest_target_date = target_data_df["date"].min()
         latest_target_date = target_data_df["date"].max()
         latest_model_date = model_output_df["target_end_date"].max()
