@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 
-import { selectModelColorMap, selectModelNames, selectLocationData } from "@/store/selectors";
+import { selectModelColorMap, selectModelNames, selectLocationData, selectHorizons, selectDateConstraints } from "@/store/selectors";
 import { ForecastPeriodOption } from "@/types/domains/forecasting";
 
 import SettingsStateMap from "@/shared-components/SettingsStateMap";
@@ -21,10 +21,12 @@ import {
 } from "@/store/data-slices/settings/SettingsSliceEvaluationSingleModel";
 
 import { Radio, Typography } from "@/styles/material-tailwind-wrapper";
+import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/outline";
 
 import InfoButton from "@/shared-components/InfoButton";
 import Image from "next/image";
 import { horizonSelectorsInfo } from "types/infobutton-content";
+import SettingsStyledDatePicker from "@/forecasts/forecasts-components/SettingsStyledDatePicker";
 
 const SingleModelSettingsPanel: React.FC = () => {
   /* Redux-Managed State Variables */
@@ -32,8 +34,19 @@ const SingleModelSettingsPanel: React.FC = () => {
   const modelColorMap = useAppSelector(selectModelColorMap);
   const modelNames = useAppSelector(selectModelNames);
   const locationData = useAppSelector(selectLocationData);
+  const availableHorizons = useAppSelector(selectHorizons);
+  const { earliestDate, latestDate } = useAppSelector(selectDateConstraints);
+
+  // Get UI customization from config
+  const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  const horizonInfoConfig = uiConfig?.evaluationsPage?.infoButtons?.singleModelHorizonInfo;
 
   const [scoreOptions] = useState(["WIS/Baseline", "MAPE"]);
+  
+  // Local state for location dropdown
+  const [locationSearchText, setLocationSearchText] = useState('');
+  const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
+  const locationDropdownRef = useRef<HTMLDivElement>(null);
 
   // Evaluation-specific state
   const {
@@ -68,7 +81,7 @@ const SingleModelSettingsPanel: React.FC = () => {
   };
 
   // Horizon handler
-  const onHorizonChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const onHorizonChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     dispatch(updateEvaluationSingleModelViewHorizon(Number(event.target.value)));
   };
 
@@ -86,6 +99,28 @@ const SingleModelSettingsPanel: React.FC = () => {
     }
   };
 
+  // Date selection handlers
+  const onDateStartSelectionChange = (date: Date | null) => {
+    if (date && date >= earliestDate && date <= evaluationSingleModelViewDateEnd) {
+      dispatch(updateEvaluationSingleModelViewDateStart(date));
+    } else {
+      console.error('SingleModelSettingsPanel: Invalid dateStart selection');
+    }
+  };
+
+  const onDateEndSelectionChange = (date: Date | null) => {
+    if (date && date >= evaluationsSingleModelViewDateStart && date <= latestDate) {
+      dispatch(updateEvaluationSingleModelViewDateEnd(date));
+    } else {
+      console.error('SingleModelSettingsPanel: Invalid dateEnd selection');
+    }
+  };
+
+  const handleShowAllDates = () => {
+    dispatch(updateEvaluationSingleModelViewDateStart(earliestDate));
+    dispatch(updateEvaluationSingleModelViewDateEnd(latestDate));
+  };
+
   // Add handler
   const onScoreSelectionChange = (value: string) => {
     dispatch(updateEvaluationScores(value));
@@ -96,24 +131,104 @@ const SingleModelSettingsPanel: React.FC = () => {
     dispatch(setSingleModelSelectedTargetId(targetId));
   };
 
+  // Fuzzy search for locations
+  const filteredLocations = useMemo(() => {
+    if (!locationSearchText) return locationData;
+    const searchLower = locationSearchText.toLowerCase();
+    return locationData.filter(
+      (loc) =>
+        loc.locationName.toLowerCase().includes(searchLower) ||
+        loc.locationCode.toLowerCase().includes(searchLower) ||
+        (loc.locationNameAlt && loc.locationNameAlt.toLowerCase().includes(searchLower))
+    );
+  }, [locationData, locationSearchText]);
+
+  // Get selected location name for display
+  const selectedLocationName = useMemo(() => {
+    const location = locationData.find((loc) => loc.locationCode === evaluationsSingleModelViewSelectedStateCode);
+    return location ? location.locationName : '';
+  }, [locationData, evaluationsSingleModelViewSelectedStateCode]);
+
+  // Handle clicking outside location dropdown to close it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target as Node)) {
+        setIsLocationDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   return (
     <div className='bg-mobs-lab-color-filterspane text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings'>
       <div className='flex-grow nowrap overflow-y-auto p-4 util-no-sb-length'>
         <div className='mb-4 w-full overflow-ellipsis'>
-          <h2>Select Location</h2>
+          <Typography variant='h6' className='text-white' placeholder=''>
+            Select Location
+          </Typography>
           <div className='w-full'>
             <SettingsStateMap pageSelected='evaluations' />
           </div>
-          <select
-            value={evaluationsSingleModelViewSelectedStateCode}
-            onChange={(e) => onStateSelectionChange(e.target.value)}
-            className='text-white border-[#5d636a] border-2 font-sans bg-mobs-lab-color-filterspane rounded-md px-2 py-4 w-full'>
-            {locationData.map((state) => (
-              <option key={state.locationNameAlt} value={state.locationCode}>
-                {state.locationName}
-              </option>
-            ))}
-          </select>
+
+          {/* Combined Location Search and Dropdown Combobox */}
+          <div ref={locationDropdownRef} className="relative w-full">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search or select location..."
+                value={isLocationDropdownOpen || locationSearchText ? locationSearchText : selectedLocationName}
+                onChange={(e) => {
+                  setLocationSearchText(e.target.value);
+                  if (!isLocationDropdownOpen) {
+                    setIsLocationDropdownOpen(true);
+                  }
+                }}
+                onFocus={() => {
+                  setLocationSearchText('');
+                  setIsLocationDropdownOpen(true);
+                }}
+                className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-white"
+              >
+                {isLocationDropdownOpen ? (
+                  <ChevronUpIcon className="h-5 w-5" />
+                ) : (
+                  <ChevronDownIcon className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+
+            {/* Dropdown list */}
+            {isLocationDropdownOpen && (
+              <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+                {filteredLocations.length > 0 ? (
+                  filteredLocations.map((location) => (
+                    <div
+                      key={location.locationCode}
+                      onClick={() => {
+                        onStateSelectionChange(location.locationCode);
+                        setLocationSearchText('');
+                        setIsLocationDropdownOpen(false);
+                      }}
+                      className={`px-3 py-2 cursor-pointer hover:bg-gray-700 ${
+                        location.locationCode === evaluationsSingleModelViewSelectedStateCode ? 'bg-gray-700' : ''
+                      }`}
+                    >
+                      {location.locationName}
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-3 py-2 text-gray-400">No locations found</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className='mb-2 w-full overflow-ellipsis'>
@@ -147,21 +262,21 @@ const SingleModelSettingsPanel: React.FC = () => {
             <Typography variant='h6' className='text-white flex-shrink'>
               Horizon
             </Typography>
-
-            <InfoButton content={horizonSelectorsInfo} title={"Forecast Horizons"}></InfoButton>
+            <InfoButton 
+              content={horizonInfoConfig?.content || horizonSelectorsInfo} 
+              title={horizonInfoConfig?.title || "Forecast Horizons"}
+            ></InfoButton>
           </div>
-          {[0, 1, 2, 3].map((value) => (
-            <Radio
-              key={value}
-              name='horizonRadioBtn'
-              value={value.toString()}
-              label={value.toString()}
-              onChange={onHorizonChange}
-              className='text-white'
-              labelProps={{ className: "text-white" }}
-              checked={evaluationSingleModelViewHorizon === value}
-            />
-          ))}
+          <select
+            value={evaluationSingleModelViewHorizon}
+            onChange={onHorizonChange}
+            className='text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mt-2'>
+            {availableHorizons.map((horizon) => (
+              <option key={horizon} value={horizon}>
+                {horizon}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Target Selection - only show if multiple targets available */}
@@ -183,8 +298,8 @@ const SingleModelSettingsPanel: React.FC = () => {
           </div>
         )}
 
-        <div className='w-full mb-2'>
-          <Typography variant='h6' className='text-white'>
+        <div className='w-full mb-4'>
+          <Typography variant='h6' className='text-white mb-1' placeholder=''>
             Season
           </Typography>
           <select
@@ -200,6 +315,39 @@ const SingleModelSettingsPanel: React.FC = () => {
               </option>
             ))}
           </select>
+
+          {/* Custom Date Range Pickers */}
+          <div className='mt-2'>
+            <Typography variant='h6' className='text-white mb-1' placeholder=''>
+              Start Date
+            </Typography>
+            <SettingsStyledDatePicker
+              value={evaluationsSingleModelViewDateStart}
+              onChange={onDateStartSelectionChange}
+              minDate={earliestDate}
+              maxDate={evaluationSingleModelViewDateEnd}
+              className='w-full border-[#5d636a] border-2 rounded-md'
+            />
+          </div>
+
+          <div className='mt-2'>
+            <Typography variant='h6' className='text-white mb-1' placeholder=''>
+              End Date
+            </Typography>
+            <SettingsStyledDatePicker
+              value={evaluationSingleModelViewDateEnd}
+              onChange={onDateEndSelectionChange}
+              minDate={evaluationsSingleModelViewDateStart}
+              maxDate={latestDate}
+              className='w-full border-[#5d636a] border-2 rounded-md'
+            />
+          </div>
+
+          <button
+            className='bg-[#5d636a] text-white rounded text-sm w-full mt-2 py-1'
+            onClick={handleShowAllDates}>
+            Show All
+          </button>
         </div>
         <div className='w-full justify-stretch items-stretch mb-2'>
           <Typography variant='h6' className='text-white'>

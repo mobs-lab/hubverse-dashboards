@@ -234,10 +234,18 @@ class NavButtonConfig(BaseModel):
         return self
 
 
+class MapColorScaleConfig(BaseModel):
+    """Configuration for location map color gradient scale"""
+
+    color_top: str = Field(default="#00495F", pattern=r"^#[0-9A-Fa-f]{6}$", description="Hex color for top of gradient (worse performance)")
+    color_base: str = Field(default="#E9E9E9", pattern=r"^#[0-9A-Fa-f]{6}$", description="Hex color for baseline/middle (neutral)")
+    color_bottom: str = Field(default="#6A9629", pattern=r"^#[0-9A-Fa-f]{6}$", description="Hex color for bottom of gradient (better performance)")
+    color_null: str = Field(default="#363b43", pattern=r"^#[0-9A-Fa-f]{6}$", description="Hex color for locations with no data")
+
+
 class UICustomizationConfig(BaseModel):
     """
     All UI customization options for the dashboard
-    TODO: Add Evaluation Page Customization Support
     """
 
     # Header customization
@@ -249,9 +257,26 @@ class UICustomizationConfig(BaseModel):
     ui_forecast_header_hist_td_toggle_text: Optional[str] = Field(default="Show Admissions at Time of Forecast", max_length=200)
     disable_location_info_display: bool = Field(default=False)
 
-    # InfoButton content customizations
+    # Forecast Page InfoButton content customizations
     ui_forecast_header_infobutton_content: Optional[InfoButtonContent] = None
     ui_forecast_settings_horizon_infobutton_content: Optional[InfoButtonContent] = None
+
+    # Evaluation Page Tab Bar Customization
+    ui_evaluation_overview_tab_name: Optional[str] = Field(default="Season Overview", max_length=50)
+    ui_evaluation_single_model_tab_name: Optional[str] = Field(default="Single-Model", max_length=50)
+
+    # Evaluation Page Overview Tab UI Customization
+    ui_evaluation_chart_log_mode_indicator_text: Optional[str] = Field(default="Use Log Scale", max_length=100)
+    ui_evaluation_overview_location_map_title: Optional[str] = Field(default="Location-Specific", max_length=100)
+
+    # Evaluation Page InfoButton content customizations
+    ui_evaluation_overview_infobutton_content: Optional[InfoButtonContent] = None
+    ui_evaluation_single_model_infobutton_content: Optional[InfoButtonContent] = None
+    ui_evaluation_overview_horizon_infobutton_content: Optional[InfoButtonContent] = None
+    ui_evaluation_single_model_horizon_infobutton_content: Optional[InfoButtonContent] = None
+
+    # Evaluation Page Overview Tab Location-Specific Map Color Gradient Scale color customizations
+    ui_evaluation_overview_location_map_color_scale: Optional[MapColorScaleConfig] = Field(default_factory=MapColorScaleConfig)
 
     @model_validator(mode="after")
     def validate_nav_buttons_no_duplicates(self):
@@ -306,8 +331,36 @@ class DashboardConfig(BaseModel):
     target_data_file_format: Literal["csv", "parquet"] = Field(default="csv")
     parquet_partitioned_by_as_of: bool = Field(default=False)
     single_target_data_file_name: Optional[str] = None
+    disable_historical_target_data: bool = Field(
+        default=False,
+        description="Special flag for turning off the historical target data functionalities. "
+        "Default is False. If True, 'as_of' column will be ignored (except for extracting latest ground truth), "
+        "and the dashboard will not process historical snapshots. Frontend visualization related to historical "
+        "target data will be disabled (historical target data toggle and the orange line).",
+    )
+    as_of_column_date_shift: int = Field(
+        default=0, description="Shift 'as_of' dates by this many days. Useful if as_of dates are on a different grid than target/reference dates."
+    )
     target_data_header_mapping: TargetDataHeaderMapping = Field(default_factory=TargetDataHeaderMapping)
     target_data_observation_format: Literal["integer", "float"] = Field(default="float")
+
+    @model_validator(mode="after")
+    def validate_as_of_shift(self):
+        """Validate that as_of_column_date_shift is within reasonable bounds (less than time_unit)"""
+        if abs(self.as_of_column_date_shift) > self.time_unit:
+            raise ValueError(
+                f"as_of_column_date_shift ({self.as_of_column_date_shift}) cannot be larger than time_unit ({self.time_unit}). "
+                "This would cause misalignment of forecast cycles."
+            )
+
+        # Warn if historical data is disabled but as_of shift is set
+        if self.disable_historical_target_data and self.as_of_column_date_shift != 0:
+            logger.warning(
+                f"as_of_column_date_shift is set to {self.as_of_column_date_shift} but disable_historical_target_data is True. "
+                "The shift will still be applied to extract the latest ground truth data."
+            )
+
+        return self
 
     # Model Output Configuration
     available_models: List[ModelConfig] = Field(..., min_length=1)

@@ -1,12 +1,15 @@
-"use client";
+'use client';
 
-import { useAppSelector } from "@/store/hooks";
-import { selectIsCoreDataLoaded, selectSingleModelTimeSeriesData } from "@/store/selectors/singleModelSelectors";
-import { selectModelColorMap } from "@/store/selectors";
-import { normalizeToUTCMidDay } from "@/utils/date";
-import { useResponsiveSVG } from "@/utils/responsiveSVG";
-import * as d3 from "d3";
-import React, { useCallback, useEffect, useRef } from "react";
+import { useAppSelector } from '@/store/hooks';
+import {
+  selectIsCoreDataLoaded,
+  selectSingleModelTimeSeriesData,
+} from '@/store/selectors/singleModelSelectors';
+import { selectModelColorMap } from '@/store/selectors';
+import { normalizeToUTCMidDay } from '@/utils/date';
+import { useResponsiveSVG } from '@/utils/responsiveSVG';
+import * as d3 from 'd3';
+import React, { useCallback, useEffect, useRef } from 'react';
 
 const SingleModelHorizonPlot: React.FC = () => {
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
@@ -17,9 +20,11 @@ const SingleModelHorizonPlot: React.FC = () => {
   const isCoreDataLoaded = useAppSelector(selectIsCoreDataLoaded);
   const modelColorMap = useAppSelector(selectModelColorMap);
 
-  const { evaluationsSingleModelViewSelectedStateCode, evaluationsSingleModelViewModel, evaluationSingleModelViewHorizon } = useAppSelector(
-    (state) => state.evaluationsSingleModelSettings
-  );
+  const {
+    evaluationsSingleModelViewSelectedStateCode,
+    evaluationsSingleModelViewModel,
+    evaluationSingleModelViewHorizon,
+  } = useAppSelector((state) => state.evaluationsSingleModelSettings);
 
   function generateSaturdayDatesUTC(startDate: Date, endDate: Date): Date[] {
     const dates: Date[] = [];
@@ -49,6 +54,33 @@ const SingleModelHorizonPlot: React.FC = () => {
     chartWidth: number,
     chartHeight: number
   ) {
+    // Smart Tick Selection Logic
+    const getIdealTickCount = (width: number, totalTicks: number) => {
+      if (width < 500) {
+        return Math.min(Math.max(6, Math.min(totalTicks, 12)), 12);
+      } else {
+        return Math.min(Math.max(8, Math.min(totalTicks, 18)), 18);
+      }
+    };
+
+    const idealTickCount = getIdealTickCount(chartWidth, allSaturdays.length);
+    let selectedTicks = allSaturdays;
+
+    if (allSaturdays.length > idealTickCount) {
+      const tickInterval = Math.max(1, Math.floor(allSaturdays.length / idealTickCount));
+      selectedTicks = allSaturdays.filter((_, i) => i % tickInterval === 0);
+
+      // Ensure first and last are included
+      if (selectedTicks[0].getTime() !== allSaturdays[0].getTime()) {
+        selectedTicks.unshift(allSaturdays[0]);
+      }
+      if (
+        selectedTicks[selectedTicks.length - 1].getTime() !==
+        allSaturdays[allSaturdays.length - 1].getTime()
+      ) {
+        selectedTicks.push(allSaturdays[allSaturdays.length - 1]);
+      }
+    }
     // Create band scale for x-axis using ALL Saturdays (same as line chart)
     const xScale = d3
       .scaleBand()
@@ -59,47 +91,45 @@ const SingleModelHorizonPlot: React.FC = () => {
     // Create x-axis with same formatting as line chart
     const xAxis = d3
       .axisBottom(xScale)
-      .tickValues(allSaturdays.map((d) => d.toISOString()))
-      .tickFormat((d: string) => {
+      .tickValues(selectedTicks.map((d) => d.toISOString()))
+      .tickFormat((d: string, i: number) => {
         const date = new Date(d);
-        const year = d3.timeFormat("%Y")(date);
-        const month = d3.timeFormat("%b")(date);
-        const day = d3.timeFormat("%d")(date);
+        const year = d3.timeFormat('%Y')(date);
+        const month = d3.timeFormat('%b')(date);
+        const day = d3.timeFormat('%d')(date);
 
-        // First date in a new year - show year+month+date
-        const isFirstInYear = date.getMonth() === 0 && date.getDate() <= 7;
+        // Find previous tick date for context
+        const prevTickDate = i > 0 ? new Date(selectedTicks[i - 1].toISOString()) : null;
 
-        // Check if date is within first 7 days of month
-        const isNearMonthBoundary = date.getDate() <= 7;
-
-        // Check if this is first tick
-        const isFirst = date.getTime() === allSaturdays[0].getTime();
+        const isNewYear = prevTickDate ? date.getFullYear() > prevTickDate.getFullYear() : true;
+        const isNewMonth = prevTickDate ? date.getMonth() !== prevTickDate.getMonth() : true;
 
         if (chartWidth < 500) {
-          // For narrow charts, only show month labels
-          if (isFirst || isNearMonthBoundary) {
-            return isFirstInYear ? `${year}\n${month}` : month;
-          }
-          return "";
+          if (isNewYear) return `${year}\n${month}`;
+          if (isNewMonth) return month;
+          return '';
         } else {
-          // For wider charts, show more detailed labels
-          if (isFirstInYear) {
-            return `${year}\n${month}\n${day}`; // Three separate lines
-          } else if (isFirst || isNearMonthBoundary) {
-            return `${month}\n${day}`;
-          }
+          if (isNewYear) return `${year}\n${month}\n${day}`;
+          if (isNewMonth) return `${month}\n${day}`;
           return day;
         }
       });
 
-    const allValues = visualData.flatMap((d) => [d.quantile05, d.quantile25, d.median, d.quantile75, d.quantile95]);
+    const allValues = visualData.flatMap((d) => [
+      d.quantile05,
+      d.quantile25,
+      d.median,
+      d.quantile75,
+      d.quantile95,
+    ]);
 
     const allValuesFromSurveillanceData = groundTruthData.flatMap((d) => d.admissions);
 
     const maxPredictionValue = d3.max(allValues);
     const maxSurveillanceValue = d3.max(allValuesFromSurveillanceData) || 1;
 
-    const maxValue = maxPredictionValue > maxSurveillanceValue ? maxPredictionValue : maxSurveillanceValue;
+    const maxValue =
+      maxPredictionValue > maxSurveillanceValue ? maxPredictionValue : maxSurveillanceValue;
 
     const yScale = d3
       .scaleLinear()
@@ -108,10 +138,10 @@ const SingleModelHorizonPlot: React.FC = () => {
 
     const yAxis = d3.axisLeft(yScale).tickFormat((d) => {
       const val = d.valueOf();
-      if (val >= 10000) return d3.format(".2s")(val);
-      if (val >= 1000) return d3.format(".2s")(val);
-      if (val >= 100) return d3.format(".0f")(val);
-      return d3.format(".0f")(val);
+      if (val >= 10000) return d3.format('.2s')(val);
+      if (val >= 1000) return d3.format('.2s')(val);
+      if (val >= 100) return d3.format('.0f')(val);
+      return d3.format('.0f')(val);
     });
 
     return { xScale, yScale, xAxis, yAxis };
@@ -122,20 +152,20 @@ const SingleModelHorizonPlot: React.FC = () => {
     if (!isCoreDataLoaded || !timeSeriesData) {
       // Show loading or no data message
       const svg = d3.select(svgRef.current);
-      svg.selectAll("*").remove();
+      svg.selectAll('*').remove();
       svg
-        .append("text")
-        .attr("x", dimensions.width / 2)
-        .attr("y", dimensions.height / 2)
-        .attr("text-anchor", "middle")
-        .attr("fill", "white")
-        .style("font-family", "var(--font-dm-sans)")
-        .text(isCoreDataLoaded ? "No data available for selected criteria" : "Loading data...");
+        .append('text')
+        .attr('x', dimensions.width / 2)
+        .attr('y', dimensions.height / 2)
+        .attr('text-anchor', 'middle')
+        .attr('fill', 'white')
+        .style('font-family', 'var(--font-dm-sans)')
+        .text(isCoreDataLoaded ? 'No data available for selected criteria' : 'Loading data...');
       return;
     }
 
     const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
+    svg.selectAll('*').remove();
 
     // Get dimensions
     const width = dimensions.width;
@@ -182,13 +212,13 @@ const SingleModelHorizonPlot: React.FC = () => {
 
     if (groundTruthPoints.length === 0 && predictionPoints.length === 0) {
       svg
-        .append("text")
-        .attr("x", dimensions.width / 2)
-        .attr("y", dimensions.height / 2)
-        .attr("text-anchor", "middle")
-        .attr("fill", "white")
-        .style("font-family", "var(--font-dm-sans)")
-        .text("No data available for selected criteria");
+        .append('text')
+        .attr('x', dimensions.width / 2)
+        .attr('y', dimensions.height / 2)
+        .attr('text-anchor', 'middle')
+        .attr('fill', 'white')
+        .style('font-family', 'var(--font-dm-sans)')
+        .text('No data available for selected criteria');
       return;
     }
 
@@ -206,9 +236,9 @@ const SingleModelHorizonPlot: React.FC = () => {
       text.each(function () {
         const text = d3.select(this);
         const lines = text.text().split(/\n+/);
-        const x = text.attr("x") || 0;
-        const y = text.attr("y") || 0;
-        const dy = parseFloat(text.attr("dy") || 0);
+        const x = text.attr('x') || 0;
+        const y = text.attr('y') || 0;
+        const dy = parseFloat(text.attr('dy') || 0);
 
         // Clear existing content
         text.text(null);
@@ -223,48 +253,65 @@ const SingleModelHorizonPlot: React.FC = () => {
           const currentDy = i === 0 ? dy : i === 2 ? lineHeight * 1.6 : lineHeight;
 
           text
-            .append("tspan")
-            .attr("x", x)
-            .attr("y", y)
-            .attr("dy", (i === 0 ? dy : currentDy) + "em")
+            .append('tspan')
+            .attr('x', x)
+            .attr('y', y)
+            .attr('dy', (i === 0 ? dy : currentDy) + 'em')
             .text(line);
         });
       });
     }
 
     // Create main chart group
-    const chart = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+    const chart = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
     const xAxisGroup = chart
-      .append("g")
-      .attr("transform", `translate(0,${chartHeight})`)
-      .style("font-family", "var(--font-dm-sans)")
+      .append('g')
+      .attr('transform', `translate(0,${chartHeight})`)
+      .style('font-family', 'var(--font-dm-sans)')
       .call(xAxis);
 
     // Apply the wrap function to all x-axis label elements
-    xAxisGroup.selectAll(".tick text").style("text-anchor", "middle").style("font-size", "13px").call(wrap, 20);
+    xAxisGroup
+      .selectAll('.tick text')
+      .style('text-anchor', 'middle')
+      .style('font-size', '13px')
+      .call(wrap, 20);
 
     const yAxisGroup = chart
-      .append("g")
-      .style("font-family", "var(--font-dm-sans)")
+      .append('g')
+      .style('font-family', 'var(--font-dm-sans)')
       .call(yAxis)
-      .call((g) => g.select(".domain").remove())
-      .call((g) => g.selectAll(".tick line").attr("stroke-opacity", 0.5).attr("stroke-dasharray", "2,2").attr("x2", chartWidth))
-      .style("font-size", "18px");
+      .call((g) => g.select('.domain').remove())
+      .call((g) =>
+        g
+          .selectAll('.tick line')
+          .attr('stroke-opacity', 0.5)
+          .attr('stroke-dasharray', '2,2')
+          .attr('x2', chartWidth)
+      )
+      .style('font-size', '18px');
 
     // Create container for all visual elements
-    const visualContainer = chart.append("g").attr("class", "visual-container");
+    const visualContainer = chart.append('g').attr('class', 'visual-container');
 
     // Create specific groups for different visual elements
-    const boxesGroup = visualContainer.append("g").attr("class", "boxes");
-    const linesGroup = visualContainer.append("g").attr("class", "lines");
-    const pointsGroup = visualContainer.append("g").attr("class", "points");
+    const boxesGroup = visualContainer.append('g').attr('class', 'boxes');
+    const linesGroup = visualContainer.append('g').attr('class', 'lines');
+    const pointsGroup = visualContainer.append('g').attr('class', 'points');
 
     // Create hover areas group
-    const hoverGroup = visualContainer.append("g").attr("class", "hover-areas").style("pointer-events", "all");
+    const hoverGroup = visualContainer
+      .append('g')
+      .attr('class', 'hover-areas')
+      .style('pointer-events', 'all');
 
     // Create tooltip group (will be raised to top)
-    const tooltipGroup = chart.append("g").attr("class", "horizon-tooltip").style("opacity", 0).style("pointer-events", "none");
+    const tooltipGroup = chart
+      .append('g')
+      .attr('class', 'horizon-tooltip')
+      .style('opacity', 0)
+      .style('pointer-events', 'none');
 
     // Create a combined data structure that includes both ground truth and prediction data
     const combinedDataMap = new Map();
@@ -300,7 +347,9 @@ const SingleModelHorizonPlot: React.FC = () => {
     });
 
     // Convert map to array for rendering, sorted by date
-    const combinedDataSet = Array.from(combinedDataMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+    const combinedDataSet = Array.from(combinedDataMap.values()).sort(
+      (a, b) => a.date.getTime() - b.date.getTime()
+    );
 
     // Render ground truth points independently to ensure all are displayed
     // Regardless of whether prediction data's date domain is the same
@@ -311,13 +360,13 @@ const SingleModelHorizonPlot: React.FC = () => {
       if (x === undefined) return;
 
       pointsGroup
-        .append("circle")
-        .attr("cx", x + xScale.bandwidth() / 2)
-        .attr("cy", yScale(groundTruthPoint.admissions))
-        .attr("r", 4)
-        .attr("fill", "white")
-        .attr("stroke", modelColorMap[evaluationsSingleModelViewModel])
-        .attr("stroke-width", 1);
+        .append('circle')
+        .attr('cx', x + xScale.bandwidth() / 2)
+        .attr('cy', yScale(groundTruthPoint.admissions))
+        .attr('r', 4)
+        .attr('fill', 'white')
+        .attr('stroke', modelColorMap[evaluationsSingleModelViewModel])
+        .attr('stroke-width', 1);
     });
 
     // Render only prediction data elements for dates with predictions
@@ -327,33 +376,33 @@ const SingleModelHorizonPlot: React.FC = () => {
 
       // 90% interval box
       boxesGroup
-        .append("rect")
-        .attr("x", x)
-        .attr("y", yScale(pd.quantile95))
-        .attr("width", xScale.bandwidth())
-        .attr("height", yScale(pd.quantile05) - yScale(pd.quantile95))
-        .attr("fill", modelColorMap[evaluationsSingleModelViewModel])
-        .attr("opacity", 0.3);
+        .append('rect')
+        .attr('x', x)
+        .attr('y', yScale(pd.quantile95))
+        .attr('width', xScale.bandwidth())
+        .attr('height', yScale(pd.quantile05) - yScale(pd.quantile95))
+        .attr('fill', modelColorMap[evaluationsSingleModelViewModel])
+        .attr('opacity', 0.3);
 
       // 50% interval box
       boxesGroup
-        .append("rect")
-        .attr("x", x)
-        .attr("y", yScale(pd.quantile75))
-        .attr("width", xScale.bandwidth())
-        .attr("height", yScale(pd.quantile25) - yScale(pd.quantile75))
-        .attr("fill", modelColorMap[evaluationsSingleModelViewModel])
-        .attr("opacity", 0.6);
+        .append('rect')
+        .attr('x', x)
+        .attr('y', yScale(pd.quantile75))
+        .attr('width', xScale.bandwidth())
+        .attr('height', yScale(pd.quantile25) - yScale(pd.quantile75))
+        .attr('fill', modelColorMap[evaluationsSingleModelViewModel])
+        .attr('opacity', 0.6);
 
       // Median line
       linesGroup
-        .append("line")
-        .attr("x1", x)
-        .attr("x2", x + xScale.bandwidth())
-        .attr("y1", yScale(pd.median))
-        .attr("y2", yScale(pd.median))
-        .attr("stroke", modelColorMap[evaluationsSingleModelViewModel])
-        .attr("stroke-width", 2);
+        .append('line')
+        .attr('x1', x)
+        .attr('x2', x + xScale.bandwidth())
+        .attr('y1', yScale(pd.median))
+        .attr('y2', yScale(pd.median))
+        .attr('stroke', modelColorMap[evaluationsSingleModelViewModel])
+        .attr('stroke-width', 2);
     });
 
     // Create hover areas for all dates in the combined dataset
@@ -363,29 +412,33 @@ const SingleModelHorizonPlot: React.FC = () => {
 
       // Add hover area for this date
       hoverGroup
-        .append("rect")
-        .attr("x", x)
-        .attr("y", 0)
-        .attr("width", xScale.bandwidth())
-        .attr("height", chartHeight)
-        .attr("fill", "transparent")
-        .attr("class", "hover-area")
-        .style("cursor", "pointer")
-        .style("pointer-events", "all")
-        .on("mouseover", function (event) {
+        .append('rect')
+        .attr('x', x)
+        .attr('y', 0)
+        .attr('width', xScale.bandwidth())
+        .attr('height', chartHeight)
+        .attr('fill', 'transparent')
+        .attr('class', 'hover-area')
+        .style('cursor', 'pointer')
+        .style('pointer-events', 'all')
+        .on('mouseover', function (event) {
           event.stopPropagation();
 
           // Highlight effect
-          d3.select(this).attr("fill", "white").attr("opacity", 0.1);
+          d3.select(this).attr('fill', 'white').attr('opacity', 0.1);
 
           // Update tooltip
-          tooltipGroup.selectAll("*").remove();
+          tooltipGroup.selectAll('*').remove();
 
           const padding = 12;
           let currentY = padding;
           const lineHeight = 24;
 
-          const background = tooltipGroup.append("rect").attr("fill", "#333943").attr("rx", 8).attr("ry", 8);
+          const background = tooltipGroup
+            .append('rect')
+            .attr('fill', '#333943')
+            .attr('rx', 8)
+            .attr('ry', 8);
 
           // Tooltip content - adapt based on available data
           const items = [];
@@ -397,7 +450,7 @@ const SingleModelHorizonPlot: React.FC = () => {
             items.push([`90% PI: [${d.quantile05.toFixed(1)}, ${d.quantile95.toFixed(1)}]`, false]);
             items.push([`50% PI: [${d.quantile25.toFixed(1)}, ${d.quantile75.toFixed(1)}]`, false]);
           } else {
-            items.push(["No prediction data for this date", false]);
+            items.push(['No prediction data for this date', false]);
           }
 
           // Add ground truth data to tooltip if available
@@ -407,13 +460,13 @@ const SingleModelHorizonPlot: React.FC = () => {
 
           const textElements = items.map(([text, isHeader]) => {
             const element = tooltipGroup
-              .append("text")
-              .attr("x", padding)
-              .attr("y", currentY + 16)
-              .attr("fill", "white")
-              .style("font-family", "var(--font-dm-sans)")
-              .style("font-size", isHeader ? "15px" : "13px")
-              .style("font-weight", isHeader ? "bold" : "normal")
+              .append('text')
+              .attr('x', padding)
+              .attr('y', currentY + 16)
+              .attr('fill', 'white')
+              .style('font-family', 'var(--font-dm-sans)')
+              .style('font-size', isHeader ? '15px' : '13px')
+              .style('font-weight', isHeader ? 'bold' : 'normal')
               .text(text as string);
 
             currentY += lineHeight;
@@ -421,24 +474,23 @@ const SingleModelHorizonPlot: React.FC = () => {
           });
 
           // Calculate tooltip dimensions and position
-          const maxWidth = Math.max(...textElements.map((el) => el.node()!.getComputedTextLength()));
+          const maxWidth = Math.max(
+            ...textElements.map((el) => el.node()!.getComputedTextLength())
+          );
           const [mouseX] = d3.pointer(event);
           const isRightSide = mouseX < chartWidth / 2;
 
-          background.attr("width", maxWidth + padding * 2).attr("height", currentY + padding);
+          background.attr('width', maxWidth + padding * 2).attr('height', currentY + padding);
 
           const tooltipX = isRightSide ? chartWidth - maxWidth - padding * 2 - 10 : 10;
 
-          tooltipGroup.attr("transform", `translate(${tooltipX}, 10)`).style("opacity", 1);
+          tooltipGroup.attr('transform', `translate(${tooltipX}, 10)`).style('opacity', 1);
         })
-        .on("mouseout", function (event) {
+        .on('mouseout', function (event) {
           event.stopPropagation();
 
           // Remove highlight
-          d3.select(this).attr("fill", "transparent");
-
-          // Hide tooltip
-          // tooltipGroup.style("opacity", 0);
+          d3.select(this).attr('fill', 'transparent');
         });
     });
 
@@ -450,17 +502,23 @@ const SingleModelHorizonPlot: React.FC = () => {
     if (!isResizing && dimensions.width > 0 && dimensions.height > 0) {
       renderBoxPlot();
     }
-  }, [isResizing, evaluationsSingleModelViewSelectedStateCode, evaluationSingleModelViewHorizon, renderBoxPlot, dimensions]);
+  }, [
+    isResizing,
+    evaluationsSingleModelViewSelectedStateCode,
+    evaluationSingleModelViewHorizon,
+    renderBoxPlot,
+    dimensions,
+  ]);
 
   return (
-    <div ref={containerRef} className='w-full h-full'>
+    <div ref={containerRef} className="w-full h-full">
       <svg
         ref={svgRef}
-        width='100%'
-        height='100%'
-        className='w-full h-full'
+        width="100%"
+        height="100%"
+        className="w-full h-full"
         viewBox={`0 0 ${dimensions.width || 100} ${dimensions.height || 100}`}
-        preserveAspectRatio='xMidYMid meet'
+        preserveAspectRatio="xMidYMid meet"
       />
     </div>
   );

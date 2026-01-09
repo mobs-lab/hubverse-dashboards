@@ -139,7 +139,7 @@ const ForecastChart: React.FC = () => {
           const month = d3.timeFormat('%b')(dateObj);
           const day = d3.timeFormat('%d')(dateObj);
 
-          // First tick always gets full treatment
+          // First tick always displays full info
           if (i === 0) {
             return `${year}\n${month}\n${day}`;
           }
@@ -210,6 +210,11 @@ const ForecastChart: React.FC = () => {
         (d) => d.observation
       ) as number;
 
+      // Check if minValue is undefined
+      if (minValue === undefined || minValue === null) {
+        minValue = 0;
+      }
+
       if (maxValue === minValue) {
         maxValue = maxValue + 1;
         minValue = Math.max(0, minValue - 1);
@@ -271,10 +276,6 @@ const ForecastChart: React.FC = () => {
         }
       }
       ticks = ticks.filter((tick) => tick >= minValue && tick <= maxValue);
-      // if (ticks.length > desiredTickCount) {
-      //     const step = Math.ceil(ticks.length / desiredTickCount);
-      //     ticks = ticks.filter((_, index) => index % step === 0);
-      // }
       return ticks;
     } else {
       // Improved linear scale logic
@@ -303,7 +304,7 @@ const ForecastChart: React.FC = () => {
       }
 
       // If we still don't have enough ticks, add intermediate values
-      while (ticks.length < desiredTickCount) {
+      while (ticks.length < desiredTickCount && ticks.length > 0) {
         const newTicks = [];
         for (let i = 0; i < ticks.length - 1; i++) {
           newTicks.push(ticks[i]);
@@ -540,7 +541,7 @@ const ForecastChart: React.FC = () => {
             color.opacity = opacity;
 
             // Helper: Draw a vertical capsule for isolated points
-            // This is critical for the "Negative Horizon" case (e.g., Horizon -1) where 
+            // This is critical for the "Negative Horizon" case (e.g., Horizon -1) where
             // the data chain might terminate without connecting to a 'zero' or 'future' point.
             const drawIsolatedInterval = (dataPoint: any, className: string) => {
               const interval = dataPoint.prediction_intervals?.[level];
@@ -1317,6 +1318,15 @@ const ForecastChart: React.FC = () => {
 
   /* Main useEffect() */
   useEffect(() => {
+    // Console log the change to useEffect dependencies and what they are
+    /* console.log('useEffect dependencies changed:', {
+      groundTruthData,
+      allModelPredictions,
+      timeFilterRangeStart,
+      timeFilterRangeEnd,
+      userSelectedDate,
+    }); */
+
     if (svgRef.current) {
       const svg = d3.select(svgRef.current);
       svg.selectAll('*').remove();
@@ -1356,6 +1366,13 @@ const ForecastChart: React.FC = () => {
         return;
       }
 
+      const { xScale, yScale, xAxis, yAxis, xAxisWithSubTicks } = createScalesAndAxes(
+        groundTruthData,
+        allModelPredictions,
+        chartWidth,
+        chartHeight,
+        yAxisScale
+      );
       // Ensure `userSelectedWeek` is always within the current selected date range, snapping it inside if necessary
       let adjustedUserSelectedDate = new Date(userSelectedDate);
       // Snap to left/right bound depending to which direction it was originally out-of-bound
@@ -1366,14 +1383,6 @@ const ForecastChart: React.FC = () => {
         adjustedUserSelectedDate = new Date(groundTruthData[groundTruthData.length - 1].date);
         dispatch(updateUserSelectedDate(adjustedUserSelectedDate));
       }
-
-      const { xScale, yScale, xAxis, yAxis, xAxisWithSubTicks } = createScalesAndAxes(
-        groundTruthData,
-        allModelPredictions,
-        chartWidth,
-        chartHeight,
-        yAxisScale
-      );
 
       // Render historical data if the mode is enabled
       if (historicalTargetDataMode) {

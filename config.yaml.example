@@ -43,10 +43,22 @@ link_to_hubverse_compatible_data: null
 
 forecast_periods:
   - forecast_period_id: "season-2024-2025"
-    start_date: "2024-11-16T00:00:00"
-    end_date: "2025-09-27T00:00:00"
-    display_string: "COVID-19 2024-2025 Forecast"
+    start_date: "2025-03-01T00:00:00"
+    end_date: "2025-10-20T00:00:00"
+    display_string: "COVID-19 2024-2025 Forecast (Sample Portion) "
     is_default_selected: true # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
+  
+  - forecast_period_id: "season-2024-2025-test2"
+    start_date: "2024-10-01T00:00:00"
+    end_date: "2025-02-01T00:00:00"
+    display_string: "Oct2024 to Feb2025 Test portion"
+    is_default_selected: false # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
+
+  - forecast_period_id: "test-season-2022-2023"
+    start_date: "2022-08-01T00:00:00"
+    end_date: "2023-07-31T00:00:00"
+    display_string: "test out of range time period option"
+    is_default_selected: false # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
 
   # Example of a dynamic forecast period where the end_date is in the future.
   # This is useful for ongoing forecasting efforts.
@@ -66,13 +78,12 @@ forecast_periods:
 #------------------------------------------------------------------------------
 
 special_forecast_periods:
-  # Example configuration (currently disabled):
-  # - special_period_id: "last-4-weeks"
-  #   display_string: "Last 4 Weeks"
+  # - special_period_id: "last-2-weeks"
+  #   display_string: "Last 2 Weeks"
   #   time_anchor:
-  #     anchor_on: "season-2025-2026"  # Must be a dynamic period ID from above
-  #     anchor_mode: "model-output"     # Use latest model output date as 'today'
-  #     range_calculation: -4           # Go 4 time units (weeks) back from 'today'
+  #     anchor_on: "season-2024-2025"  # Must be a dynamic period ID from above
+  #     anchor_mode: "model-output"     # Use latest model output date (reference date) as 'today'
+  #     range_calculation: -2           # Include data ranging 4 time units (weeks in this example) back from 'today'
 
 #==============================================================================
 # LOCATION DATA CONFIGURATION
@@ -135,7 +146,6 @@ targets:
   - target_id: "covid19-admission" # [REQUIRED] A unique machine-readable ID.
     task_display_string: "COVID19 Admissions" # [REQUIRED] Human-readable name for the UI.
     target_key_in_data: "wk inc covid hosp" # [REQUIRED] The exact string that appears in the 'target' column of your data files.
-    for_forecast_periods: ["season-2024-2025"] # [OPTIONAL] Link this target to specific periods. Defaults to all periods if omitted.
     is_default_selected: true # [OPTIONAL, unique] This target will be selected by default.
 
     # [OPTIONAL] Apply scaling or rounding to data values for this target.
@@ -151,7 +161,6 @@ targets:
   - target_id: "covid19-test-target"
     task_display_string: "COVID19 Admissions Test"
     target_key_in_data: "wk inc covid prop ed visits"
-    for_forecast_periods: ["season-2024-2025"]
     data_value_processing:
       scaling_factor:
         target_data: 100 # Example: Convert a 0-1 proportion to a 0-100 percentage
@@ -163,7 +172,7 @@ targets:
 #==============================================================================
 # TARGET-DATA CONFIGURATION
 #==============================================================================
-# Configure how to read your ground truth / observed data.
+# Configure how the dashboard handles your ground truth / observed data.
 # See Hubverse docs for details: https://docs.hubverse.io/en/latest/user-guide/target-data.html
 #------------------------------------------------------------------------------
 
@@ -179,6 +188,23 @@ parquet_partitioned_by_as_of: false
 # The filename (without extension) of your single target data file.
 single_target_data_file_name: "time-series"
 
+# [Optional] Special flag for turning off the historical target data functionalities.
+# Default is false. If set to true, the dashboard will:
+#   - Extract only the latest 'as_of' snapshot for ground truth visualization
+#   - Skip processing historical snapshots (saves processing time and storage)
+#   - Disable the historical data toggle in the frontend UI
+#   - Not generate the historical-target-data.json file
+# Useful when you don't need historical versioning features or want faster processing.
+disable_historical_target_data: false
+
+# [Optional] Number of days to shift all "as_of" column date values. Default is 0.
+# Useful when 'as_of' dates are on a different date grid than reference dates
+# (e.g., as_of dates on Wednesdays while reference dates on Saturdays).
+# Use negative values to shift backwards, positive to shift forwards.
+# The absolute value must not exceed `time_unit` to avoid forecast cycle misalignment.
+# Applies to both single-file target data and partitioned parquet files.
+as_of_column_date_shift: 0
+
 #------------------------------------------------------------------------------
 # Target Data Column Mapping
 #------------------------------------------------------------------------------
@@ -189,7 +215,7 @@ target_data_header_mapping:
   location_col_name: "location" # [REQUIRED for multi-location]
   location_name_col_name: "location_name" # [OPTIONAL]
   target_col_name: "target" # [REQUIRED for multi-target]
-  as_of_col_name: "as_of" # [OPTIONAL] Enables historical data versioning.
+  as_of_col_name: "as_of" # [CONDITIONAL] If historical target data is not disabled & not using partitioned parquet files then this is required.
 
 #==============================================================================
 # MODEL-OUTPUT CONFIGURATION
@@ -287,46 +313,18 @@ default_selected_horizon: 3 # Single Choice Selection.
 # Settings for calculating model performance metrics.
 # This entire section is ignored if you run the builder with --skip-evaluations.
 #------------------------------------------------------------------------------
-
-# [OPTIONAL] Prediction intervals used for coverage calculations.
-# If omitted, this will default to using the same `prediction_intervals` from above.
-evaluations_prediction_intervals:
-  "25":
-    uses_output_type_ids: ["0.375", "0.625"]
-  "50":
-    uses_output_type_ids: ["0.25", "0.75"]
-  "75":
-    uses_output_type_ids: ["0.125", "0.875"]
-  "90":
-    uses_output_type_ids: ["0.05", "0.95"]
-
-# [OPTIONAL] Default selected PIs for the Evaluations page.
-default_selected_prediction_intervals_for_evaluations: ["50", "90"]
-
 # [REQUIRED] The model to use as a benchmark for Relative WIS calculations.
 # Relative WIS = (WIS of a model) / (WIS of this baseline model).
 # This model's data must exist in /model-output/, even if it's not in `available_models`.
 baseline_model_for_relative_WIS: "CovidHub-baseline"
 
 # [OPTIONAL] Define the coverage levels (in percentage) to be used for:
-# 1. Calculating coverage metrics (e.g., "Did the 95% PI cover the truth?")
-#    These values populate the "Coverage" chart in the evaluations section.
+# 1. Calculating coverage metrics. These values populate the "Coverage" chart in the evaluations section.
 #    Note: The necessary quantiles must be available in your model output data.
-#    (e.g., 95% requires 0.025 and 0.975 quantiles).
+#    (95% requires 0.025 and 0.975 quantiles).
 #
 # If omitted, defaults to [50, 95].
 evaluation_coverage_levels: [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98]
-
-# [OPTIONAL] Define the intervals (in percentage) used to summarize the distribution of
-# evaluation scores (WIS, MAPE) in the boxplots.
-#
-# The boxplots will display:
-# - Median score
-# - Inner Box: Defined by the interval closest to 50% (e.g., 25th-75th percentile of scores)
-# - Whiskers: Defined by the largest specified interval (e.g., 5th-95th percentile of scores for 90%)
-#
-# If omitted, defaults to [50, 90].
-evaluation_score_boxplot_intervals: [50, 90]
 
 #==============================================================================
 # DASHBOARD DISPLAY SETTINGS
@@ -339,8 +337,7 @@ ui_customization:
   # Change Header and Navigation Buttons
   # ------------------------------------
   # Note: this component will be changed for both Forecast and Evaluation page.
-  # Special Note: If your header title naming follows the convention "XxxxForecast", the dashboard supports selectively bolding the "Xxxx" part for you.
-  #               Any other kind of naming will just be all bold.
+  # Special Note: If your header title naming follows the convention "AbcdeForecast", the dashboard supports selectively bolding the "Abcde" part for you. Any other kind of naming will just be all bold.
   ui_header_title_name: "COVID-19Forecast"
 
   # Declare and change navigation buttons UI and behaviour
@@ -380,6 +377,42 @@ ui_customization:
   ui_forecast_settings_horizon_infobutton_content:
     title: "Test About Horizon"
     content: "Horizon Horizon Horizon Horizon Horizon"
-# TODO: Evaluation Page Visualization Components Customizations
-# -------------------------------------------------------------
-# - ui_evaluation_header_name: "something soemething"
+
+  # Evaluation Page Customizations
+  # -------------------------------------------------------------
+  # [OPTIONAL]
+  # Changes the infobutton title and text for evaluation overview page & single-model page
+  ui_evaluation_overview_infobutton_content:
+    title: "Season Overview"
+    content: "evaluation overview page infobutton test string, test test test"
+  ui_evaluation_overview_horizon_infobutton_content:
+    title: "Forecast Horizons"
+    content: "This is also a test."
+  
+  ui_evaluation_single_model_infobutton_content:
+    title: "Single Model Evaluations"
+    content: "Something something"
+  ui_evaluation_single_model_horizon_infobutton_content:
+    title: "Forecast Horizons"
+    content: "This should be different from the text of the infobutton on overview page's horizon selector"
+
+
+  # Evaluation page's tab bar UI customization. This changes what the text in the two tabs display in the built dashboard.
+  # Currently we support two tabs: 
+  #   - "Overview", for visualizations on location-aggregated evaluation metrics
+  #   - "Single-Model", for comprehensive visualizations on metrics associated with one model's performance, allowing multi-dimensional criteria filtering such as spatial & temporal.
+  ui_evaluation_overview_tab_name: "Location-Aggregated Overview" # Default is "Season Overview".
+  ui_evaluation_single_model_tab_name: "Single-Model Evaluation Tab" # Default is "Single-Model"
+
+  # Evaluation Overview page UI customizations
+  ui_evaluation_chart_log_mode_indicator_text: "Use Log Scale" # This changes the text display for the log scale toggle button for the two location-aggregated IQR box plots on Overview page.
+  ui_evaluation_overview_location_map_title: "Location-Specific" # This string will be appended to the Evaluation Metric dynamically displayed depending on your selection on the dashboard. For example, "Location-Specific WIS/Baseline" in this case, when you select "WIS/Baseline".
+
+  # [Optional] Location-Specific Evaluation Overview Map Color Scale customization:
+  # This determines the end stops for the gradient-color scale used for the map visualization on Overview page. See documentation for a detailed explanation on which color on which end represents better/worse performance, for different metrics. Use Hex code.
+  ui_evaluation_overview_location_map_color_scale:
+    # These are default values, using a navy blue-white-green scheme.
+    color_top: "#00495F"
+    color_base: "#E9E9E9"
+    color_bottom: "#6A9629"
+    color_null: "#363b43" # Optional, Color for location with no data

@@ -121,6 +121,8 @@ export interface AppDataEvaluationsPrecalculated {
    * 
    * Structure: season → target → model → horizon → piLevel → {sum, count}
    * piLevel examples: "50", "95" (representing 50% PI, 95% PI)
+   * 
+   * Note: the "sum" is a Percentage, transformed during Python data processing
    */
   detailedCoverage_aggregates: {
     [seasonId: string]: {

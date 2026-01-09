@@ -61,7 +61,6 @@ export type ModelName = string;
 
 /**
  * Horizon value (in time_unit units)
- * Negative = nowcast, 0 = same-day, positive = future forecast
  * @example -1 | 0 | 1 | 2 | 3
  */
 export type Horizon = number;
