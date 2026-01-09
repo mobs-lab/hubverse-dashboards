@@ -1319,13 +1319,13 @@ const ForecastChart: React.FC = () => {
   /* Main useEffect() */
   useEffect(() => {
     // Console log the change to useEffect dependencies and what they are
-    console.log('useEffect dependencies changed:', {
+    /* console.log('useEffect dependencies changed:', {
       groundTruthData,
       allModelPredictions,
       timeFilterRangeStart,
       timeFilterRangeEnd,
       userSelectedDate,
-    });
+    }); */
 
     if (svgRef.current) {
       const svg = d3.select(svgRef.current);

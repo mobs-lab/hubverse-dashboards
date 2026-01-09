@@ -236,7 +236,7 @@ class NavButtonConfig(BaseModel):
 
 class MapColorScaleConfig(BaseModel):
     """Configuration for location map color gradient scale"""
-    
+
     color_top: str = Field(default="#00495F", pattern=r"^#[0-9A-Fa-f]{6}$", description="Hex color for top of gradient (worse performance)")
     color_base: str = Field(default="#E9E9E9", pattern=r"^#[0-9A-Fa-f]{6}$", description="Hex color for baseline/middle (neutral)")
     color_bottom: str = Field(default="#6A9629", pattern=r"^#[0-9A-Fa-f]{6}$", description="Hex color for bottom of gradient (better performance)")
@@ -331,9 +331,18 @@ class DashboardConfig(BaseModel):
     target_data_file_format: Literal["csv", "parquet"] = Field(default="csv")
     parquet_partitioned_by_as_of: bool = Field(default=False)
     single_target_data_file_name: Optional[str] = None
+    disable_historical_target_data: bool = Field(
+        default=False,
+        description="Special flag for turning off the historical target data functionalities. "
+        "Default is False. If True, 'as_of' column will be ignored (except for extracting latest ground truth), "
+        "and the dashboard will not process historical snapshots. Frontend visualization related to historical "
+        "target data will be disabled (historical target data toggle and the orange line).",
+    )
+    as_of_column_date_shift: int = Field(
+        default=0, description="Shift 'as_of' dates by this many days. Useful if as_of dates are on a different grid than target/reference dates."
+    )
     target_data_header_mapping: TargetDataHeaderMapping = Field(default_factory=TargetDataHeaderMapping)
     target_data_observation_format: Literal["integer", "float"] = Field(default="float")
-    as_of_column_date_shift: int = Field(default=0, description="Shift 'as_of' dates by this many days. Useful if as_of dates are on a different grid than target/reference dates.")
 
     @model_validator(mode="after")
     def validate_as_of_shift(self):
@@ -343,8 +352,15 @@ class DashboardConfig(BaseModel):
                 f"as_of_column_date_shift ({self.as_of_column_date_shift}) cannot be larger than time_unit ({self.time_unit}). "
                 "This would cause misalignment of forecast cycles."
             )
-        return self
 
+        # Warn if historical data is disabled but as_of shift is set
+        if self.disable_historical_target_data and self.as_of_column_date_shift != 0:
+            logger.warning(
+                f"as_of_column_date_shift is set to {self.as_of_column_date_shift} but disable_historical_target_data is True. "
+                "The shift will still be applied to extract the latest ground truth data."
+            )
+
+        return self
 
     # Model Output Configuration
     available_models: List[ModelConfig] = Field(..., min_length=1)

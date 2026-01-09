@@ -334,12 +334,12 @@ class DataProcessor:
 
     def _extract_latest_ground_truth_and_history(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Extracts the latest ground truth data from the target data and processes historical snapshots.
+        Extracts the latest ground truth data from the target data and optionally processes historical snapshots.
         
         If an 'as_of' column is present:
         1. Identifies the latest 'as_of' date.
         2. Filters the DataFrame to only include rows from that latest date (Current Ground Truth).
-        3. Processes the full DataFrame into historical snapshots.
+        3. If historical data is NOT disabled, processes the full DataFrame into historical snapshots.
         
         If no 'as_of' column:
         Returns the original DataFrame as the ground truth.
@@ -360,10 +360,15 @@ class DataProcessor:
             logger.info(f"Latest 'as_of' date is {latest_as_of.date()}. Using this for current ground truth.")
             current_df = df[df["as_of"] == latest_as_of].copy()
 
-            # Process historical snapshots: Map<as_of_date, Map<date, Map<location, data>>>
-            logger.info("Processing historical target data snapshots from filtered data...")
-            self.historical_target_data = self._process_historical_target_data(df)
-            logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
+            # Check if historical data feature is enabled
+            if self.config.disable_historical_target_data:
+                logger.info("Historical target data is DISABLED by config flag. Skipping historical snapshot processing.")
+                # Leave self.historical_target_data as None (initialized in __init__)
+            else:
+                # Process historical snapshots: Map<as_of_date, Map<date, Map<location, data>>>
+                logger.info("Processing historical target data snapshots from filtered data...")
+                self.historical_target_data = self._process_historical_target_data(df)
+                logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
 
             return current_df
         
@@ -1053,7 +1058,8 @@ class DataProcessor:
             # === FEATURE FLAGS FOR FRONTEND ===
             "features": {
                 "evaluationsEnabled": not self.skip_evaluations,
-                "historicalTargetDataEnabled": self.historical_target_data is not None,
+                # Historical data is enabled if: (1) not disabled by config AND (2) data was successfully processed
+                "historicalTargetDataEnabled": not self.config.disable_historical_target_data and self.historical_target_data is not None,
             },
             # === SPATIAL CONFIGURATION ===
             "spatial": {
@@ -1115,7 +1121,7 @@ class DataProcessor:
             "dataManifest": {
                 "hasTargetData": True,
                 "hasModelOutputData": True,
-                "hasHistoricalData": self.historical_target_data is not None,
+                "hasHistoricalData": not self.config.disable_historical_target_data and self.historical_target_data is not None,
                 "hasEvaluations": not self.skip_evaluations,
             },
             # === COLUMN MAPPINGS (for debugging/reference) ===

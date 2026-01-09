@@ -188,14 +188,22 @@ parquet_partitioned_by_as_of: false
 # The filename (without extension) of your single target data file.
 single_target_data_file_name: "time-series"
 
-# [Optional] Special Flag for turning off the historical target data functionalities.
-# Default is "false". If this flag is "true", then "as_of" settings will be ignored and dashboard will not process that column in target data, and frontend visualization related to historical target data will be disabled. If using single file target data, then dashboard will 
+# [Optional] Special flag for turning off the historical target data functionalities.
+# Default is false. If set to true, the dashboard will:
+#   - Extract only the latest 'as_of' snapshot for ground truth visualization
+#   - Skip processing historical snapshots (saves processing time and storage)
+#   - Disable the historical data toggle in the frontend UI
+#   - Not generate the historical-target-data.json file
+# Useful when you don't need historical versioning features or want faster processing.
 disable_historical_target_data: false
 
-# [Optional] Config to shift "as_of" column date values by a number of days so they align with the respective reference date within the same model forecast cycle.
-# This is to ensure that dashboard visualization's historical target data functionality works as intended.
-# The number's absolute value cannot be bigger than `time_unit` or it will misalign with other forecast cycles.
-as_of_column_date_shift: -5 # Shift all the "as_of" column dates by 5 days back
+# [Optional] Number of days to shift all "as_of" column date values. Default is 0.
+# Useful when 'as_of' dates are on a different date grid than reference dates
+# (e.g., as_of dates on Wednesdays while reference dates on Saturdays).
+# Use negative values to shift backwards, positive to shift forwards.
+# The absolute value must not exceed `time_unit` to avoid forecast cycle misalignment.
+# Applies to both single-file target data and partitioned parquet files.
+as_of_column_date_shift: 0
 
 #------------------------------------------------------------------------------
 # Target Data Column Mapping
