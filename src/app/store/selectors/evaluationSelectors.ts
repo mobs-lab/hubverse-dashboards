@@ -6,7 +6,12 @@ import { RootState } from "../index";
 import { BoxplotStats } from "@/types/domains/evaluations";
 
 // Import shared selectors that are also used by evaluations
-import { selectTargets } from "./sharedSelectors";
+import { 
+  selectTargets, 
+  selectDateConstraintsForTarget,
+  selectModelAvailabilityPerPeriod,
+  selectModelNames,
+} from "./sharedSelectors";
 
 // ============================================
 // Data Loading Status Selectors
@@ -162,7 +167,7 @@ function calculateMultiHorizonIQR(
 export const selectSeasonOverviewData = createSelector(
   [
     selectIsJsonDataLoaded,
-    (state: RootState) => state.evaluationsSeasonOverviewSettings.selectedDynamicTimePeriod,
+    (state: RootState) => state.evaluationsSeasonOverviewSettings.selectedEvalOverviewTimePeriod,
     (state: RootState) => state.evaluationsSeasonOverviewSettings.evalSOTimeRangeOptions,
     (state: RootState) => state.evaluationsSeasonOverviewSettings.evaluationSeasonOverviewHorizon,
     (state: RootState) => state.evaluationsSeasonOverviewSettings.evaluationSeasonOverviewSelectedModels,
@@ -305,3 +310,196 @@ export const selectAvailableTargets = createSelector(
   }))
 );
 
+/**
+ * Get date constraints for the currently selected target in Season Overview
+ */
+export const selectSeasonOverviewDateConstraints = (state: RootState) => {
+  const selectedTargetId = selectEvaluationSelectedTargetId(state);
+  return selectDateConstraintsForTarget(selectedTargetId)(state);
+};
+
+/**
+ * Get date constraints for the currently selected target in Single Model view
+ */
+export const selectSingleModelDateConstraints = (state: RootState) => {
+  const selectedTargetId = selectSingleModelSelectedTargetId(state);
+  return selectDateConstraintsForTarget(selectedTargetId)(state);
+};
+
+// ============================================
+// Model Availability for Evaluation Pages
+// ============================================
+
+/**
+ * Get model availability for Season Overview (uses selected period)
+ * Uses pre-calculated availability lists from metadata for the specific period
+ */
+export const selectSeasonOverviewModelAvailability = createSelector(
+  [
+    selectModelNames,
+    selectModelAvailabilityPerPeriod,
+    (state: RootState) => state.evaluationsSeasonOverviewSettings.selectedEvalOverviewTimePeriod,
+  ],
+  (allModels, availabilityData, selectedPeriodId) => {
+    console.debug('[selectSeasonOverviewModelAvailability] Checking for period:', {
+      periodId: selectedPeriodId,
+      totalModels: allModels.length,
+    });
+
+    // Safety check
+    if (!allModels || allModels.length === 0) {
+      console.warn('[selectSeasonOverviewModelAvailability] No models in config');
+      return {
+        sortedModels: [],
+        availableModels: new Set<string>(),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    // Get availability data for the specific period
+    const periodData = availabilityData[selectedPeriodId];
+
+    if (!periodData) {
+      console.warn(`[selectSeasonOverviewModelAvailability] No availability data for period ${selectedPeriodId} - assuming all available`);
+      return {
+        sortedModels: allModels,
+        availableModels: new Set(allModels),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    const availableModelsList = periodData.availableModels || [];
+    const unavailableModelsFromPeriod = periodData.unavailableModels || [];
+    
+    // Create sets for quick lookup
+    const availableSet = new Set(availableModelsList);
+    const unavailableSet = new Set(unavailableModelsFromPeriod);
+    
+    // Any model not in either list should be treated as unavailable
+    const allUnavailable = allModels.filter(m => !availableSet.has(m));
+
+    // Sort models: available first, then unavailable (maintaining original order)
+    const sortedModels = [
+      ...allModels.filter((m) => availableSet.has(m)),
+      ...allModels.filter((m) => !availableSet.has(m)),
+    ];
+
+    console.debug('[selectSeasonOverviewModelAvailability] Result:', {
+      availableModels: availableModelsList,
+      unavailableModels: allUnavailable,
+    });
+
+    return {
+      sortedModels,
+      availableModels: availableSet,
+      unavailableModels: new Set(allUnavailable),
+    };
+  }
+);
+
+/**
+ * Get model availability for Single Model view (uses custom date range)
+ * Data-driven approach - checks which models actually have data in the selected range
+ * 
+ * Logic: Examines actual model output data to determine availability, not period metadata
+ */
+export const selectSingleModelAvailability = createSelector(
+  [
+    selectModelNames,
+    (state: RootState) => state.coreDataStore.modelOutput,
+    (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewSelectedStateCode,
+    (state: RootState) => state.evaluationsSingleModelSettings.evaluationsSingleModelViewDateStart,
+    (state: RootState) => state.evaluationsSingleModelSettings.evaluationSingleModelViewDateEnd,
+  ],
+  (allModels, modelOutput, locationCode, startDate, endDate) => {
+    console.debug('[selectSingleModelAvailability] Checking availability (data-driven) for date range:', {
+      start: startDate?.toISOString(),
+      end: endDate?.toISOString(),
+      location: locationCode,
+      totalModels: allModels.length,
+    });
+
+    // Safety check
+    if (!allModels || allModels.length === 0) {
+      console.warn('[selectSingleModelAvailability] No models in config');
+      return {
+        sortedModels: [],
+        availableModels: new Set<string>(),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    if (!modelOutput) {
+      console.warn('[selectSingleModelAvailability] No model output data loaded - assuming all models available');
+      return {
+        sortedModels: allModels,
+        availableModels: new Set(allModels),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    // Check each model to see if it has ANY data in the selected date range
+    const modelsWithData = new Set<string>();
+
+    for (const modelName of allModels) {
+      const modelData = modelOutput[modelName]?.[locationCode];
+      
+      if (!modelData) {
+        continue; // No data for this model at this location
+      }
+
+      // Check if any reference dates in the model data fall within our range OR
+      // if any target dates (predictions) fall within our range
+      let hasDataInRange = false;
+      
+      for (const [refDateStr, refData] of Object.entries(modelData)) {
+        const refDate = new Date(refDateStr);
+        
+        // Check if reference date is in range
+        if (refDate >= startDate && refDate <= endDate) {
+          hasDataInRange = true;
+          break;
+        }
+        
+        // Check if any predictions have target dates in range
+        if (refData.predictions) {
+          for (const targetDateStr of Object.keys(refData.predictions)) {
+            const targetDate = new Date(targetDateStr);
+            if (targetDate >= startDate && targetDate <= endDate) {
+              hasDataInRange = true;
+              break;
+            }
+          }
+        }
+        
+        if (hasDataInRange) break;
+      }
+      
+      if (hasDataInRange) {
+        modelsWithData.add(modelName);
+      }
+    }
+
+    const availableModelsList = Array.from(modelsWithData);
+    const unavailableModelsList = allModels.filter((m) => !modelsWithData.has(m));
+
+    // Sort models: available first (maintaining original order), then unavailable
+    const sortedModels = [
+      ...allModels.filter((m) => modelsWithData.has(m)),
+      ...allModels.filter((m) => !modelsWithData.has(m)),
+    ];
+
+    console.debug('[selectSingleModelAvailability] Result (data-driven):', {
+      available: availableModelsList.length,
+      unavailable: unavailableModelsList.length,
+      availableModels: availableModelsList,
+      unavailableModels: unavailableModelsList,
+    });
+
+    return {
+      sortedModels,
+      availableModels: new Set(availableModelsList),
+      unavailableModels: new Set(unavailableModelsList),
+    };
+  }
+);

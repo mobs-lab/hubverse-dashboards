@@ -6,7 +6,7 @@ import {
   addRawScores,
 } from '@/store/data-slices/domains/evaluationDataSlice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UseEvaluationsDataReturn {
   isLoading: boolean;
@@ -38,7 +38,7 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
 
   // Get currently selected period from Season Overview settings
   const selectedSeasonOverviewPeriod = useAppSelector(
-    (state) => state.evaluationsSeasonOverviewSettings.selectedDynamicTimePeriod
+    (state) => state.evaluationsSeasonOverviewSettings.selectedEvalOverviewTimePeriod
   );
 
   // Get currently selected period from Single Model settings
@@ -283,6 +283,13 @@ export const useEvaluationsData = (): UseEvaluationsDataReturn => {
     availablePeriodIds,
     loadRawScoresForPeriod,
   ]);
+
+  // Auto-load aggregates when the selected season overview period changes
+  useEffect(() => {
+    if (selectedSeasonOverviewPeriod && !loadedPeriods.includes(selectedSeasonOverviewPeriod)) {
+      loadAggregatesForPeriod(selectedSeasonOverviewPeriod);
+    }
+  }, [selectedSeasonOverviewPeriod, loadedPeriods, loadAggregatesForPeriod]);
 
   // Legacy method aliases for backward compatibility with existing components
   const loadAggregates = loadDefaultPeriodAggregates;

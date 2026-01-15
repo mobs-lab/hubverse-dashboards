@@ -3,7 +3,12 @@
 
 import { createSelector } from '@reduxjs/toolkit';
 import { RootState } from '../index';
-import { selectLocationMapping, selectTargets } from './sharedSelectors';
+import { 
+  selectLocationMapping, 
+  selectTargets, 
+  selectDateConstraintsForTarget,
+  selectModelNames,
+} from './sharedSelectors';
 // ============================================
 // Forecast-Specific Data Selectors
 // ============================================
@@ -37,6 +42,14 @@ export const selectCurrentTarget = createSelector(
 export const selectCurrentTargetDataProcessing = createSelector([selectCurrentTarget], (target) => {
   return target?.dataValueProcessing ?? null;
 });
+
+/**
+ * Get date constraints for the currently selected target in forecast page
+ */
+export const selectForecastDateConstraints = (state: RootState) => {
+  const selectedTargetId = state.forecastSettings.selectedTargetId;
+  return selectDateConstraintsForTarget(selectedTargetId)(state);
+};
 
 // ============================================
 // Target Data Selectors
@@ -234,5 +247,117 @@ export const selectSelectedLocationName = createSelector(
     locationCode = String(locationCode || 'US');
 
     return locationMapping[locationCode]?.locationName || locationCode;
+  }
+);
+
+// ============================================
+// Model Availability for Forecast Page
+// ============================================
+
+/**
+ * Get model availability info for the current forecast date range
+ * Returns models sorted with available first, unavailable last
+ * 
+ * Logic: Data-driven approach - checks which models actually have data points 
+ * within the selected date range by examining the actual model output data
+ */
+export const selectForecastModelAvailability = createSelector(
+  [
+    selectModelNames,
+    selectModelOutput,
+    (state: RootState) => state.forecastSettings.selectedLocationCode,
+    (state: RootState) => state.forecastSettings.timeFilterRangeStart,
+    (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
+  ],
+  (allModels, modelOutput, locationCode, startDate, endDate) => {
+    console.debug('[selectForecastModelAvailability] Checking availability (data-driven) for date range:', {
+      start: startDate?.toISOString(),
+      end: endDate?.toISOString(),
+      location: locationCode,
+      totalModels: allModels.length,
+    });
+
+    // Safety check
+    if (!allModels || allModels.length === 0) {
+      console.warn('[selectForecastModelAvailability] No models in config');
+      return {
+        sortedModels: [],
+        availableModels: new Set<string>(),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    if (!modelOutput) {
+      console.warn('[selectForecastModelAvailability] No model output data loaded - assuming all models available');
+      return {
+        sortedModels: allModels,
+        availableModels: new Set(allModels),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    // Check each model to see if it has ANY data in the selected date range
+    const modelsWithData = new Set<string>();
+
+    for (const modelName of allModels) {
+      const modelData = modelOutput[modelName]?.[locationCode];
+      
+      if (!modelData) {
+        continue; // No data for this model at this location
+      }
+
+      // Check if any reference dates in the model data fall within our range OR
+      // if any target dates (predictions) fall within our range
+      let hasDataInRange = false;
+      
+      for (const [refDateStr, refData] of Object.entries(modelData)) {
+        const refDate = new Date(refDateStr);
+        
+        // Check if reference date is in range
+        if (refDate >= startDate && refDate <= endDate) {
+          hasDataInRange = true;
+          break;
+        }
+        
+        // Check if any predictions have target dates in range
+        if (refData.predictions) {
+          for (const targetDateStr of Object.keys(refData.predictions)) {
+            const targetDate = new Date(targetDateStr);
+            if (targetDate >= startDate && targetDate <= endDate) {
+              hasDataInRange = true;
+              break;
+            }
+          }
+        }
+        
+        if (hasDataInRange) break;
+      }
+      
+      if (hasDataInRange) {
+        modelsWithData.add(modelName);
+      }
+    }
+
+    const availableModelsList = Array.from(modelsWithData);
+    const unavailableModelsList = allModels.filter((m) => !modelsWithData.has(m));
+
+    // Sort models: available first (maintaining original order), then unavailable
+    const sortedModels = [
+      ...allModels.filter((m) => modelsWithData.has(m)),
+      ...allModels.filter((m) => !modelsWithData.has(m)),
+    ];
+
+    console.debug('[selectForecastModelAvailability] Result (data-driven):', {
+      available: availableModelsList.length,
+      unavailable: unavailableModelsList.length,
+      availableModels: availableModelsList,
+      unavailableModels: unavailableModelsList,
+    });
+
+    return {
+      sortedModels,
+      availableModels: new Set(availableModelsList),
+      unavailableModels: new Set(unavailableModelsList),
+    };
   }
 );

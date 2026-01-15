@@ -78,17 +78,20 @@ export const selectSingleModelTimeSeriesData = createSelector(
     // Collect all predictions for the selected horizon within date range
     Object.entries(modelData).forEach(([refDateStr, refData]: [string, any]) => {
       const refDate = new Date(refDateStr);
-      if (refDate < dateStart || refDate > dateEnd) return;
+      // Removed refDate filter here, as we filter by targetDate now
 
       if (refData.predictions) {
         Object.entries(refData.predictions).forEach(([targetDateStr, pred]: [string, any]) => {
           const targetDate = new Date(targetDateStr);
-          if (pred.horizon === horizon && pred.targetId === targetId) {
-            predictionsByTargetDate.set(targetDateStr, {
-              referenceDate: refDate,
-              targetDate: targetDate,
-              prediction: pred,
-            });
+          // Filter by target date being in the selected range
+          if (targetDate >= dateStart && targetDate <= dateEnd) {
+             if (pred.horizon === horizon && pred.targetId === targetId) {
+                predictionsByTargetDate.set(targetDateStr, {
+                  referenceDate: refDate,
+                  targetDate: targetDate,
+                  prediction: pred,
+                });
+             }
           }
         });
       }
@@ -98,14 +101,15 @@ export const selectSingleModelTimeSeriesData = createSelector(
     Object.entries(locationTargetData).forEach(([dateStr, dateData]: [string, any]) => {
       const date = new Date(dateStr);
       if (date < dateStart || date > dateEnd){
-        console.debug("No target data for date:", date);
+        // console.debug("No target data for date:", date);
         return;
       }
 
       const targetInfo = dateData[targetId];
       if (targetInfo && targetInfo.observation !== null && targetInfo.observation >= 0) {
         combinedData.push({
-          referenceDate: date,
+          referenceDate: date, // Keep referenceDate for backward compatibility if needed, but for GT it's target date
+          targetDate: date,    // Explicit target date property
           groundTruth: {
             admissions: targetInfo.observation,
           },
@@ -117,7 +121,8 @@ export const selectSingleModelTimeSeriesData = createSelector(
     // Add predictions
     predictionsByTargetDate.forEach((predInfo) => {
       combinedData.push({
-        referenceDate: predInfo.targetDate,
+        referenceDate: predInfo.referenceDate,
+        targetDate: predInfo.targetDate, // Explicit target date property
         groundTruth: null,
         prediction: {
           targetDate: predInfo.targetDate,
@@ -131,8 +136,8 @@ export const selectSingleModelTimeSeriesData = createSelector(
       });
     });
 
-    // Sort by reference date
-    combinedData.sort((a, b) => a.referenceDate.getTime() - b.referenceDate.getTime());
+    // Sort by target date
+    combinedData.sort((a, b) => a.targetDate.getTime() - b.targetDate.getTime());
 
     return {
       data: combinedData,
@@ -227,4 +232,3 @@ export const selectSingleModelScoreDataFromJSON = createSelector(
     return processedScores;
   }
 );
-

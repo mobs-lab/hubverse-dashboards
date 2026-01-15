@@ -294,7 +294,7 @@ class EvaluationProcessor:
         # This way, a 3% error is stored as 3.0, not 0.03
         median_df['mape'] = (np.abs(median_df['truth_value'] - median_df['value']) / np.abs(median_df['truth_value'])) * 100
         
-        # Detect and log NaN/Infinity values
+        """ # Detect and log NaN/Infinity values
         invalid_mask = ~np.isfinite(median_df['mape'])
         if invalid_mask.any():
             invalid_count = invalid_mask.sum()
@@ -311,7 +311,7 @@ class EvaluationProcessor:
                     f"  Invalid MAPE: model={row['model']}, location={row['location']}, "
                     f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
                     f"truth={row['truth_value']}, median_pred={row['value']}, mape={row['mape']}"
-                )
+                ) """
         
         # Select output columns
         output_cols = ['model', 'location', 'reference_date', 'target_end_date', 'horizon']
@@ -380,7 +380,9 @@ class EvaluationProcessor:
             truth_vals = pivot_df['truth_value']
             
             coverage_col = f"{level}_coverage"
-            pivot_df[coverage_col] = ((truth_vals >= lower_vals) & (truth_vals <= upper_vals)).astype(int)
+            # Convert coverage from binary (0/1) to percentage (0-100)
+            # This ensures all downstream aggregations and visualizations display coverage as a percentage
+            pivot_df[coverage_col] = (((truth_vals >= lower_vals) & (truth_vals <= upper_vals)).astype(float) * 100.0)
             result_cols.append(coverage_col)
                 
         result_df = pivot_df[result_cols].copy()

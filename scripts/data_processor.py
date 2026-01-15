@@ -5,14 +5,13 @@ This script contains the core logic for ingesting, processing, and structuring
 target data and model outputs based on a user-defined configuration.
 """
 
+from yaml_config_processor_pydantic import ForecastPeriodConfig, SpecialForecastPeriodConfig, DashboardConfig
 import pandas as pd
 from pathlib import Path
 import logging
 import json
 import numpy as np
 
-# Assuming yaml_config_processor_pydantic is in the same directory or accessible via sys.path
-from yaml_config_processor_pydantic import DashboardConfig
 from evaluation_processor import EvaluationProcessor
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class NpEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle NumPy and Pandas types.
-    
+
     Handles special float values (NaN, Infinity) that are not valid JSON
     by converting them to None (which becomes null in JSON).
     """
@@ -109,6 +108,12 @@ class DataProcessor:
             "evaluations_calculated": 0,
         }
 
+        # Track date ranges per target for frontend date pickers
+        self.date_ranges_per_target = {}
+        
+        # Track model availability per period for frontend UI (for graying out unavailable models)
+        self.model_availability_per_period = {}
+
         # TODO: Handle GitHub data sources
 
         if self.dev_mode:
@@ -156,17 +161,13 @@ class DataProcessor:
 
         # 3: Filter data by config specifications (targets and locations)
         # This ensures date range calculations are based only on relevant data
-        target_data_df, model_output_df = self._filter_data_by_config_specs(
-            target_data_df, model_output_df, locations
-        )
+        target_data_df, model_output_df = self._filter_data_by_config_specs(target_data_df, model_output_df, locations)
         logger.info(f"After filtering - Target data: {len(target_data_df)} rows, Model output: {len(model_output_df)} rows")
 
         # Update unpivoted model output with filtered data (needed for evaluations)
         # We must filter the unpivoted data separately because model_output_df is potentially pivoted (wide format)
         # while evaluations require long format. Reusing the filter method works as it filters by 'target' and 'location' columns.
-        _, self.model_output_unpivoted = self._filter_data_by_config_specs(
-            target_data_df, self.model_output_unpivoted, detected_locations=locations
-        )
+        _, self.model_output_unpivoted = self._filter_data_by_config_specs(target_data_df, self.model_output_unpivoted, detected_locations=locations)
         logger.info(f"Filtered unpivoted model output data: {len(self.model_output_unpivoted)} rows")
 
         # 3b: Extract Latest Ground Truth & Process History (from filtered data)
@@ -174,7 +175,11 @@ class DataProcessor:
         # and that downstream processing only uses the latest 'as_of' slice.
         target_data_df = self._extract_latest_ground_truth_and_history(target_data_df)
 
-        # 4: Fix missing time intervals (now operates on pre-filtered data)
+        # 3c: Calculate date ranges per target (after filtering)
+        # This ensures each target has its own valid date range for frontend date pickers
+        self.date_ranges_per_target = self._calculate_date_ranges_per_target(target_data_df, model_output_df)
+
+        # 4: Fix missing time intervals (now operates on pre-filtered data and uses per-target date ranges)
         fixed_target_data_df = self._fix_missing_time_intervals(target_data_df, model_output_df)
         self.fixed_target_data = fixed_target_data_df
 
@@ -183,9 +188,11 @@ class DataProcessor:
 
         # 6: Process all model output data
         processed_model_output = self._process_model_output_data(model_output_df)
-        self.processing_stats["forecast_periods"] = len(self.config.forecast_periods)
 
-        # 7: Calculate evaluations (3-step process)
+        # 6b: Track model availability per period (for frontend UI)
+        self._track_model_availability_per_period(model_output_df)
+
+        # 7: Calculate evaluations
         raw_evaluations = {}
         aggregated_evaluations = None
         raw_scores_by_period = {}
@@ -335,24 +342,27 @@ class DataProcessor:
     def _extract_latest_ground_truth_and_history(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Extracts the latest ground truth data from the target data and optionally processes historical snapshots.
-        
+
         If an 'as_of' column is present:
         1. Identifies the latest 'as_of' date.
         2. Filters the DataFrame to only include rows from that latest date (Current Ground Truth).
         3. If historical data is NOT disabled, processes the full DataFrame into historical snapshots.
-        
+
         If no 'as_of' column:
         Returns the original DataFrame as the ground truth.
-        
+
         Args:
             df (pd.DataFrame): The standardized target data (potentially containing multiple as_of versions).
-            
+
+        Side Effect:
+            Populate self.historical_target_data with historical target-data records
+
         Returns:
             pd.DataFrame: The current ground truth (latest as_of slice).
         """
         if "as_of" in df.columns:
             logger.info("Processing target data with 'as_of' versions...")
-            
+
             # The actual most recent "as_of" date will be used as "Ground Truth",
             # Used for the default rendered target-data lines/values for all visualizations.
             # Other historical snapshots will be shown only when "Historical Target-Data Mode" toggle is on.
@@ -371,7 +381,7 @@ class DataProcessor:
                 logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
 
             return current_df
-        
+
         return df
 
     def _load_partitioned_parquet(self) -> pd.DataFrame:
@@ -629,7 +639,6 @@ class DataProcessor:
 
                     # IMPORTANT: Add target field - required for multi-target scenarios
                     # Map raw target key to target_id for consistency with config
-
                     target_id = "default"
                     if "target" in row and pd.notna(row["target"]):
                         raw_target_key = str(row["target"])
@@ -663,73 +672,65 @@ class DataProcessor:
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Filters both target data and model output data by config-specified targets and detected locations.
-        
+
         This ensures that downstream processing (including date range calculations) only operates
         on data that will actually be used by the dashboard, preventing wasted computation and
         incorrect date ranges from irrelevant data.
-        
+
         Args:
             target_data_df (pd.DataFrame): Raw target data before filtering.
             model_output_df (pd.DataFrame): Raw model output data before filtering.
             detected_locations (list): List of location dictionaries with 'location' keys.
-            
+
         Returns:
             tuple[pd.DataFrame, pd.DataFrame]: Filtered (target_data_df, model_output_df).
         """
         logger.info("Filtering data by config specifications...")
-        
+
         # Extract valid location codes
         valid_location_codes = {loc["location"] for loc in detected_locations}
         logger.info(f"  → Valid locations: {len(valid_location_codes)} codes")
-        
+
         # Extract valid target keys from config
         targets = self.config.targets or []
         valid_target_keys = {t.target_key_in_data for t in targets}
         logger.info(f"  → Valid targets: {valid_target_keys}")
-        
+
         # Filter target data
         target_data_initial_rows = len(target_data_df)
-        
+
         # Filter by location (if location column exists)
         if "location" in target_data_df.columns and valid_location_codes:
             # Normalize location codes in dataframe to string for comparison
-            target_data_df = target_data_df[
-                target_data_df["location"].astype(str).isin(valid_location_codes)
-            ].copy()
+            target_data_df = target_data_df[target_data_df["location"].astype(str).isin(valid_location_codes)].copy()
             logger.info(f"  → Target data after location filter: {len(target_data_df)} rows (removed {target_data_initial_rows - len(target_data_df)})")
-        
+
         # Filter by target (if target column exists)
         if "target" in target_data_df.columns and valid_target_keys:
-            target_data_df = target_data_df[
-                target_data_df["target"].isin(valid_target_keys)
-            ].copy()
+            target_data_df = target_data_df[target_data_df["target"].isin(valid_target_keys)].copy()
             logger.info(f"  → Target data after target filter: {len(target_data_df)} rows (removed {target_data_initial_rows - len(target_data_df)})")
-        
+
         # Filter model output data
         model_output_initial_rows = len(model_output_df)
-        
+
         # Filter by location
         if "location" in model_output_df.columns and valid_location_codes:
-            model_output_df = model_output_df[
-                model_output_df["location"].astype(str).isin(valid_location_codes)
-            ].copy()
+            model_output_df = model_output_df[model_output_df["location"].astype(str).isin(valid_location_codes)].copy()
             logger.info(f"  → Model output after location filter: {len(model_output_df)} rows (removed {model_output_initial_rows - len(model_output_df)})")
-        
+
         # Filter by target
         if "target" in model_output_df.columns and valid_target_keys:
-            model_output_df = model_output_df[
-                model_output_df["target"].isin(valid_target_keys)
-            ].copy()
+            model_output_df = model_output_df[model_output_df["target"].isin(valid_target_keys)].copy()
             logger.info(f"  → Model output after target filter: {len(model_output_df)} rows (removed {model_output_initial_rows - len(model_output_df)})")
-        
+
         # Ensure we still have data after filtering
         if target_data_df.empty:
             logger.warning("  [!] WARNING: Target data is empty after filtering!")
         if model_output_df.empty:
             logger.warning("  [!] WARNING: Model output data is empty after filtering!")
-        
+
         logger.info(f"  [OK] Filtering complete: Target={len(target_data_df)} rows, Model output={len(model_output_df)} rows")
-        
+
         return target_data_df, model_output_df
 
     def _fix_missing_time_intervals(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> pd.DataFrame:
@@ -740,6 +741,8 @@ class DataProcessor:
         dates (based on :attr:`~yaml_config_processor_pydantic.DashboardConfig.time_unit`)
         for all locations and targets, filling missing observations with -1.
 
+        Now generates placeholders separately for each target, using target-specific date ranges.
+
         Args:
             target_data_df (pd.DataFrame): The pre-filtered target data.
             model_output_df (pd.DataFrame): The pre-filtered model output data (used to determine the full date range).
@@ -747,22 +750,7 @@ class DataProcessor:
         Returns:
             pd.DataFrame: A DataFrame with continuous date ranges for every location/target.
         """
-        logger.info("Fixing missing time intervals in target data...")
-
-        # Determine the overall date range from pre-filtered data
-        # This ensures we only generate date grids for data that will actually be used
-        earliest_target_date = target_data_df["date"].min()
-        latest_target_date = target_data_df["date"].max()
-        latest_model_date = model_output_df["target_end_date"].max()
-
-        earliest_date = earliest_target_date
-        latest_date = max(latest_target_date, latest_model_date) if pd.notna(latest_model_date) else latest_target_date
-
-        logger.info(f"Date range: {earliest_date.date()} to {latest_date.date()}")
-
-        # Generate complete date range based on time_unit
-        time_unit_days = self.config.time_unit
-        date_range = pd.date_range(start=earliest_date, end=latest_date, freq=f"{time_unit_days}D")
+        logger.info("Fixing missing time intervals in target data (per-target date ranges)...")
 
         # Get all unique locations
         if "location" in target_data_df.columns:
@@ -770,36 +758,103 @@ class DataProcessor:
         else:
             all_locations = ["US"]  # Default single location
 
-        # Handle targets for grid generation to ensure placeholders have correct target IDs
+        # Handle targets for grid generation
         targets = self.config.targets or []
         target_keys = [t.target_key_in_data for t in targets] if targets else []
 
-        complete_df = None
-        merge_cols = []
+        time_unit_days = self.config.time_unit
 
-        # Create complete grid
-        # If the dataframe has a 'target' column, we must include it in the grid
-        # to ensure we generate placeholders for all targets
+        # Generate placeholders separately for each target using their specific date ranges
+        all_fixed_dfs = []
+        # Multi-target scenario: generate grids separately per target
         if "target" in target_data_df.columns and target_keys:
-            # Create complete grid of dates x locations x targets
-            complete_grid = pd.MultiIndex.from_product([date_range, all_locations, target_keys], names=["date", "location", "target"])
-            complete_df = pd.DataFrame(index=complete_grid).reset_index()
-            merge_cols = ["date", "location", "target"]
+            
+            for target_key in target_keys:
+                target_id = self.target_key_to_id_map.get(target_key, target_key)
+                
+                # Get target-specific date range
+                if target_id in self.date_ranges_per_target:
+                    earliest_date = self.date_ranges_per_target[target_id]["earliestDate"]
+                    latest_date = self.date_ranges_per_target[target_id]["latestDate"]
+                else:
+                    # Fallback: calculate from data
+                    target_specific_df = target_data_df[target_data_df["target"] == target_key]
+                    model_specific_df = model_output_df[model_output_df["target"] == target_key] if "target" in model_output_df.columns else model_output_df
+                    
+                    if target_specific_df.empty:
+                        logger.warning(f"No target data for target '{target_id}', skipping placeholder generation")
+                        continue
+                    
+                    earliest_date = target_specific_df["date"].min()
+                    latest_date_target = target_specific_df["date"].max()
+                    latest_date_model = model_specific_df["target_end_date"].max() if not model_specific_df.empty else latest_date_target
+                    latest_date = max(latest_date_target, latest_date_model) if pd.notna(latest_date_model) else latest_date_target
+
+                logger.info(f"  Date Range For Target '{target_id}': {earliest_date.date()} to {latest_date.date()}")
+
+                # Generate date range for this specific target
+                date_range = pd.date_range(start=earliest_date, end=latest_date, freq=f"{time_unit_days}D")
+
+                # Create complete grid for this target: dates x locations
+                complete_grid = pd.MultiIndex.from_product(
+                    [date_range, all_locations, [target_key]], 
+                    names=["date", "location", "target"]
+                )
+                complete_df = pd.DataFrame(index=complete_grid).reset_index()
+
+                # Get data for this specific target
+                target_data_subset = target_data_df[target_data_df["target"] == target_key]
+
+                # Merge with existing data
+                fixed_target_df = pd.merge(
+                    complete_df, 
+                    target_data_subset, 
+                    on=["date", "location", "target"], 
+                    how="left"
+                )
+
+                # Fill missing observation values with -1
+                fixed_target_df["observation"] = fixed_target_df["observation"].fillna(-1)
+
+                all_fixed_dfs.append(fixed_target_df)
+
+            # Combine all targets
+            if all_fixed_dfs:
+                fixed_df = pd.concat(all_fixed_dfs, ignore_index=True)
+            else:
+                logger.error("No valid target data to process")
+                return target_data_df
+
         elif "location" in target_data_df.columns:
-            # Existing logic for date x location
+            # Single target or no target column: use overall date range
+            earliest_date = target_data_df["date"].min()
+            latest_date_target = target_data_df["date"].max()
+            latest_date_model = model_output_df["target_end_date"].max()
+            latest_date = max(latest_date_target, latest_date_model) if pd.notna(latest_date_model) else latest_date_target
+
+            logger.info(f"Date range: {earliest_date.date()} to {latest_date.date()}")
+
+            date_range = pd.date_range(start=earliest_date, end=latest_date, freq=f"{time_unit_days}D")
             complete_grid = pd.MultiIndex.from_product([date_range, all_locations], names=["date", "location"])
             complete_df = pd.DataFrame(index=complete_grid).reset_index()
-            merge_cols = ["date", "location"]
+
+            fixed_df = pd.merge(complete_df, target_data_df, on=["date", "location"], how="left")
+            fixed_df["observation"] = fixed_df["observation"].fillna(-1)
+
         else:
-            # Just date
+            # Just date (single location, single target)
+            earliest_date = target_data_df["date"].min()
+            latest_date_target = target_data_df["date"].max()
+            latest_date_model = model_output_df["target_end_date"].max()
+            latest_date = max(latest_date_target, latest_date_model) if pd.notna(latest_date_model) else latest_date_target
+
+            logger.info(f"Date range: {earliest_date.date()} to {latest_date.date()}")
+
+            date_range = pd.date_range(start=earliest_date, end=latest_date, freq=f"{time_unit_days}D")
             complete_df = pd.DataFrame({"date": date_range})
-            merge_cols = ["date"]
 
-        # Merge with existing target data
-        fixed_df = pd.merge(complete_df, target_data_df, on=merge_cols, how="left")
-
-        # Fill missing observation values with -1 (indicating no data)
-        fixed_df["observation"] = fixed_df["observation"].fillna(-1)
+            fixed_df = pd.merge(complete_df, target_data_df, on=["date"], how="left")
+            fixed_df["observation"] = fixed_df["observation"].fillna(-1)
 
         logger.info(f"Fixed target data shape: {fixed_df.shape}")
 
@@ -894,6 +949,143 @@ class DataProcessor:
 
         return locations_list
 
+    def _calculate_date_ranges_per_target(
+        self,
+        target_data_df: pd.DataFrame,
+        model_output_df: pd.DataFrame,
+    ) -> dict:
+        """
+        Calculate earliest and latest dates separately for each modeling target.
+
+        This allows different targets to have different valid date ranges in the frontend,
+        ensuring users can only select dates that are actually valid for the selected target.
+
+        Args:
+            target_data_df (pd.DataFrame): Pre-filtered target data
+            model_output_df (pd.DataFrame): Pre-filtered model output data
+
+        Returns:
+            dict: {targetId: {'earliestDate': datetime, 'latestDate': datetime}}
+        """
+        logger.info("Calculating date ranges per target...")
+        date_ranges = {}
+
+        # Get unique targets from config
+        targets = self.config.targets or []
+        target_keys = [t.target_key_in_data for t in targets]
+
+        if not target_keys:
+            logger.warning("No targets defined in config, using 'default' target")
+            target_keys = ["default"]
+
+        for target_key in target_keys:
+            # Get target ID from mapping
+            target_id = self.target_key_to_id_map.get(target_key, target_key)
+
+            # Filter target data for this specific target
+            if "target" in target_data_df.columns:
+                target_specific_df = target_data_df[target_data_df["target"] == target_key]
+            else:
+                target_specific_df = target_data_df
+
+            # Filter model output for this specific target
+            if "target" in model_output_df.columns:
+                model_specific_df = model_output_df[model_output_df["target"] == target_key]
+            else:
+                model_specific_df = model_output_df
+
+            if target_specific_df.empty and model_specific_df.empty:
+                logger.warning(f"No data found for target: {target_id}")
+                continue
+
+            # Calculate date range for this target
+            earliest_dates = []
+            latest_dates = []
+
+            if not target_specific_df.empty:
+                earliest_dates.append(target_specific_df["date"].min())
+                latest_dates.append(target_specific_df["date"].max())
+
+            if not model_specific_df.empty:
+                latest_dates.append(model_specific_df["target_end_date"].max())
+
+            if earliest_dates and latest_dates:
+                earliest_date = min(earliest_dates)
+                latest_date = max(latest_dates)
+
+                date_ranges[target_id] = {
+                    "earliestDate": earliest_date,
+                    "latestDate": latest_date,
+                }
+
+                logger.info(
+                    f"  Target '{target_id}': {earliest_date.date()} to {latest_date.date()}"
+                )
+
+        return date_ranges
+
+    def _track_model_availability_per_period(self, model_output_df: pd.DataFrame):
+        """
+        Track which models have data available for each forecast period.
+        
+        This enables the frontend to intelligently gray out and disable models
+        that don't have data for the selected time range.
+        
+        Args:
+            model_output_df (pd.DataFrame): The model output data with all models
+        """
+        logger.info("Tracking model availability per period...")
+        
+        if "model" not in model_output_df.columns:
+            logger.warning("No 'model' column found, skipping model availability tracking")
+            return
+        
+        # Get all unique models
+        all_models = model_output_df["model"].unique().tolist()
+        
+        # Ensure target_end_date is datetime
+        if not pd.api.types.is_datetime64_any_dtype(model_output_df["target_end_date"]):
+            model_output_df = model_output_df.copy()
+            model_output_df["target_end_date"] = pd.to_datetime(model_output_df["target_end_date"])
+        
+        # Track for both static and special periods
+        special_periods = self.config.special_forecast_periods or []
+        all_periods = list(self.config.forecast_periods) + list(special_periods)
+        
+        for period in all_periods:
+            period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
+            
+            # Get date range for this period
+            date_range = self._get_period_date_range(period, pd.DataFrame(), model_output_df)
+            if not date_range:
+                logger.warning(f"Could not determine date range for period '{period_id}', skipping")
+                continue
+            
+            start_date, end_date = date_range
+            
+            # Filter model output to this period
+            period_df = model_output_df[
+                (model_output_df["target_end_date"] >= start_date) & 
+                (model_output_df["target_end_date"] <= end_date)
+            ]
+            
+            # Get models that have data in this period
+            models_with_data = period_df["model"].unique().tolist() if not period_df.empty else []
+            
+            # Store availability info
+            self.model_availability_per_period[period_id] = {
+                "availableModels": models_with_data,
+                "unavailableModels": [m for m in all_models if m not in models_with_data],
+                "startDate": start_date.isoformat() if pd.notna(start_date) else None,
+                "endDate": end_date.isoformat() if pd.notna(end_date) else None,
+            }
+            
+            logger.info(
+                f"  Period '{period_id}': {len(models_with_data)}/{len(all_models)} models have data"
+            )
+        
+        logger.info("Model availability tracking complete.")
+    
     def _extract_and_validate_default_location(self, locations_info: list, configured_default: any) -> str:
         """
         Extract and validate default location with fallback chain:
@@ -933,24 +1125,24 @@ class DataProcessor:
     def _get_evaluation_period_ids(self) -> list:
         """
         Get list of period IDs that will have evaluation data.
-        
+
         This includes both static forecast periods and special/dynamic periods.
         Used to inform the frontend about available evaluation data folders.
-        
+
         Returns:
             list: List of period ID strings
         """
         period_ids = []
-        
+
         # Add static forecast periods
         for period in self.config.forecast_periods:
             period_ids.append(period.forecast_period_id)
-        
+
         # Add special/dynamic periods
         special_periods = self.config.special_forecast_periods or []
         for period in special_periods:
             period_ids.append(period.special_period_id)
-        
+
         return period_ids
 
     def _generate_metadata(
@@ -980,8 +1172,8 @@ class DataProcessor:
 
         # Get the date range
         all_dates = pd.concat([target_data_df["date"], model_output_df["target_end_date"]]).dropna()
-        earliest_date = all_dates.min()
-        latest_date = all_dates.max()
+        earliest_date_across_targets = all_dates.min()
+        latest_date_across_targets = all_dates.max()
 
         # Get the latest reference date across all models, for default selection
         # Since all the models are toggled on by default, visualization guaranteed has prediction line thus
@@ -1017,21 +1209,28 @@ class DataProcessor:
             }
             forecast_periods_info.append(period_meta)
 
-        # Build targets info
+        # Build targets info with per-target date ranges
         targets_info = []
         default_target_id = None
         targets = self.config.targets or []
         for target in targets:
-            targets_info.append(
-                {
-                    "targetId": target.target_id,
-                    "targetKeyInData": target.target_key_in_data,
-                    "displayString": target.task_display_string,
-                    "forecastPeriods": target.for_forecast_periods or [],
-                    "isDefaultSelected": target.is_default_selected,
-                    "dataValueProcessing": target.data_value_processing.model_dump() if target.data_value_processing else None,
-                }
-            )
+            target_info = {
+                "targetId": target.target_id,
+                "targetKeyInData": target.target_key_in_data,
+                "displayString": target.task_display_string,
+                "forecastPeriods": target.for_forecast_periods or [],
+                "isDefaultSelected": target.is_default_selected,
+                "dataValueProcessing": target.data_value_processing.model_dump() if target.data_value_processing else None,
+            }
+            
+            # Add target-specific date range if available
+            if target.target_id in self.date_ranges_per_target:
+                date_range = self.date_ranges_per_target[target.target_id]
+                target_info["earliestDate"] = date_range["earliestDate"].isoformat() if pd.notna(date_range["earliestDate"]) else None
+                target_info["latestDate"] = date_range["latestDate"].isoformat() if pd.notna(date_range["latestDate"]) else None
+            
+            targets_info.append(target_info)
+            
             # Track default target
             if target.is_default_selected:
                 default_target_id = target.target_id
@@ -1075,9 +1274,11 @@ class DataProcessor:
             "temporal": {
                 "timeUnit": self.config.time_unit,
                 "horizons": self.config.horizons,
-                "earliestDate": earliest_date.isoformat() if pd.notna(earliest_date) else None,
-                "latestDate": latest_date.isoformat() if pd.notna(latest_date) else None,
+                # Global date range (for backward compatibility and overall bounds)
+                "earliestDateAcrossTargets": earliest_date_across_targets.isoformat() if pd.notna(earliest_date_across_targets) else None,
+                "latestDateAcrossTargets": latest_date_across_targets.isoformat() if pd.notna(latest_date_across_targets) else None,
                 "defaultSelectedDate": latest_model_ref_date.isoformat() if pd.notna(latest_model_ref_date) else None,
+                # Note: Target-specific date ranges are available in targets[].earliestDate and targets[].latestDate
             },
             # === FORECAST PERIODS ===
             "forecastPeriods": forecast_periods_info,
@@ -1085,6 +1286,8 @@ class DataProcessor:
             "models": {
                 "list": model_configs,
                 "baselineModel": self.config.baseline_model_for_relative_WIS if not self.skip_evaluations else None,
+                # Model availability per period (for intelligent model selection UI)
+                "availabilityPerPeriod": self.model_availability_per_period,
             },
             # === TARGETS ===
             "targets": {
@@ -1441,7 +1644,7 @@ class DataProcessor:
 
         # Define all periods to aggregate over
         special_periods = self.config.special_forecast_periods or []
-        all_periods = list(self.config.forecast_periods) + list(special_periods)
+        all_periods = list[ForecastPeriodConfig](self.config.forecast_periods) + list[SpecialForecastPeriodConfig](special_periods)
 
         for period in all_periods:
             period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
@@ -1475,51 +1678,51 @@ class DataProcessor:
     def _process_iqr_stats(self, period_id: str, precalculated: dict):
         """
         Calculate IQR statistics for Season Overview boxplot charts.
-        
-        MUST be called AFTER _process_state_map_aggregates as it uses the 
+
+        MUST be called AFTER _process_state_map_aggregates as it uses the
         locationMap_aggregates data to compute per-location averages.
-        
+
         Logic:
         1. For each metric (WIS/Baseline, MAPE), target, model, and horizon
         2. Compute average score for each location: sum/count
         3. Collect all location averages into a list
         4. Calculate percentiles (q05, q25, median, q75, q95) from that list
-        
+
         Only pre-calculates single-horizon IQR. Frontend computes multi-horizon
         combinations using locationMap_aggregates data.
         """
         state_map_data = precalculated.get("locationMap_aggregates", {}).get(period_id, {})
-        
+
         if not state_map_data:
             return
-        
+
         # Iterate through the state_map_aggregates structure
         for target_id, target_data in state_map_data.items():
             if target_id not in precalculated["iqr"][period_id]:
                 precalculated["iqr"][period_id][target_id] = {}
-            
+
             for metric_name, metric_data in target_data.items():
                 # Skip Coverage metric - IQR is only for WIS/Baseline and MAPE
                 if metric_name == "Coverage":
                     continue
-                
+
                 if metric_name not in precalculated["iqr"][period_id][target_id]:
                     precalculated["iqr"][period_id][target_id][metric_name] = {}
-                
+
                 for model_name, model_data in metric_data.items():
                     if model_name not in precalculated["iqr"][period_id][target_id][metric_name]:
                         precalculated["iqr"][period_id][target_id][metric_name][model_name] = {}
-                    
+
                     # Get all available horizons for this model
                     available_horizons = set()
                     for loc_data in model_data.values():
                         available_horizons.update(loc_data.keys())
-                    
+
                     # Calculate IQR for each individual horizon only
                     # Frontend will compute multi-horizon combinations using locationMap_aggregates
                     for horizon in available_horizons:
                         horizon_str = str(horizon)
-                        
+
                         # Compute location averages for this horizon
                         location_averages = []
                         for loc, loc_data in model_data.items():
@@ -1528,7 +1731,7 @@ class DataProcessor:
                                 if agg["count"] > 0:
                                     avg = agg["sum"] / agg["count"]
                                     location_averages.append(avg)
-                        
+
                         # Calculate IQR stats from location averages
                         if len(location_averages) >= 1:
                             stats = self._calculate_boxplot_stats(location_averages)
@@ -1538,12 +1741,12 @@ class DataProcessor:
     def _process_location_map_aggregates(self, raw_evaluations: dict, period_id: str, start, end, precalculated: dict):
         """
         Process location map aggregates for geographic visualization and IQR calculation.
-        
+
         Aggregates sum/count per location per horizon for WIS over Baseline, MAPE, and Coverage metrics.
         These aggregates are used by:
         1. Location map visualization (computing location averages for map coloring)
         2. IQR calculation (computing percentiles across location averages)
-        
+
         Note: WIS/Baseline and MAPE each have a single score per forecast instance.
         Coverage uses the 95% prediction interval level by default.
         """
@@ -1569,9 +1772,9 @@ class DataProcessor:
             if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
                 df = df.copy()
                 df["target_end_date"] = pd.to_datetime(df["target_end_date"])
-            
+
             period_df = df[(df["target_end_date"] >= start) & (df["target_end_date"] <= end)]
-            
+
             if period_df.empty:
                 continue
 
@@ -1583,7 +1786,7 @@ class DataProcessor:
 
                 if target_id not in precalculated["locationMap_aggregates"][period_id]:
                     precalculated["locationMap_aggregates"][period_id][target_id] = {}
-                
+
                 if metric_name not in precalculated["locationMap_aggregates"][period_id][target_id]:
                     precalculated["locationMap_aggregates"][period_id][target_id][metric_name] = {}
 
@@ -1604,27 +1807,20 @@ class DataProcessor:
                             invalid_df = model_df[invalid_mask]
                             horizon_breakdown = invalid_df.groupby("horizon").size()
                             logger.warning(f"  Invalid values by horizon: {dict(horizon_breakdown)}")
-                            
-                            # Log sample invalid entries
-                            for idx, row in invalid_df.head(5).iterrows():
-                                logger.warning(
-                                    f"    location={row['location']}, horizon={row['horizon']}, "
-                                    f"target_end_date={row['target_end_date']}, {val_col}={row[val_col]}"
-                                )
-                        
+
                         # Filter out NaN and Infinity values before aggregation
                         model_df = model_df[np.isfinite(model_df[val_col])]
-                        
+
                         if model_df.empty:
                             continue
-                            
+
                         grouped = model_df.groupby(["location", "horizon"])[val_col].agg(["sum", "count"]).reset_index()
 
                         for _, row in grouped.iterrows():
                             # Skip if sum is not finite (shouldn't happen after filtering, but extra safety)
                             if not np.isfinite(row["sum"]):
                                 continue
-                                
+
                             loc = str(row["location"]).zfill(2)
                             horizon = str(int(row["horizon"]))
 
@@ -1676,15 +1872,15 @@ class DataProcessor:
                                 precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon] = {}
 
                             precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon][str(level)] = {
-                                # Frontend Visualization displays Coverage Percentage, so we transform it here
-                                "sum": float(row["sum"]) * 100,
+                                # Coverage values are already in percentage format (0-100) from evaluation_processor
+                                "sum": float(row["sum"]),
                                 "count": int(row["count"]),
                             }
 
     def _generate_raw_scores_by_period(self, raw_evaluations: dict) -> dict:
         """
         Organize ALL raw scores (not bounded by periods) for Single Model view.
-        
+
         This allows the frontend to filter by any custom date range.
         Structure: target → metric → model → location → horizon → [all scores]
 
@@ -1710,13 +1906,13 @@ class DataProcessor:
             logger.info("Organizing MAPE raw scores...")
             self._organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data)
 
-        logger.info("Raw scores organization complete.")  
+        logger.info("Raw scores organization complete.")
         return raw_scores_data
 
     def _organize_metric_all_data(self, df: pd.DataFrame, metric_name: str, val_col: str, raw_scores_dict: dict):
         """
         Helper to organize a specific metric's raw scores for ALL data (no period filtering).
-        
+
         Structure: target → metric → model → location → horizon → [scores]
         """
         if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
@@ -1737,14 +1933,14 @@ class DataProcessor:
     def _calculate_boxplot_stats(self, location_averages: list) -> dict:
         """
         Calculate boxplot statistics from a list of per-location score averages.
-        
+
         These statistics represent the distribution of model performance across locations.
         The percentiles (q05, q25, median, q75, q95) are computed from the list of
         location averages.
-        
+
         Args:
             location_averages: List of average scores, one per location
-            
+
         Returns:
             dict: BoxplotStats with q05, q25, median, q75, q95, min, max, mean, count
             Returns None if no valid data is available.
@@ -1753,22 +1949,22 @@ class DataProcessor:
             return None
 
         scores = np.array(location_averages, dtype=float)
-        
+
         # Filter out NaN and Infinity values
         valid_mask = np.isfinite(scores)
         scores = scores[valid_mask]
-        
+
         if len(scores) == 0:
             return None
 
         # Calculate percentiles from the distribution of location averages
         percentiles = np.percentile(scores, [5, 25, 50, 75, 95])
-        
+
         # Verify all results are finite before returning
         min_val = float(np.min(scores))
         max_val = float(np.max(scores))
         mean_val = float(np.mean(scores))
-        
+
         # Double-check that our computed values are valid
         if not all(np.isfinite([min_val, max_val, mean_val, *percentiles])):
             logger.warning(f"Boxplot stats computation produced non-finite values, skipping")
@@ -1858,7 +2054,7 @@ class DataProcessor:
             if aggregated_evaluations:
                 # Get all period IDs from the aggregated data
                 period_ids = set(aggregated_evaluations.get("iqr", {}).keys())
-                
+
                 logger.info(f"Writing aggregated evaluation data for {len(period_ids)} periods...")
 
                 for period_id in period_ids:
@@ -1893,7 +2089,7 @@ class DataProcessor:
 
     def _structure_raw_scores(self, df: pd.DataFrame, val_col: str) -> dict:
         """Helper to structure raw scores for JSON export.
-        
+
         Filters out records with NaN or Infinity scores to ensure valid JSON output.
         """
         structured = {}

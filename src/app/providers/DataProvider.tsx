@@ -190,14 +190,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         modelColorMap[m.modelName] = m.color;
       });
     }
+    
+    // Parse model availability per period
+    const modelAvailabilityPerPeriod = metadata.models?.availabilityPerPeriod || {};
 
-    // Parse targets from new nested structure
+    // Parse targets from new nested structure (includes per-target date ranges)
     const targets =
       metadata.targets?.list?.map((t: any) => ({
         targetId: t.targetId,
         targetKeyInData: t.targetKeyInData,
         displayString: t.displayString,
         dataValueProcessing: t.dataValueProcessing,
+        // Include target-specific date ranges
+        earliestDate: t.earliestDate,
+        latestDate: t.latestDate,
       })) || [];
 
     // Parse prediction intervals from new nested structure
@@ -285,8 +291,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       timeUnit: metadata.temporal?.timeUnit || 7,
       horizons: metadata.temporal?.horizons || [],
       defaultSelectedDate: metadata.temporal?.defaultSelectedDate,
-      earliestDate: metadata.temporal?.earliestDate,
-      latestDate: metadata.temporal?.latestDate,
+      earliestDateAcrossTargets: metadata.temporal?.earliestDateAcrossTargets,
+      latestDateAcrossTargets: metadata.temporal?.latestDateAcrossTargets,
 
       // Forecast periods
       forecastPeriodOptions,
@@ -297,6 +303,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Models from metadata.models
       modelColorMap,
+      modelAvailabilityPerPeriod,
 
       // Targets from metadata.targets
       targets,

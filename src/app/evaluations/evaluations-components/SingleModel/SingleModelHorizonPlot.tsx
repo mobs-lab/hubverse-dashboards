@@ -5,7 +5,7 @@ import {
   selectIsCoreDataLoaded,
   selectSingleModelTimeSeriesData,
 } from '@/store/selectors/singleModelSelectors';
-import { selectModelColorMap } from '@/store/selectors';
+import { selectModelColorMap, selectTimeUnit } from '@/store/selectors';
 import { normalizeToUTCMidDay } from '@/utils/date';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
 import * as d3 from 'd3';
@@ -15,10 +15,11 @@ const SingleModelHorizonPlot: React.FC = () => {
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // New selector for using new Core App Data
-  const timeSeriesData = useAppSelector(selectSingleModelTimeSeriesData);
+
   const isCoreDataLoaded = useAppSelector(selectIsCoreDataLoaded);
+  const timeSeriesData = useAppSelector(selectSingleModelTimeSeriesData);
   const modelColorMap = useAppSelector(selectModelColorMap);
+  const timeUnit = useAppSelector(selectTimeUnit);
 
   const {
     evaluationsSingleModelViewSelectedStateCode,
@@ -26,29 +27,30 @@ const SingleModelHorizonPlot: React.FC = () => {
     evaluationSingleModelViewHorizon,
   } = useAppSelector((state) => state.evaluationsSingleModelSettings);
 
-  function generateSaturdayDatesUTC(startDate: Date, endDate: Date): Date[] {
+  /**
+   * Generate date ticks for x-axis using configured time unit
+   * Generates dates at intervals based on the time unit from config (e.g., 7 days, 14 days, etc.)
+   */
+  function generateDateTicks(startDate: Date, endDate: Date, timeUnitDays: number): Date[] {
     const dates: Date[] = [];
+    const msPerUnit = timeUnitDays * 24 * 60 * 60 * 1000;
 
     // Normalize start and end dates to UTC midday
     let currentDate = normalizeToUTCMidDay(startDate);
+    // let currentDate = startDate;
     const normalizedEndDate = normalizeToUTCMidDay(endDate);
 
-    // Move to the first Saturday if not already on one (using UTC day)
-    while (currentDate.getUTCDay() !== 6) {
-      currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
-    }
-
-    // Generate all Saturdays until end date
+    // Generate dates at time unit intervals until end date
     while (currentDate <= normalizedEndDate) {
       dates.push(new Date(currentDate));
-      currentDate = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      currentDate = new Date(currentDate.getTime() + msPerUnit);
     }
 
     return dates;
   }
 
   function createScalesAndAxes(
-    allSaturdays: Date[], // Changed parameter to use all Saturdays
+    allDateTicks: Date[], // All date ticks for the x-axis
     groundTruthData: any[],
     visualData: any[],
     chartWidth: number,
@@ -63,28 +65,28 @@ const SingleModelHorizonPlot: React.FC = () => {
       }
     };
 
-    const idealTickCount = getIdealTickCount(chartWidth, allSaturdays.length);
-    let selectedTicks = allSaturdays;
+    const idealTickCount = getIdealTickCount(chartWidth, allDateTicks.length);
+    let selectedTicks = allDateTicks;
 
-    if (allSaturdays.length > idealTickCount) {
-      const tickInterval = Math.max(1, Math.floor(allSaturdays.length / idealTickCount));
-      selectedTicks = allSaturdays.filter((_, i) => i % tickInterval === 0);
+    if (allDateTicks.length > idealTickCount) {
+      const tickInterval = Math.max(1, Math.floor(allDateTicks.length / idealTickCount));
+      selectedTicks = allDateTicks.filter((_, i) => i % tickInterval === 0);
 
       // Ensure first and last are included
-      if (selectedTicks[0].getTime() !== allSaturdays[0].getTime()) {
-        selectedTicks.unshift(allSaturdays[0]);
+      if (selectedTicks[0].getTime() !== allDateTicks[0].getTime()) {
+        selectedTicks.unshift(allDateTicks[0]);
       }
       if (
         selectedTicks[selectedTicks.length - 1].getTime() !==
-        allSaturdays[allSaturdays.length - 1].getTime()
+        allDateTicks[allDateTicks.length - 1].getTime()
       ) {
-        selectedTicks.push(allSaturdays[allSaturdays.length - 1]);
+        selectedTicks.push(allDateTicks[allDateTicks.length - 1]);
       }
     }
-    // Create band scale for x-axis using ALL Saturdays (same as line chart)
+    // Create band scale for x-axis using all date ticks
     const xScale = d3
       .scaleBand()
-      .domain(allSaturdays.map((d) => d.toISOString()))
+      .domain(allDateTicks.map((d) => d.toISOString()))
       .range([0, chartWidth])
       .padding(0.08);
 
@@ -187,13 +189,12 @@ const SingleModelHorizonPlot: React.FC = () => {
 
     const { displayStartDate, displayEndDate } = metadata;
 
-    const allSaturdays = generateSaturdayDatesUTC(displayStartDate, displayEndDate);
-
     // Separate ground truth and predictions
     const groundTruthPoints = combinedData
       .filter((d) => d.groundTruth && d.groundTruth.admissions >= 0)
       .map((d) => ({
-        date: normalizeToUTCMidDay(d.referenceDate),
+        // Use targetDate for x-axis to align with scores chart
+        date: normalizeToUTCMidDay(d.targetDate),
         admissions: d.groundTruth.admissions,
         weeklyRate: d.groundTruth.weeklyRate,
       }));
@@ -201,7 +202,8 @@ const SingleModelHorizonPlot: React.FC = () => {
     const predictionPoints = combinedData
       .filter((d) => d.prediction)
       .map((d) => ({
-        date: normalizeToUTCMidDay(d.referenceDate),
+        // Use targetDate for x-axis to align with scores chart
+        date: normalizeToUTCMidDay(d.prediction.targetDate),
         targetDate: normalizeToUTCMidDay(d.prediction.targetDate),
         median: d.prediction.median,
         quantile05: d.prediction.q05,
@@ -222,9 +224,17 @@ const SingleModelHorizonPlot: React.FC = () => {
       return;
     }
 
+    // Generate full date range from metadata to ensure x-axis synchronization across all charts
+    // This creates a consistent date axis regardless of which dates have actual data
+    const allDateTicks = generateDateTicks(
+      new Date(displayStartDate),
+      new Date(displayEndDate),
+      timeUnit
+    );
+
     // Create scales and chart group
     const { xScale, yScale, xAxis, yAxis } = createScalesAndAxes(
-      allSaturdays, // Use generated Saturdays instead of filtered ground truth
+      allDateTicks,
       groundTruthPoints,
       predictionPoints,
       chartWidth,
