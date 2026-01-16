@@ -52,9 +52,7 @@ export function toUTCDateKey(date: Date): string {
  * @returns Date object normalized to UTC midnight
  */
 export function normalizeToUTCMidnight(date: Date): Date {
-  return new Date(
-    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
-  );
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0));
 }
 
 /**
@@ -102,17 +100,16 @@ export function generateAlignedDateTicks(
   }
 
   // Sort data dates to ensure we can find the proper anchor
-  const sortedDataDates = actualDataDates
-    .sort((a, b) => a.getTime() - b.getTime());
+  const sortedDataDates = actualDataDates.map(d => new Date(d)).sort((a, b) => a.getTime() - b.getTime());
 
   // Find the first data date that is >= start date to use as grid anchor
   // This ensures our tick grid aligns with actual data points
   const gridAnchor = sortedDataDates.find((d) => d >= normalizedStart) || sortedDataDates[0];
 
   // Generate ticks forward from the grid anchor to end date
-  let currentDate = new Date(gridAnchor);
+  let currentDate = gridAnchor;
   while (currentDate <= normalizedEnd) {
-    dates.push(new Date(currentDate));
+    dates.push(currentDate);
     currentDate = new Date(currentDate.getTime() + msPerUnit);
   }
 

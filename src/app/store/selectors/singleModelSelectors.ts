@@ -37,7 +37,6 @@ export const selectSingleModelTimeSeriesData = createSelector(
     (state: RootState) => state.evaluationsSingleModelSettings.selectedTargetId,
   ],
   (isLoaded, modelOutput, targetData, modelName, locationCode, horizon, dateStart, dateEnd, targetId) => {
-    console.debug("selectSingleModelTimeSeriesData dateStart peek: ", dateStart.toISOString());
     if (!isLoaded || !modelOutput || !targetData || !modelName) {
       return {
         data: [],

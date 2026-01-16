@@ -139,7 +139,6 @@ const SingleModelSettingsPanel: React.FC = () => {
   // Date selection handlers
   const onDateStartSelectionChange = (date: Date | null) => {
     if (date && date >= earliestDate && date <= evaluationSingleModelViewDateEnd) {
-      console.debug("SingleModelSP: start date changed to:  ", date.toISOString());
       dispatch(updateEvaluationSingleModelViewDateStart(date));
     }
   };

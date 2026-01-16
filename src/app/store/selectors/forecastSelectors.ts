@@ -68,7 +68,6 @@ export const selectTargetDataFiltered = createSelector(
     (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
   ],
   (targetData, locationCode, selectedTargetId, startDate, endDate) => {
-    console.debug("ForecastSelectors: selectTargetDataFiltered: ", startDate.toISOString())
     if (!targetData) {
       console.warn('[selectTargetDataFiltered] No target data available. Returning [].');
       return [];

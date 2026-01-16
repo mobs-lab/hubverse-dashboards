@@ -142,9 +142,9 @@ const ForecastChart: React.FC = () => {
         .tickValues(selectedTicks)
         .tickFormat((date, i) => {
           const dateObj = date instanceof Date ? date : new Date(date as number);
-          const year = d3.timeFormat('%Y')(dateObj);
-          const month = d3.timeFormat('%b')(dateObj);
-          const day = d3.timeFormat('%d')(dateObj);
+          const year = d3.utcFormat('%Y')(dateObj);
+          const month = d3.utcFormat('%b')(dateObj);
+          const day = d3.utcFormat('%d')(dateObj);
 
           // First tick always displays full info
           if (i === 0) {

@@ -74,15 +74,15 @@ const SingleModelHorizonPlot: React.FC = () => {
       .tickValues(selectedTicks.map((d) => d.toISOString()))
       .tickFormat((d: string, i: number) => {
         const date = new Date(d);
-        const year = d3.timeFormat('%Y')(date);
-        const month = d3.timeFormat('%b')(date);
-        const day = d3.timeFormat('%d')(date);
+        const year = d3.utcFormat('%Y')(date);
+        const month = d3.utcFormat('%b')(date);
+        const day = d3.utcFormat('%d')(date);
 
         // Find previous tick date for context
         const prevTickDate = i > 0 ? new Date(selectedTicks[i - 1].toISOString()) : null;
 
-        const isNewYear = prevTickDate ? date.getFullYear() > prevTickDate.getFullYear() : true;
-        const isNewMonth = prevTickDate ? date.getMonth() !== prevTickDate.getMonth() : true;
+        const isNewYear = prevTickDate ? date.getUTCFullYear() > prevTickDate.getUTCFullYear() : true;
+        const isNewMonth = prevTickDate ? date.getUTCMonth() !== prevTickDate.getUTCMonth() : true;
 
         if (chartWidth < 500) {
           if (isNewYear) return `${year}\n${month}`;
