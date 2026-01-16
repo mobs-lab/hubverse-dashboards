@@ -11,6 +11,7 @@ import { initializeForecastSettings } from '@/store/data-slices/settings/Setting
 import { useAppDispatch } from '@/store/hooks';
 import { LoadingStates } from '@/types/app';
 import { ForecastPeriodOptions } from '@/types/domains/forecasting';
+import { parseUTCDate } from '@/utils/date';
 import { logger } from '@/utils/logger';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
@@ -172,8 +173,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           forecastPeriodId: period.forecastPeriodId,
           displayString: period.displayString,
           timeValue: period.timeValue,
-          startDate: new Date(period.startDate),
-          endDate: new Date(period.endDate),
+          startDate: parseUTCDate(period.startDate),
+          endDate: parseUTCDate(period.endDate),
           isDefaultSelected: period.isDefaultSelected,
         };
 
@@ -288,6 +289,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       disableMapInDashboard: metadata.spatial?.disableMapInDashboard ?? false,
 
       // Temporal configuration from metadata.temporal
+      
       timeUnit: metadata.temporal?.timeUnit || 7,
       horizons: metadata.temporal?.horizons || [],
       defaultSelectedDate: metadata.temporal?.defaultSelectedDate,

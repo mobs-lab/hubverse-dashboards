@@ -109,10 +109,6 @@ const SingleModelSettingsPanel: React.FC = () => {
       // Find first available model
       const firstAvailableModel = modelNames.find(m => availableModels.has(m));
       if (firstAvailableModel && firstAvailableModel !== evaluationsSingleModelViewModel) {
-        console.log('[SingleModelSettingsPanel] Current model unavailable, switching to:', {
-          from: evaluationsSingleModelViewModel,
-          to: firstAvailableModel,
-        });
         dispatch(updateEvaluationsSingleModelViewModel(firstAvailableModel));
       }
     }
@@ -124,7 +120,7 @@ const SingleModelSettingsPanel: React.FC = () => {
     modelNames,
     evaluationsSingleModelViewModel,
     dispatch,
-  ]); // Include all dependencies
+  ]);
 
   // Season selection handler (shared with forecast)
   const onSeasonSelectionChange = (seasonIdentifier: string) => {
@@ -143,17 +139,14 @@ const SingleModelSettingsPanel: React.FC = () => {
   // Date selection handlers
   const onDateStartSelectionChange = (date: Date | null) => {
     if (date && date >= earliestDate && date <= evaluationSingleModelViewDateEnd) {
+      console.debug("SingleModelSP: start date changed to:  ", date.toISOString());
       dispatch(updateEvaluationSingleModelViewDateStart(date));
-    } else {
-      console.error('SingleModelSettingsPanel: Invalid dateStart selection');
     }
   };
 
   const onDateEndSelectionChange = (date: Date | null) => {
     if (date && date >= evaluationsSingleModelViewDateStart && date <= latestDate) {
       dispatch(updateEvaluationSingleModelViewDateEnd(date));
-    } else {
-      console.error('SingleModelSettingsPanel: Invalid dateEnd selection');
     }
   };
 

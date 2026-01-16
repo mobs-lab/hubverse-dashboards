@@ -104,10 +104,6 @@ const SettingsPanel: React.FC = () => {
     const selectedUnavailableModels = selectedModels.filter(m => unavailableModels.has(m));
     if (selectedUnavailableModels.length > 0) {
       const newSelectedModels = selectedModels.filter(m => availableModels.has(m));
-      console.log('[SettingsPanel] Auto-deselecting unavailable models:', {
-        unavailable: selectedUnavailableModels,
-        newSelection: newSelectedModels,
-      });
       dispatch(updateSelectedModels(newSelectedModels));
     }
   }, [dateStart, dateEnd, unavailableModels, availableModels, selectedModels, dispatch]); // Include all dependencies

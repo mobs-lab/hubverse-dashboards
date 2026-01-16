@@ -6,7 +6,7 @@ import {
   selectSingleModelTimeSeriesData,
 } from '@/store/selectors/singleModelSelectors';
 import { selectModelColorMap, selectTimeUnit } from '@/store/selectors';
-import { normalizeToUTCMidDay } from '@/utils/date';
+import { generateAlignedDateTicks } from '@/utils/date';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
 import * as d3 from 'd3';
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -26,28 +26,6 @@ const SingleModelHorizonPlot: React.FC = () => {
     evaluationsSingleModelViewModel,
     evaluationSingleModelViewHorizon,
   } = useAppSelector((state) => state.evaluationsSingleModelSettings);
-
-  /**
-   * Generate date ticks for x-axis using configured time unit
-   * Generates dates at intervals based on the time unit from config (e.g., 7 days, 14 days, etc.)
-   */
-  function generateDateTicks(startDate: Date, endDate: Date, timeUnitDays: number): Date[] {
-    const dates: Date[] = [];
-    const msPerUnit = timeUnitDays * 24 * 60 * 60 * 1000;
-
-    // Normalize start and end dates to UTC midday
-    let currentDate = normalizeToUTCMidDay(startDate);
-    // let currentDate = startDate;
-    const normalizedEndDate = normalizeToUTCMidDay(endDate);
-
-    // Generate dates at time unit intervals until end date
-    while (currentDate <= normalizedEndDate) {
-      dates.push(new Date(currentDate));
-      currentDate = new Date(currentDate.getTime() + msPerUnit);
-    }
-
-    return dates;
-  }
 
   function createScalesAndAxes(
     allDateTicks: Date[], // All date ticks for the x-axis
@@ -194,7 +172,7 @@ const SingleModelHorizonPlot: React.FC = () => {
       .filter((d) => d.groundTruth && d.groundTruth.admissions >= 0)
       .map((d) => ({
         // Use targetDate for x-axis to align with scores chart
-        date: normalizeToUTCMidDay(d.targetDate),
+        date: d.targetDate,
         admissions: d.groundTruth.admissions,
         weeklyRate: d.groundTruth.weeklyRate,
       }));
@@ -203,8 +181,8 @@ const SingleModelHorizonPlot: React.FC = () => {
       .filter((d) => d.prediction)
       .map((d) => ({
         // Use targetDate for x-axis to align with scores chart
-        date: normalizeToUTCMidDay(d.prediction.targetDate),
-        targetDate: normalizeToUTCMidDay(d.prediction.targetDate),
+        date: d.prediction.targetDate,
+        targetDate: d.prediction.targetDate,
         median: d.prediction.median,
         quantile05: d.prediction.q05,
         quantile25: d.prediction.q25,
@@ -224,12 +202,21 @@ const SingleModelHorizonPlot: React.FC = () => {
       return;
     }
 
-    // Generate full date range from metadata to ensure x-axis synchronization across all charts
-    // This creates a consistent date axis regardless of which dates have actual data
-    const allDateTicks = generateDateTicks(
-      new Date(displayStartDate),
-      new Date(displayEndDate),
-      timeUnit
+    // Collect all unique dates from actual data to use for grid alignment
+    const actualDataDatesSet = new Set<string>();
+    groundTruthPoints.forEach(pt => actualDataDatesSet.add(pt.date.toISOString()));
+    predictionPoints.forEach(pt => actualDataDatesSet.add(pt.date.toISOString()));
+    const actualDataDates = Array.from(actualDataDatesSet)
+      .map(dateStr => new Date(dateStr))
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    // Generate date ticks ALIGNED to actual data dates
+    // This ensures the tick grid matches the data grid, preventing misalignment
+    const allDateTicks = generateAlignedDateTicks(
+      displayStartDate,
+      displayEndDate,
+      timeUnit,
+      actualDataDates
     );
 
     // Create scales and chart group
@@ -242,13 +229,13 @@ const SingleModelHorizonPlot: React.FC = () => {
     );
 
     /* Helper function to wrap x-axis label*/
-    function wrap(text, width) {
-      text.each(function () {
-        const text = d3.select(this);
+    function wrap(text: d3.Selection<d3.BaseType, unknown, SVGGElement, unknown>, width: number) {
+      text.each(function (this: d3.BaseType) {
+        const text = d3.select(this as SVGTextElement);
         const lines = text.text().split(/\n+/);
-        const x = text.attr('x') || 0;
-        const y = text.attr('y') || 0;
-        const dy = parseFloat(text.attr('dy') || 0);
+        const x = text.attr('x') || '0';
+        const y = text.attr('y') || '0';
+        const dy = parseFloat(text.attr('dy') || '0');
 
         // Clear existing content
         text.text(null);
@@ -367,7 +354,7 @@ const SingleModelHorizonPlot: React.FC = () => {
       if (groundTruthPoint.admissions < 0) return; // Skip placeholders
 
       const x = xScale(groundTruthPoint.date.toISOString());
-      if (x === undefined) return;
+      if (x === undefined) return; // Date not in scale domain
 
       pointsGroup
         .append('circle')
@@ -382,7 +369,7 @@ const SingleModelHorizonPlot: React.FC = () => {
     // Render only prediction data elements for dates with predictions
     predictionPoints.forEach((pd) => {
       const x = xScale(pd.date.toISOString());
-      if (x === undefined) return;
+      if (x === undefined) return; // Date not in scale domain
 
       // 90% interval box
       boxesGroup

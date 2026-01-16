@@ -341,10 +341,10 @@ export const selectSeasonOverviewModelAvailability = createSelector(
     (state: RootState) => state.evaluationsSeasonOverviewSettings.selectedEvalOverviewTimePeriod,
   ],
   (allModels, availabilityData, selectedPeriodId) => {
-    console.debug('[selectSeasonOverviewModelAvailability] Checking for period:', {
+    /* console.debug('[selectSeasonOverviewModelAvailability] Checking for period:', {
       periodId: selectedPeriodId,
       totalModels: allModels.length,
-    });
+    }); */
 
     // Safety check
     if (!allModels || allModels.length === 0) {
@@ -384,10 +384,10 @@ export const selectSeasonOverviewModelAvailability = createSelector(
       ...allModels.filter((m) => !availableSet.has(m)),
     ];
 
-    console.debug('[selectSeasonOverviewModelAvailability] Result:', {
+    /* console.debug('[selectSeasonOverviewModelAvailability] Result:', {
       availableModels: availableModelsList,
       unavailableModels: allUnavailable,
-    });
+    }); */
 
     return {
       sortedModels,
@@ -412,12 +412,12 @@ export const selectSingleModelAvailability = createSelector(
     (state: RootState) => state.evaluationsSingleModelSettings.evaluationSingleModelViewDateEnd,
   ],
   (allModels, modelOutput, locationCode, startDate, endDate) => {
-    console.debug('[selectSingleModelAvailability] Checking availability (data-driven) for date range:', {
+    /* console.debug('[selectSingleModelAvailability] Checking availability (data-driven) for date range:', {
       start: startDate?.toISOString(),
       end: endDate?.toISOString(),
       location: locationCode,
       totalModels: allModels.length,
-    });
+    }); */
 
     // Safety check
     if (!allModels || allModels.length === 0) {
@@ -489,12 +489,12 @@ export const selectSingleModelAvailability = createSelector(
       ...allModels.filter((m) => !modelsWithData.has(m)),
     ];
 
-    console.debug('[selectSingleModelAvailability] Result (data-driven):', {
+    /* console.debug('[selectSingleModelAvailability] Result (data-driven):', {
       available: availableModelsList.length,
       unavailable: unavailableModelsList.length,
       availableModels: availableModelsList,
       unavailableModels: unavailableModelsList,
-    });
+    }); */
 
     return {
       sortedModels,

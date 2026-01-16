@@ -6,7 +6,7 @@ import { Axis, NumberValue } from 'd3';
 import React, { useCallback, useEffect, useRef } from 'react';
 import { PredictionPointInterval, TargetData } from '@/types/domains/forecasting';
 import { useChartMargins } from '@/utils/chart-margin-utils';
-import { isUTCDateEqual } from '@/utils/date';
+import { isUTCDateEqual, generateAlignedDateTicks } from '@/utils/date';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
 import { updateUserSelectedDate } from '@/store/data-slices/settings/SettingsSliceForecastPage';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -102,8 +102,15 @@ const ForecastChart: React.FC = () => {
 
       const xScale = d3.scaleUtc().domain([timeFilterRangeStart, maxDate]).range([0, chartWidth]);
 
-      // Generate ticks for all Saturdays within the date range
-      const tickDates = d3.timeDay.range(timeFilterRangeStart, maxDate, timeUnit);
+      // Generate tick dates aligned to actual data dates
+      // This ensures the tick grid matches the natural data grid regardless of user-selected start date
+      const actualDataDates = ground.map(d => d.date);
+      const tickDates = generateAlignedDateTicks(
+        timeFilterRangeStart,
+        maxDate,
+        timeUnit,
+        actualDataDates
+      );
 
       // Determine ideal tick count based on chart width
       const getIdealTickCount = (width: number, totalTicks: number) => {
@@ -118,7 +125,7 @@ const ForecastChart: React.FC = () => {
 
       const idealTickCount = getIdealTickCount(chartWidth, tickDates.length);
 
-      // Select evenly spaced Saturdays if we have too many
+      // Select evenly spaced on-grid dates if we have too many
       let selectedTicks = tickDates;
       if (tickDates.length > idealTickCount) {
         const tickInterval = Math.max(1, Math.floor(tickDates.length / idealTickCount));

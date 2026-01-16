@@ -7,7 +7,7 @@ import { selectSingleModelTimeSeriesData } from '@/store/selectors/singleModelSe
 import { selectModelColorMap, selectTimeUnit } from '@/store/selectors';
 
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
-import { normalizeToUTCMidDay } from '@/utils/date';
+import {  generateAlignedDateTicks } from '@/utils/date';
 
 interface ScoreDataPoint {
   referenceDate: Date;
@@ -362,15 +362,7 @@ const SingleModelScoreLineChart: React.FC = () => {
       .line<ProcessedScoreDataPoint>()
       .defined((d) => {
         const xPos = xScale(d.targetDate.toISOString());
-        const isValid = !isNaN(d.score) && isFinite(d.score) && xPos !== undefined;
-        if (!isValid) {
-          console.warn(`[renderVisualElements] Skipping invalid point:`, {
-            date: d.targetDate.toISOString(),
-            score: d.score,
-            xPos,
-          });
-        }
-        return isValid;
+        return !isNaN(d.score) && isFinite(d.score) && xPos !== undefined;
       })
       .x((d) => (xScale(d.targetDate.toISOString()) || 0) + xScale.bandwidth() / 2)
       .y((d) => yScale(d.score));
@@ -390,7 +382,10 @@ const SingleModelScoreLineChart: React.FC = () => {
       .data(sortedData)
       .enter()
       .append('circle')
-      .attr('cx', (d) => (xScale(d.targetDate.toISOString()) || 0) + xScale.bandwidth() / 2)
+      .attr('cx', (d) => {
+        const xPos = xScale(d.targetDate.toISOString());
+        return xPos !== undefined ? xPos + xScale.bandwidth() / 2 : 0;
+      })
       .attr('cy', (d) => yScale(d.score))
       .attr('r', 4)
       .attr('fill', modelColorMap[modelName]);
@@ -429,27 +424,6 @@ const SingleModelScoreLineChart: React.FC = () => {
     });
   }
 
-  /**
-   * Generate date ticks for x-axis using configured time unit
-   * Generates dates at intervals based on the time unit from config (e.g., 7 days, 14 days, etc.)
-   */
-  function generateDateTicks(startDate: Date, endDate: Date, timeUnitDays: number): Date[] {
-    const dates: Date[] = [];
-    const msPerUnit = timeUnitDays * 24 * 60 * 60 * 1000;
-
-    // Normalize start and end dates to UTC midday
-    let currentDate = normalizeToUTCMidDay(startDate);
-    const normalizedEndDate = normalizeToUTCMidDay(endDate);
-
-    // Generate dates at time unit intervals until end date
-    while (currentDate <= normalizedEndDate) {
-      dates.push(new Date(currentDate));
-      currentDate = new Date(currentDate.getTime() + msPerUnit);
-    }
-
-    return dates;
-  }
-
   const renderChart = useCallback(() => {
     if (!chartRef.current || !dimensions.width || !dimensions.height) return;
 
@@ -470,42 +444,32 @@ const SingleModelScoreLineChart: React.FC = () => {
     // Get the time range from metadata to sync up with horizon plot
     const { displayStartDate, displayEndDate } = timeSeriesData.metadata;
 
-    // Get actual score data dates and normalize to UTC midday
+    // Normalize score data dates to UTC midday for consistent display
     const normalizedScoreData = scoreDataFromJSON.map((entry) => ({
       ...entry,
-      targetEndDate: normalizeToUTCMidDay(entry.targetEndDate),
-      referenceDate: normalizeToUTCMidDay(entry.referenceDate),
+      targetEndDate: entry.targetEndDate,
+      referenceDate: entry.referenceDate,
     }));
 
-    // Check for duplicate dates or invalid scores
-    const seenDates = new Set<string>();
-    const duplicates: string[] = [];
-    normalizedScoreData.forEach((entry) => {
-      const dateKey = entry.targetEndDate.toISOString();
-      if (seenDates.has(dateKey)) {
-        duplicates.push(dateKey);
-      }
-      seenDates.add(dateKey);
+    // IMPORTANT: Use TIME SERIES data dates (from horizon plot's source) for tick generation,
+    // NOT score data dates. This ensures the score chart x-axis is exactly synced with horizon plot.
+    // The time series data combines ground truth and predictions, which is the superset of dates.
+    const timeSeriesDataDates = timeSeriesData.data
+    .map((d: any) => d.targetDate)
+      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
 
-      if (!isFinite(entry.score) || isNaN(entry.score)) {
-        console.warn(`[SingleModelScoreLineChart] Invalid score detected:`, {
-          date: dateKey,
-          score: entry.score,
-          refDate: entry.referenceDate.toISOString(),
-        });
-      }
-    });
+    // Remove duplicate dates (same point may appear for both ground truth and prediction)
+    const uniqueTimeSeriesDates = Array.from(
+      new Set(timeSeriesDataDates.map((d: Date) => d.toISOString()))
+    ).map(iso => new Date(iso));
 
-    if (duplicates.length > 0) {
-      console.warn(`[SingleModelScoreLineChart] Duplicate dates found:`, duplicates);
-    }
-
-    // Generate full date range from metadata to ensure x-axis synchronization with horizon plot
-    // This creates a consistent date axis regardless of which dates have actual score data
-    const allDateTicks = generateDateTicks(
+    // Generate date ticks ALIGNED to TIME SERIES data dates (same as horizon plot)
+    // This ensures the score chart x-axis exactly matches the horizon plot's x-axis
+    const allDateTicks = generateAlignedDateTicks(
       new Date(displayStartDate),
       new Date(displayEndDate),
-      timeUnit
+      timeUnit,
+      uniqueTimeSeriesDates
     );
 
     // Create processed data directly from scoreDataFromJSON, filtering out invalid scores
@@ -516,14 +480,6 @@ const SingleModelScoreLineChart: React.FC = () => {
         referenceDate: entry.referenceDate,
         score: entry.score,
       }));
-
-    console.debug(
-      `[SingleModelScoreLineChart] Processed ${processedData.length} valid data points`,
-      {
-        firstPoint: processedData[0],
-        lastPoint: processedData[processedData.length - 1],
-      }
-    );
 
     // Setup dimensions
     const width = dimensions.width;
@@ -586,7 +542,7 @@ const SingleModelScoreLineChart: React.FC = () => {
         const t = d3.select(this);
         if (t.attr('dy') === null) t.attr('dy', '0');
       })
-      .call(wrapAxisLabels, 20);
+      .call(wrapAxisLabels);
 
     chart
       .append('g')

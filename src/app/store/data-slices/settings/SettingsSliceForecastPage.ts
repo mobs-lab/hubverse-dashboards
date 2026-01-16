@@ -176,7 +176,6 @@ export const {
   updateYScale,
   updateSelectedPredictionIntervals,
   updateHistoricalDataMode,
-
   updateUserSelectedDate,
 } = forecastSettingsSlice.actions;
 

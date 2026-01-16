@@ -18,6 +18,23 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
+def to_utc_iso_string(date_value) -> str:
+    """
+    Convert a date value to full UTC ISO string format: YYYY-MM-DDTHH:mm:ssZ
+    
+    This ensures consistent date key formatting that JavaScript will interpret as UTC,
+    avoiding local timezone interpretation issues when parsing date-only strings.
+    
+    Args:
+        date_value: A date-like value (string, datetime, Timestamp, etc.)
+        
+    Returns:
+        str: Full ISO UTC string like "2023-04-01T00:00:00Z"
+    """
+    dt = pd.to_datetime(date_value)
+    return dt.strftime("%Y-%m-%dT00:00:00Z")
+
+
 class NpEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle NumPy and Pandas types.
 
@@ -37,6 +54,9 @@ class NpEncoder(json.JSONEncoder):
             # Convert array, handling NaN/Inf values
             return [None if (isinstance(x, float) and (np.isnan(x) or np.isinf(x))) else x for x in obj.tolist()]
         if isinstance(obj, pd.Timestamp):
+            # Ensure timestamp includes UTC timezone info (adds 'Z' suffix)
+            if obj.tz is None:
+                obj = obj.tz_localize('UTC')
             return obj.isoformat()
         # Handle regular Python float NaN/Inf
         if isinstance(obj, float):
@@ -614,13 +634,13 @@ class DataProcessor:
         unique_as_of_dates = df["as_of"].unique()
 
         for as_of_date in unique_as_of_dates:
-            as_of_iso = pd.to_datetime(as_of_date).strftime("%Y-%m-%d")
+            as_of_iso = to_utc_iso_string(as_of_date)
             snapshot_df = df[df["as_of"] == as_of_date]
 
             # Group all date values
             date_map = {}
             for date in snapshot_df["date"].unique():
-                date_iso = pd.to_datetime(date).strftime("%Y-%m-%d")
+                date_iso = to_utc_iso_string(date)
                 date_records = snapshot_df[snapshot_df["date"] == date]
 
                 # Group by location
@@ -1076,8 +1096,8 @@ class DataProcessor:
             self.model_availability_per_period[period_id] = {
                 "availableModels": models_with_data,
                 "unavailableModels": [m for m in all_models if m not in models_with_data],
-                "startDate": start_date.isoformat() if pd.notna(start_date) else None,
-                "endDate": end_date.isoformat() if pd.notna(end_date) else None,
+                "startDate": to_utc_iso_string(start_date) if pd.notna(start_date) else None,
+                "endDate": to_utc_iso_string(end_date) if pd.notna(end_date) else None,
             }
             
             logger.info(
@@ -1187,8 +1207,8 @@ class DataProcessor:
                     "forecastPeriodId": period.forecast_period_id,
                     "displayString": period.display_string,
                     "timeValue": f"{period.start_date.date()}/{period.end_date.date()}",
-                    "startDate": period.start_date.isoformat(),
-                    "endDate": period.end_date.isoformat(),
+                    "startDate": to_utc_iso_string(period.start_date),
+                    "endDate": to_utc_iso_string(period.end_date),
                     "isDefaultSelected": period.is_default_selected,
                 }
             )
@@ -1226,8 +1246,8 @@ class DataProcessor:
             # Add target-specific date range if available
             if target.target_id in self.date_ranges_per_target:
                 date_range = self.date_ranges_per_target[target.target_id]
-                target_info["earliestDate"] = date_range["earliestDate"].isoformat() if pd.notna(date_range["earliestDate"]) else None
-                target_info["latestDate"] = date_range["latestDate"].isoformat() if pd.notna(date_range["latestDate"]) else None
+                target_info["earliestDate"] = to_utc_iso_string(date_range["earliestDate"]) if pd.notna(date_range["earliestDate"]) else None
+                target_info["latestDate"] = to_utc_iso_string(date_range["latestDate"]) if pd.notna(date_range["latestDate"]) else None
             
             targets_info.append(target_info)
             
@@ -1275,9 +1295,9 @@ class DataProcessor:
                 "timeUnit": self.config.time_unit,
                 "horizons": self.config.horizons,
                 # Global date range (for backward compatibility and overall bounds)
-                "earliestDateAcrossTargets": earliest_date_across_targets.isoformat() if pd.notna(earliest_date_across_targets) else None,
-                "latestDateAcrossTargets": latest_date_across_targets.isoformat() if pd.notna(latest_date_across_targets) else None,
-                "defaultSelectedDate": latest_model_ref_date.isoformat() if pd.notna(latest_model_ref_date) else None,
+                "earliestDateAcrossTargets": to_utc_iso_string(earliest_date_across_targets) if pd.notna(earliest_date_across_targets) else None,
+                "latestDateAcrossTargets": to_utc_iso_string(latest_date_across_targets) if pd.notna(latest_date_across_targets) else None,
+                "defaultSelectedDate": to_utc_iso_string(latest_model_ref_date) if pd.notna(latest_model_ref_date) else None,
                 # Note: Target-specific date ranges are available in targets[].earliestDate and targets[].latestDate
             },
             # === FORECAST PERIODS ===
@@ -1436,7 +1456,7 @@ class DataProcessor:
             },
             # === METADATA INFO ===
             "_meta": {
-                "generatedAt": pd.Timestamp.now().isoformat(),
+                "generatedAt": pd.Timestamp.now(tz='UTC').isoformat(),
                 "dataProcessor": {
                     "skipEvaluations": self.skip_evaluations,
                     "devMode": self.dev_mode,
@@ -1476,7 +1496,7 @@ class DataProcessor:
 
         for _, row in target_data_df.iterrows():
             location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
-            date_iso = pd.to_datetime(row["date"]).strftime("%Y-%m-%d")
+            date_iso = to_utc_iso_string(row["date"])
 
             data_entry = {
                 "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= -1 else None,
@@ -1536,12 +1556,12 @@ class DataProcessor:
                 location_dict = {}
 
                 for ref_date in location_data["reference_date"].unique():
-                    ref_date_iso = pd.to_datetime(ref_date).strftime("%Y-%m-%d")
+                    ref_date_iso = to_utc_iso_string(ref_date)
                     ref_date_data = location_data[location_data["reference_date"] == ref_date]
                     predictions_dict = {}
 
                     for _, row in ref_date_data.iterrows():
-                        target_date_iso = pd.to_datetime(row["target_end_date"]).strftime("%Y-%m-%d")
+                        target_date_iso = to_utc_iso_string(row["target_end_date"])
 
                         pred_entry = {"horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None}
 
@@ -2113,12 +2133,8 @@ class DataProcessor:
                                 continue
                             records.append(
                                 {
-                                    "referenceDate": row["reference_date"].isoformat()
-                                    if isinstance(row["reference_date"], pd.Timestamp)
-                                    else row["reference_date"],
-                                    "targetEndDate": row["target_end_date"].isoformat()
-                                    if isinstance(row["target_end_date"], pd.Timestamp)
-                                    else row["target_end_date"],
+                                    "referenceDate": to_utc_iso_string(row["reference_date"]),
+                                    "targetEndDate": to_utc_iso_string(row["target_end_date"]),
                                     "score": float(score_val),
                                 }
                             )

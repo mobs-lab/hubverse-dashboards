@@ -4,6 +4,8 @@
 import { createSelector } from "@reduxjs/toolkit";
 import { RootState } from "../index";
 import { selectSingleModelSelectedTargetId } from "./evaluationSelectors";
+import { parseUTCDate } from "@/utils/date";
+import type { RawScoreRecord } from "@/types/domains/evaluations";
 
 // ============================================
 // Core Data Status
@@ -35,6 +37,7 @@ export const selectSingleModelTimeSeriesData = createSelector(
     (state: RootState) => state.evaluationsSingleModelSettings.selectedTargetId,
   ],
   (isLoaded, modelOutput, targetData, modelName, locationCode, horizon, dateStart, dateEnd, targetId) => {
+    console.debug("selectSingleModelTimeSeriesData dateStart peek: ", dateStart.toISOString());
     if (!isLoaded || !modelOutput || !targetData || !modelName) {
       return {
         data: [],
@@ -77,12 +80,13 @@ export const selectSingleModelTimeSeriesData = createSelector(
 
     // Collect all predictions for the selected horizon within date range
     Object.entries(modelData).forEach(([refDateStr, refData]: [string, any]) => {
-      const refDate = new Date(refDateStr);
+      // Parse date key as UTC (handles both "YYYY-MM-DD" and "YYYY-MM-DDTHH:mm:ssZ" formats)
+      const refDate = parseUTCDate(refDateStr);
       // Removed refDate filter here, as we filter by targetDate now
 
       if (refData.predictions) {
         Object.entries(refData.predictions).forEach(([targetDateStr, pred]: [string, any]) => {
-          const targetDate = new Date(targetDateStr);
+          const targetDate = parseUTCDate(targetDateStr);
           // Filter by target date being in the selected range
           if (targetDate >= dateStart && targetDate <= dateEnd) {
              if (pred.horizon === horizon && pred.targetId === targetId) {
@@ -99,7 +103,8 @@ export const selectSingleModelTimeSeriesData = createSelector(
 
     // Add ground truth data within date range
     Object.entries(locationTargetData).forEach(([dateStr, dateData]: [string, any]) => {
-      const date = new Date(dateStr);
+      // Parse date key as UTC (handles both formats)
+      const date = parseUTCDate(dateStr);
       if (date < dateStart || date > dateEnd){
         // console.debug("No target data for date:", date);
         return;
@@ -196,6 +201,7 @@ export const selectSingleModelScoreDataFromJSON = createSelector(
     }
 
     // Navigate the nested structure
+    // Raw scores from JSON have string dates (RawScoreRecord type from interface)
     const scoreData = metricData?.[modelName]?.[stateCode]?.[horizon];
 
     if (!scoreData || !Array.isArray(scoreData)) {
@@ -204,8 +210,9 @@ export const selectSingleModelScoreDataFromJSON = createSelector(
     }
 
     // Filter scores to match the time range
-    const filteredScores = scoreData.filter((entry) => {
-      const targetDate = new Date(entry.targetEndDate);
+    const filteredScores = scoreData.filter((entry: RawScoreRecord) => {
+      // Parse date string as UTC (handles both formats)
+      const targetDate = parseUTCDate(entry.targetEndDate);
       return targetDate >= dateStart && targetDate <= dateEnd;
     });
 
@@ -218,11 +225,12 @@ export const selectSingleModelScoreDataFromJSON = createSelector(
       dateRange: { start: dateStart.toISOString(), end: dateEnd.toISOString() }
     });
 
-    // Convert ISO strings back to Date objects for the component and sort by target date
+    // Convert ISO strings to Date objects for the component and sort by target date
+    // Output type is ScoreRecord with Date fields
     const processedScores = filteredScores
-      .map((entry) => ({
-        referenceDate: new Date(entry.referenceDate),
-        targetEndDate: new Date(entry.targetEndDate),
+      .map((entry: RawScoreRecord) => ({
+        referenceDate: parseUTCDate(entry.referenceDate),
+        targetEndDate: parseUTCDate(entry.targetEndDate),
         score: entry.score,
       }))
       .sort((a, b) => a.targetEndDate.getTime() - b.targetEndDate.getTime());

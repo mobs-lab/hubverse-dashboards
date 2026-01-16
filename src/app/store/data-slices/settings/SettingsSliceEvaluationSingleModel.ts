@@ -119,7 +119,7 @@ const evaluationsSingleModelSettingsSlice = createSlice({
         updateEvaluationSingleModelViewDateEnd: (state, action: PayloadAction<Date>) => {
             state.evaluationSingleModelViewDateEnd = action.payload;
         },
-        updateEvaluationsSingleModelViewSeasonId: (state, action: PayloadAction<string>) => { // <-- Renamed from updateEvaluationsSingleModelViewDateRange
+        updateEvaluationsSingleModelViewSeasonId: (state, action: PayloadAction<string>) => { 
             state.evaluationsSingleModelViewSeasonId = action.payload;
         },
 
