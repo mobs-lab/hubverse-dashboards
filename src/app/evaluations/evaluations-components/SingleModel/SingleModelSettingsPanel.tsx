@@ -204,7 +204,7 @@ const SingleModelSettingsPanel: React.FC = () => {
   }, []);
 
   return (
-    <div className="bg-mobs-lab-color-filterspane text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings">
+    <div className="bg-dashboard-settings-panel-color text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings">
       <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length">
         <div className="mb-4 w-full overflow-ellipsis">
           <Typography variant="h6" className="text-white" placeholder="">
@@ -235,7 +235,7 @@ const SingleModelSettingsPanel: React.FC = () => {
                   setLocationSearchText('');
                   setIsLocationDropdownOpen(true);
                 }}
-                className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 pr-10"
+                className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 pr-10"
               />
               <button
                 type="button"
@@ -252,7 +252,7 @@ const SingleModelSettingsPanel: React.FC = () => {
 
             {/* Dropdown list */}
             {isLocationDropdownOpen && (
-              <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+              <div className="absolute z-50 w-full mt-1 bg-dashboard-settings-panel-color border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
                 {filteredLocations.length > 0 ? (
                   filteredLocations.map((location) => (
                     <div
@@ -329,7 +329,7 @@ const SingleModelSettingsPanel: React.FC = () => {
             {hasMoreModels && (
               <div className="relative">
                 {!isModelListExpanded && (
-                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-mobs-lab-color-filterspane to-transparent pointer-events-none" />
+                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-dashboard-settings-panel-color to-transparent pointer-events-none" />
                 )}
                 <button
                   className="w-full mt-2 bg-[#5d636a]/60 hover:bg-[#5d636a]/90 text-white py-2 px-2 rounded text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
@@ -365,7 +365,7 @@ const SingleModelSettingsPanel: React.FC = () => {
           <select
             value={evaluationSingleModelViewHorizon}
             onChange={onHorizonChange}
-            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mt-2"
+            className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 mt-2"
           >
             {availableHorizons.map((horizon) => (
               <option key={horizon} value={horizon}>
@@ -384,7 +384,7 @@ const SingleModelSettingsPanel: React.FC = () => {
             <select
               value={selectedTargetId}
               onChange={(e) => onTargetSelectionChange(e.target.value)}
-              className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2"
+              className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2"
             >
               {availableTargets.map((target) => (
                 <option key={target.targetId} value={target.targetId}>
@@ -404,7 +404,7 @@ const SingleModelSettingsPanel: React.FC = () => {
             value={evaluationsSingleModelViewSeasonId}
             onChange={(e) => onSeasonSelectionChange(e.target.value)}
             className={
-              'text-white border-[#5d636a] border-2 flex-wrap bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 overflow-ellipsis'
+              'text-white border-[#5d636a] border-2 flex-wrap bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 overflow-ellipsis'
             }
           >
             {evaluationSingleModelViewSeasonOptions.map((option: ForecastPeriodOption) => (
@@ -455,7 +455,7 @@ const SingleModelSettingsPanel: React.FC = () => {
           <select
             value={evaluationSingleModelViewScoresOption}
             onChange={(e) => onScoreSelectionChange(e.target.value)}
-            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full p-2"
+            className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full p-2"
           >
             {scoreOptions.map((option) => (
               <option key={option} value={option}>

@@ -51,11 +51,11 @@ const Header: React.FC = () => {
     if (!navButtons || navButtons.length === 0) {
       return (
         <>
-          <Link href='/' className='text-2xl text-mobs-lab-color hover:text-teal-900'>
+          <Link href='/' className='text-2xl text-dashboard-background-color hover:text-teal-900'>
             Forecasts
           </Link>
           {evaluationsEnabled && (
-            <Link href='/evaluations/' className='text-2xl text-mobs-lab-color hover:text-teal-900'>
+            <Link href='/evaluations/' className='text-2xl text-dashboard-background-color hover:text-teal-900'>
               Evaluations
             </Link>
           )}
@@ -71,7 +71,7 @@ const Header: React.FC = () => {
           <Link
             key={idx}
             href={btn.navToLink}
-            className='text-2xl text-mobs-lab-color hover:text-teal-900'
+            className='text-2xl text-dashboard-background-color hover:text-teal-900'
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -93,7 +93,7 @@ const Header: React.FC = () => {
           <Link
             key={idx}
             href={href}
-            className='text-2xl text-mobs-lab-color hover:text-teal-900'
+            className='text-2xl text-dashboard-background-color hover:text-teal-900'
           >
             {btn.text}
           </Link>
@@ -105,7 +105,7 @@ const Header: React.FC = () => {
   };
 
   return (
-    <header ref={headerRef} className='bg-white text-mobs-lab-color shadow-md w-full'>
+    <header ref={headerRef} className='bg-white text-dashboard-background-color shadow-md w-full'>
       <div className='container min-w-[100vw] px-4 py-3 flex w-full justify-between items-center max-h-[8vh]'>
         <div className='flex items-center'>
           <Link href='/' className='text-5xl font-bold mr-6 ml-4'>

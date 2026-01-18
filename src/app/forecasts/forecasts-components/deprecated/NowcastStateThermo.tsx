@@ -62,7 +62,7 @@ const ThermoLegendArea: React.FC<{
   };
 
   return (
-    <div className='flex flex-col h-full justify-stretch items-stretch bg-mobs-lab-color-filterspane rounded util-no-sb-length py-2 pl-1 pr-4'>
+    <div className='flex flex-col h-full justify-stretch items-stretch bg-dashboard-settings-panel-color rounded util-no-sb-length py-2 pl-1 pr-4'>
       <div className='self-center sm:text-xs md:text-sm lg:text-sm xl:text-base font-bold text-center'>Activity level</div>
       <div className='flex flex-col justify-stretch items-stretch flex-grow min-h-0 max-w-full min-w-[10%]'>
         <LegendItem

@@ -44,6 +44,19 @@ print_header() {
     echo ""
 }
 
+# Function to check if npm is available
+check_npm() {
+    if ! command -v npm &> /dev/null; then
+        print_error "npm is not installed or not in PATH"
+        echo ""
+        echo "npm is required to run the dashboard. Please install Node.js and npm:"
+        echo "  - Visit https://nodejs.org/"
+        echo ""
+        exit 1
+    fi
+    print_success "Found npm ($(npm --version))"
+}
+
 # Function to check if config.yaml exists
 check_config() {
     if [ ! -f "config.yaml" ]; then
@@ -77,9 +90,138 @@ show_menu() {
     echo ""
 }
 
+# Function to prompt user to choose how to run the dashboard
+show_run_options_menu() {
+    local is_dev_mode=$1
+    
+    echo ""
+    echo "=========================================================================="
+    echo "Data processing complete! Choose how to run the dashboard:"
+    echo "=========================================================================="
+    echo ""
+    echo "  1) Run Development Server (npm run dev)"
+    echo "     - Hot reload enabled for development"
+    echo "     - Runs on http://localhost:3000"
+    echo "     - Press Ctrl+C to stop"
+    echo ""
+    echo "  2) Build and Serve Production (npm run build + npm run start)"
+    echo "     - Optimized production build"
+    echo "     - Runs on http://localhost:3000"
+    echo "     - Press Ctrl+C to stop"
+    echo ""
+    echo "  3) Exit (Run it manually later)"
+    echo ""
+    
+    # Show warning if dev mode + production build
+    if [ "$is_dev_mode" = "true" ]; then
+        print_warning "Development mode is enabled - data is in public/test-data-output/"
+        echo ""
+    fi
+}
+
+# Function to run npm development server
+run_dev_server() {
+    local is_dev_mode=$1
+    
+    echo ""
+    print_info "Starting development server..."
+    echo ""
+    
+    if [ "$is_dev_mode" = "true" ]; then
+        print_info "Development mode: Frontend will load data from /test-data-output"
+    else
+        print_info "Production mode: Frontend will load data from /data"
+    fi
+    
+    echo ""
+    print_info "Installing/updating npm dependencies..."
+    if ! npm install; then
+        print_error "Failed to install npm dependencies"
+        exit 1
+    fi
+    
+    npm run dev
+}
+
+# Function to build and serve production
+run_production_build() {
+    local is_dev_mode=$1
+    
+    echo ""
+    
+    if [ "$is_dev_mode" = "true" ]; then
+        print_warning "You are building for production with development mode enabled!"
+        echo ""
+        echo "This means:"
+        echo "  - Data is in public/test-data-output/ (will be included in build)"
+        echo "  - Frontend expects data at /test-data-output"
+        echo ""
+        echo "For true production deployment, run without --dev flag to use public/data/"
+        echo ""
+        read -p "Continue anyway? (yes/no): " confirm
+        if [[ ! "$confirm" =~ ^[Yy][Ee]?[Ss]?$ ]]; then
+            print_info "Build cancelled"
+            exit 0
+        fi
+        echo ""
+    fi
+    
+    print_info "Building production bundle..."
+    echo ""
+    
+    print_info "Installing/updating npm dependencies..."
+    if ! npm install; then
+        print_error "Failed to install npm dependencies"
+        exit 1
+    fi
+    
+    echo ""
+    print_info "Running production build (this may take a minute)..."
+    if ! npm run build; then
+        print_error "Production build failed"
+        exit 1
+    fi
+    
+    npm run start
+}
+
+# Function to handle run options menu (reusable for all build options)
+handle_run_options() {
+    local is_dev_mode=$1
+    
+    while true; do
+        show_run_options_menu "$is_dev_mode"
+        read -p "Enter your choice (1-3): " run_choice
+        
+        case $run_choice in
+            1)
+                run_dev_server "$is_dev_mode"
+                exit 0
+                ;;
+            2)
+                run_production_build "$is_dev_mode"
+                exit 0
+                ;;
+            3)
+                echo ""
+                print_info "Exiting. You can run the dashboard later with:"
+                echo "  npm run dev    (development server)"
+                echo "  npm run build && npm run start    (production)"
+                exit 0
+                ;;
+            *)
+                echo ""
+                print_error "Invalid choice. Please enter 1, 2, or 3."
+                echo ""
+                ;;
+        esac
+    done
+}
+
 # Main script execution
 main() {
     # Check prerequisites
+    check_npm
     # check_python
     check_config
 
@@ -98,7 +240,7 @@ main() {
                 # Run the Python workflow
                 if python3 scripts/dashboard_builder_workflow.py --config config.yaml; then
                     print_success "Dashboard build completed successfully!"
-                    exit 0
+                    handle_run_options "false"
                 else
                     print_error "Dashboard build failed. Please check the errors above."
                     exit 1
@@ -115,7 +257,7 @@ main() {
                 if python3 scripts/dashboard_builder_workflow.py --config config.yaml --skip-evaluations; then
                     print_success "Dashboard build completed successfully!"
                     print_info "Note: Evaluation generation was skipped. The dashboard Evaluations page is disabled."
-                    exit 0
+                    handle_run_options "false"
                 else
                     print_error "Dashboard build failed. Please check the errors above."
                     exit 1
@@ -130,7 +272,7 @@ main() {
                 # Run the Python workflow with --dev flag
                 if python3 scripts/dashboard_builder_workflow.py --config config.yaml --dev; then
                     print_success "Dashboard build completed successfully!"
-                    exit 0
+                    handle_run_options "true"
                 else
                     print_error "Dashboard build failed. Please check the errors above."
                     exit 1
@@ -147,7 +289,7 @@ main() {
                 if python3 scripts/dashboard_builder_workflow.py --config config.yaml --dev --skip-evaluations; then
                     print_success "Dashboard build completed successfully!"
                     print_info "Note: Evaluation generation was skipped. The dashboard Evaluations page is disabled."
-                    exit 0
+                    handle_run_options "true"
                 else
                     print_error "Dashboard build failed. Please check the errors above."
                     exit 1
