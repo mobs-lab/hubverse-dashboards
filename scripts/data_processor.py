@@ -162,6 +162,12 @@ class DataProcessor:
         5.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
         6.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
         7.  **Export**: Writes all processed data to JSON files in the public directory.
+        2.  **Discovery**: Detects locations present in the data.
+        3.  **Filtering**: Filters data by config-specified targets and detected locations.
+        4.  **Preprocessing**: Fixes missing time intervals in target data (using filtered data).
+        5.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
+        6.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
+        7.  **Export**: Writes all processed data to JSON files in the public directory.
 
         Returns:
             bool: True if the pipeline completes successfully.
@@ -169,12 +175,14 @@ class DataProcessor:
         logger.info("Starting data processing...")
 
         # 1: Data Ingestion
+        # 1: Data Ingestion
         target_data_df = self._load_target_data()
         self.processing_stats["target_data_rows"] = len(target_data_df)
 
         model_output_df = self._load_model_output_data()
         self.processing_stats["model_output_rows"] = len(model_output_df)
 
+        # 2: Location detection
         # 2: Location detection
         locations = self._detect_locations(target_data_df, model_output_df)
         self.processing_stats["locations_detected"] = len(locations)
@@ -207,6 +215,7 @@ class DataProcessor:
         processed_target_data = self._process_target_data(fixed_target_data_df)
 
         # 6: Process all model output data
+        # 6: Process all model output data
         processed_model_output = self._process_model_output_data(model_output_df)
 
         # 6b: Track model availability per period (for frontend UI)
@@ -219,19 +228,24 @@ class DataProcessor:
 
         if not self.skip_evaluations:
             # Step 7a: Generate raw evaluation metrics for all available data
+            # Step 7a: Generate raw evaluation metrics for all available data
             raw_evaluations = self._generate_raw_evaluation_collection(fixed_target_data_df, self.model_output_unpivoted)
 
             # Step 7b: Aggregate evaluation metrics by periods (for Season Overview)
+            # Step 7b: Aggregate evaluation metrics by periods (for Season Overview)
             aggregated_evaluations = self._generate_aggregated_evaluation_collection(raw_evaluations)
 
+            # Step 7c: Organize raw scores (all data, no period filtering, for Single Model view)
             # Step 7c: Organize raw scores (all data, no period filtering, for Single Model view)
             raw_scores_by_period = self._generate_raw_scores_by_period(raw_evaluations)
         else:
             logger.info("Skipping evaluation calculations (disabled by user)")
 
         # 8: Generate Metadata
+        # 8: Generate Metadata
         metadata = self._generate_metadata(locations, model_output_df, target_data_df)
 
+        # 9: Write output files
         # 9: Write output files
         self._write_output_files(
             processed_target_data,
@@ -347,7 +361,9 @@ class DataProcessor:
         df["date"] = pd.to_datetime(df["date"])
 
         # Handle 'as_of' column processing
+        # Handle 'as_of' column processing
         if "as_of" in df.columns:
+            logger.info("Found 'as_of' column.")
             logger.info("Found 'as_of' column.")
             df["as_of"] = pd.to_datetime(df["as_of"])
 
@@ -399,9 +415,18 @@ class DataProcessor:
                 logger.info("Processing historical target data snapshots from filtered data...")
                 self.historical_target_data = self._process_historical_target_data(df)
                 logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
+            # Check if historical data feature is enabled
+            if self.config.disable_historical_target_data:
+                logger.info("Historical target data is DISABLED by config flag. Skipping historical snapshot processing.")
+                # Leave self.historical_target_data as None (initialized in __init__)
+            else:
+                # Process historical snapshots: Map<as_of_date, Map<date, Map<location, data>>>
+                logger.info("Processing historical target data snapshots from filtered data...")
+                self.historical_target_data = self._process_historical_target_data(df)
+                logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
 
             return current_df
-
+        
         return df
 
     def _load_partitioned_parquet(self) -> pd.DataFrame:
@@ -764,6 +789,8 @@ class DataProcessor:
         Now generates placeholders separately for each target, using target-specific date ranges.
 
         Args:
+            target_data_df (pd.DataFrame): The pre-filtered target data.
+            model_output_df (pd.DataFrame): The pre-filtered model output data (used to determine the full date range).
             target_data_df (pd.DataFrame): The pre-filtered target data.
             model_output_df (pd.DataFrame): The pre-filtered model output data (used to determine the full date range).
 
@@ -1279,6 +1306,7 @@ class DataProcessor:
                 "evaluationsEnabled": not self.skip_evaluations,
                 # Historical data is enabled if: (1) not disabled by config AND (2) data was successfully processed
                 "historicalTargetDataEnabled": not self.config.disable_historical_target_data and self.historical_target_data is not None,
+
             },
             # === SPATIAL CONFIGURATION ===
             "spatial": {
@@ -1909,8 +1937,10 @@ class DataProcessor:
 
         Returns:
             dict: Raw scores organized by target for frontend consumption
+            dict: Raw scores organized by target for frontend consumption
         """
         logger.info("=" * 60)
+        logger.info("STEP 3: ORGANIZING ALL RAW SCORES (NO PERIOD FILTERING)")
         logger.info("STEP 3: ORGANIZING ALL RAW SCORES (NO PERIOD FILTERING)")
         logger.info("=" * 60)
 
@@ -1920,13 +1950,21 @@ class DataProcessor:
         if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
             logger.info("Organizing WIS/Baseline raw scores...")
             self._organize_metric_all_data(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", raw_scores_data)
+        # Process WIS Ratio
+        if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
+            logger.info("Organizing WIS/Baseline raw scores...")
+            self._organize_metric_all_data(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", raw_scores_data)
 
         # Process MAPE
         if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
             logger.info("Organizing MAPE raw scores...")
             self._organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data)
+        # Process MAPE
+        if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
+            logger.info("Organizing MAPE raw scores...")
+            self._organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data)
 
-        logger.info("Raw scores organization complete.")
+        logger.info("Raw scores organization complete.")  
         return raw_scores_data
 
     def _organize_metric_all_data(self, df: pd.DataFrame, metric_name: str, val_col: str, raw_scores_dict: dict):
@@ -1940,14 +1978,19 @@ class DataProcessor:
 
         # Group by target
         unique_targets = df["target"].unique() if "target" in df.columns else ["default"]
+        unique_targets = df["target"].unique() if "target" in df.columns else ["default"]
 
         for target in unique_targets:
             target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
             target_df = df if target == "default" else df[df["target"] == target]
+            target_df = df if target == "default" else df[df["target"] == target]
 
             if target_id not in raw_scores_dict:
                 raw_scores_dict[target_id] = {}
+            if target_id not in raw_scores_dict:
+                raw_scores_dict[target_id] = {}
 
+            raw_scores_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
             raw_scores_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
 
     def _calculate_boxplot_stats(self, location_averages: list) -> dict:
@@ -2022,11 +2065,13 @@ class DataProcessor:
         - forecast/historical-target-data.json (optional)
         - evaluations/{period_id}/aggregates.json (per period)
         - evaluations/rawScores.json (single file with all raw scores)
+        - evaluations/rawScores.json (single file with all raw scores)
 
         Args:
             target_data: Processed target data for forecast visualization
             model_output_data: Processed model output data for forecast visualization
             metadata: Metadata object
+            raw_scores_by_period: Raw evaluation scores (all data, not filtered by period)
             raw_scores_by_period: Raw evaluation scores (all data, not filtered by period)
             aggregated_evaluations: Aggregated evaluation statistics (iqr, locationMap_aggregates, detailedCoverage_aggregates)
         """
@@ -2065,6 +2110,7 @@ class DataProcessor:
                 json.dump(self.historical_target_data, f, cls=NpEncoder, separators=(",", ":"))
             self._track_file_written(historical_file)
 
+        
         # Create and populate evaluations subdirectory
         if aggregated_evaluations or raw_scores_by_period:
             eval_base_dir = self.output_base_path / "evaluations"
@@ -2081,6 +2127,10 @@ class DataProcessor:
                     # Create period-specific folder
                     period_dir = eval_base_dir / period_id
                     period_dir.mkdir(exist_ok=True, parents=True)
+                for period_id in period_ids:
+                    # Create period-specific folder
+                    period_dir = eval_base_dir / period_id
+                    period_dir.mkdir(exist_ok=True, parents=True)
 
                     # Extract aggregated data for this period
                     period_aggregates = {
@@ -2088,7 +2138,18 @@ class DataProcessor:
                         "locationMap_aggregates": aggregated_evaluations.get("locationMap_aggregates", {}).get(period_id, {}),
                         "detailedCoverage_aggregates": aggregated_evaluations.get("detailedCoverage_aggregates", {}).get(period_id, {}),
                     }
+                    # Extract aggregated data for this period
+                    period_aggregates = {
+                        "iqr": aggregated_evaluations.get("iqr", {}).get(period_id, {}),
+                        "locationMap_aggregates": aggregated_evaluations.get("locationMap_aggregates", {}).get(period_id, {}),
+                        "detailedCoverage_aggregates": aggregated_evaluations.get("detailedCoverage_aggregates", {}).get(period_id, {}),
+                    }
 
+                    # Write aggregates for this period
+                    aggregates_file = period_dir / "aggregates.json"
+                    with open(aggregates_file, "w") as f:
+                        json.dump(period_aggregates, f, cls=NpEncoder, separators=(",", ":"))
+                    self._track_file_written(aggregates_file)
                     # Write aggregates for this period
                     aggregates_file = period_dir / "aggregates.json"
                     with open(aggregates_file, "w") as f:

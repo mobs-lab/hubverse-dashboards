@@ -9,12 +9,6 @@ import { selectModelColorMap, selectTimeUnit } from '@/store/selectors';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
 import {  generateAlignedDateTicks } from '@/utils/date';
 
-interface ScoreDataPoint {
-  referenceDate: Date;
-  score: number;
-  horizon: number;
-}
-
 interface ProcessedScoreDataPoint {
   targetDate: Date;
   referenceDate: Date;

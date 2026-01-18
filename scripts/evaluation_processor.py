@@ -145,6 +145,21 @@ class EvaluationProcessor:
                     f"wis={row['wis']}, baseline_wis={row['baseline_wis']}, ratio={row['wis_ratio']}"
                 )
         
+        # Detect and log NaN/Infinity values
+        invalid_mask = ~np.isfinite(ratio_df['wis_ratio'])
+        if invalid_mask.any():
+            invalid_count = invalid_mask.sum()
+            logger.warning(f"[NaN/Inf Detection] Found {invalid_count} invalid WIS ratio values")
+            
+            # Log details about invalid values
+            invalid_rows = ratio_df[invalid_mask]
+            for idx, row in invalid_rows.iterrows():
+                logger.warning(
+                    f"  Invalid WIS Ratio: model={row['model']}, location={row['location']}, "
+                    f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
+                    f"wis={row['wis']}, baseline_wis={row['baseline_wis']}, ratio={row['wis_ratio']}"
+                )
+        
         # Drop baseline_wis column to keep output clean
         ratio_df = ratio_df.drop(columns=['baseline_wis'])
         
@@ -234,6 +249,21 @@ class EvaluationProcessor:
         
         # Add WIS scores to result
         pivot_df['wis'] = wis_scores
+        
+        # Detect and log NaN/Infinity values
+        invalid_mask = ~np.isfinite(wis_scores)
+        if invalid_mask.any():
+            invalid_count = invalid_mask.sum()
+            logger.warning(f"[NaN/Inf Detection] Found {invalid_count} invalid WIS values")
+            
+            # Log details about invalid values, especially for negative horizons
+            invalid_rows = pivot_df[invalid_mask]
+            for idx, row in invalid_rows.head(10).iterrows():  # Limit to first 10 to avoid spam
+                logger.warning(
+                    f"  Invalid WIS: model={row['model']}, location={row['location']}, "
+                    f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
+                    f"truth={row['truth_value']}, wis={row['wis']}"
+                )
         
         # Detect and log NaN/Infinity values
         invalid_mask = ~np.isfinite(wis_scores)
