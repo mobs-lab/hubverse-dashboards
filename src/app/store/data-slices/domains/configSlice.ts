@@ -12,6 +12,9 @@ export interface TargetConfig {
   targetKeyInData: string;
   displayString: string;
   dataValueProcessing?: DataValueProcessingConfig;
+  // Target-specific date ranges (different targets may have different valid date ranges)
+  earliestDate?: string;
+  latestDate?: string;
 }
 
 export interface DataValueProcessingConfig {
@@ -99,6 +102,12 @@ export interface DashboardConfig {
 
   // Models
   modelColorMap: Record<string, string>;
+  modelAvailabilityPerPeriod?: Record<string, {
+    availableModels: string[];
+    unavailableModels: string[];
+    startDate?: string;
+    endDate?: string;
+  }>;
 
   // Targets
   targets: TargetConfig[];
@@ -110,8 +119,8 @@ export interface DashboardConfig {
 
   // Dates
   defaultSelectedDate?: string;
-  earliestDate?: string;
-  latestDate?: string;
+  earliestDateAcrossTargets?: string;
+  latestDateAcrossTargets?: string;
 
   // Evaluation Configuration
   evaluationCoverageLevels?: number[];
@@ -123,8 +132,6 @@ export interface DashboardConfig {
 
   // UI Customization
   uiCustomization: UICustomizationConfig;
-
-  // TODO: Add customizable UI components configuration here for Evaluation Page
 
 }
 

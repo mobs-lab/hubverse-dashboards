@@ -145,6 +145,21 @@ class EvaluationProcessor:
                     f"wis={row['wis']}, baseline_wis={row['baseline_wis']}, ratio={row['wis_ratio']}"
                 )
         
+        # Detect and log NaN/Infinity values
+        invalid_mask = ~np.isfinite(ratio_df['wis_ratio'])
+        if invalid_mask.any():
+            invalid_count = invalid_mask.sum()
+            logger.warning(f"[NaN/Inf Detection] Found {invalid_count} invalid WIS ratio values")
+            
+            # Log details about invalid values
+            invalid_rows = ratio_df[invalid_mask]
+            for idx, row in invalid_rows.iterrows():
+                logger.warning(
+                    f"  Invalid WIS Ratio: model={row['model']}, location={row['location']}, "
+                    f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
+                    f"wis={row['wis']}, baseline_wis={row['baseline_wis']}, ratio={row['wis_ratio']}"
+                )
+        
         # Drop baseline_wis column to keep output clean
         ratio_df = ratio_df.drop(columns=['baseline_wis'])
         
@@ -250,6 +265,21 @@ class EvaluationProcessor:
                     f"truth={row['truth_value']}, wis={row['wis']}"
                 )
         
+        # Detect and log NaN/Infinity values
+        invalid_mask = ~np.isfinite(wis_scores)
+        if invalid_mask.any():
+            invalid_count = invalid_mask.sum()
+            logger.warning(f"[NaN/Inf Detection] Found {invalid_count} invalid WIS values")
+            
+            # Log details about invalid values, especially for negative horizons
+            invalid_rows = pivot_df[invalid_mask]
+            for idx, row in invalid_rows.head(10).iterrows():  # Limit to first 10 to avoid spam
+                logger.warning(
+                    f"  Invalid WIS: model={row['model']}, location={row['location']}, "
+                    f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
+                    f"truth={row['truth_value']}, wis={row['wis']}"
+                )
+        
         # Return only the group columns + wis
         result_cols = [c for c in group_cols if c in pivot_df.columns] + ['wis']
         result_df = pivot_df[result_cols].copy()
@@ -294,7 +324,7 @@ class EvaluationProcessor:
         # This way, a 3% error is stored as 3.0, not 0.03
         median_df['mape'] = (np.abs(median_df['truth_value'] - median_df['value']) / np.abs(median_df['truth_value'])) * 100
         
-        # Detect and log NaN/Infinity values
+        """ # Detect and log NaN/Infinity values
         invalid_mask = ~np.isfinite(median_df['mape'])
         if invalid_mask.any():
             invalid_count = invalid_mask.sum()
@@ -311,7 +341,7 @@ class EvaluationProcessor:
                     f"  Invalid MAPE: model={row['model']}, location={row['location']}, "
                     f"horizon={row.get('horizon', 'N/A')}, target_end_date={row['target_end_date']}, "
                     f"truth={row['truth_value']}, median_pred={row['value']}, mape={row['mape']}"
-                )
+                ) """
         
         # Select output columns
         output_cols = ['model', 'location', 'reference_date', 'target_end_date', 'horizon']
@@ -380,7 +410,9 @@ class EvaluationProcessor:
             truth_vals = pivot_df['truth_value']
             
             coverage_col = f"{level}_coverage"
-            pivot_df[coverage_col] = ((truth_vals >= lower_vals) & (truth_vals <= upper_vals)).astype(int)
+            # Convert coverage from binary (0/1) to percentage (0-100)
+            # This ensures all downstream aggregations and visualizations display coverage as a percentage
+            pivot_df[coverage_col] = (((truth_vals >= lower_vals) & (truth_vals <= upper_vals)).astype(float) * 100.0)
             result_cols.append(coverage_col)
                 
         result_df = pivot_df[result_cols].copy()

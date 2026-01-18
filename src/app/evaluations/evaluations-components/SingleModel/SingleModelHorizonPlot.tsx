@@ -5,8 +5,8 @@ import {
   selectIsCoreDataLoaded,
   selectSingleModelTimeSeriesData,
 } from '@/store/selectors/singleModelSelectors';
-import { selectModelColorMap } from '@/store/selectors';
-import { normalizeToUTCMidDay } from '@/utils/date';
+import { selectModelColorMap, selectTimeUnit } from '@/store/selectors';
+import { generateAlignedDateTicks } from '@/utils/date';
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
 import * as d3 from 'd3';
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -15,10 +15,11 @@ const SingleModelHorizonPlot: React.FC = () => {
   const { containerRef, dimensions, isResizing } = useResponsiveSVG();
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // New selector for using new Core App Data
-  const timeSeriesData = useAppSelector(selectSingleModelTimeSeriesData);
+
   const isCoreDataLoaded = useAppSelector(selectIsCoreDataLoaded);
+  const timeSeriesData = useAppSelector(selectSingleModelTimeSeriesData);
   const modelColorMap = useAppSelector(selectModelColorMap);
+  const timeUnit = useAppSelector(selectTimeUnit);
 
   const {
     evaluationsSingleModelViewSelectedStateCode,
@@ -26,29 +27,8 @@ const SingleModelHorizonPlot: React.FC = () => {
     evaluationSingleModelViewHorizon,
   } = useAppSelector((state) => state.evaluationsSingleModelSettings);
 
-  function generateSaturdayDatesUTC(startDate: Date, endDate: Date): Date[] {
-    const dates: Date[] = [];
-
-    // Normalize start and end dates to UTC midday
-    let currentDate = normalizeToUTCMidDay(startDate);
-    const normalizedEndDate = normalizeToUTCMidDay(endDate);
-
-    // Move to the first Saturday if not already on one (using UTC day)
-    while (currentDate.getUTCDay() !== 6) {
-      currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
-    }
-
-    // Generate all Saturdays until end date
-    while (currentDate <= normalizedEndDate) {
-      dates.push(new Date(currentDate));
-      currentDate = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-    }
-
-    return dates;
-  }
-
   function createScalesAndAxes(
-    allSaturdays: Date[], // Changed parameter to use all Saturdays
+    allDateTicks: Date[], // All date ticks for the x-axis
     groundTruthData: any[],
     visualData: any[],
     chartWidth: number,
@@ -63,28 +43,28 @@ const SingleModelHorizonPlot: React.FC = () => {
       }
     };
 
-    const idealTickCount = getIdealTickCount(chartWidth, allSaturdays.length);
-    let selectedTicks = allSaturdays;
+    const idealTickCount = getIdealTickCount(chartWidth, allDateTicks.length);
+    let selectedTicks = allDateTicks;
 
-    if (allSaturdays.length > idealTickCount) {
-      const tickInterval = Math.max(1, Math.floor(allSaturdays.length / idealTickCount));
-      selectedTicks = allSaturdays.filter((_, i) => i % tickInterval === 0);
+    if (allDateTicks.length > idealTickCount) {
+      const tickInterval = Math.max(1, Math.floor(allDateTicks.length / idealTickCount));
+      selectedTicks = allDateTicks.filter((_, i) => i % tickInterval === 0);
 
       // Ensure first and last are included
-      if (selectedTicks[0].getTime() !== allSaturdays[0].getTime()) {
-        selectedTicks.unshift(allSaturdays[0]);
+      if (selectedTicks[0].getTime() !== allDateTicks[0].getTime()) {
+        selectedTicks.unshift(allDateTicks[0]);
       }
       if (
         selectedTicks[selectedTicks.length - 1].getTime() !==
-        allSaturdays[allSaturdays.length - 1].getTime()
+        allDateTicks[allDateTicks.length - 1].getTime()
       ) {
-        selectedTicks.push(allSaturdays[allSaturdays.length - 1]);
+        selectedTicks.push(allDateTicks[allDateTicks.length - 1]);
       }
     }
-    // Create band scale for x-axis using ALL Saturdays (same as line chart)
+    // Create band scale for x-axis using all date ticks
     const xScale = d3
       .scaleBand()
-      .domain(allSaturdays.map((d) => d.toISOString()))
+      .domain(allDateTicks.map((d) => d.toISOString()))
       .range([0, chartWidth])
       .padding(0.08);
 
@@ -94,15 +74,15 @@ const SingleModelHorizonPlot: React.FC = () => {
       .tickValues(selectedTicks.map((d) => d.toISOString()))
       .tickFormat((d: string, i: number) => {
         const date = new Date(d);
-        const year = d3.timeFormat('%Y')(date);
-        const month = d3.timeFormat('%b')(date);
-        const day = d3.timeFormat('%d')(date);
+        const year = d3.utcFormat('%Y')(date);
+        const month = d3.utcFormat('%b')(date);
+        const day = d3.utcFormat('%d')(date);
 
         // Find previous tick date for context
         const prevTickDate = i > 0 ? new Date(selectedTicks[i - 1].toISOString()) : null;
 
-        const isNewYear = prevTickDate ? date.getFullYear() > prevTickDate.getFullYear() : true;
-        const isNewMonth = prevTickDate ? date.getMonth() !== prevTickDate.getMonth() : true;
+        const isNewYear = prevTickDate ? date.getUTCFullYear() > prevTickDate.getUTCFullYear() : true;
+        const isNewMonth = prevTickDate ? date.getUTCMonth() !== prevTickDate.getUTCMonth() : true;
 
         if (chartWidth < 500) {
           if (isNewYear) return `${year}\n${month}`;
@@ -187,13 +167,12 @@ const SingleModelHorizonPlot: React.FC = () => {
 
     const { displayStartDate, displayEndDate } = metadata;
 
-    const allSaturdays = generateSaturdayDatesUTC(displayStartDate, displayEndDate);
-
     // Separate ground truth and predictions
     const groundTruthPoints = combinedData
       .filter((d) => d.groundTruth && d.groundTruth.admissions >= 0)
       .map((d) => ({
-        date: normalizeToUTCMidDay(d.referenceDate),
+        // Use targetDate for x-axis to align with scores chart
+        date: d.targetDate,
         admissions: d.groundTruth.admissions,
         weeklyRate: d.groundTruth.weeklyRate,
       }));
@@ -201,8 +180,9 @@ const SingleModelHorizonPlot: React.FC = () => {
     const predictionPoints = combinedData
       .filter((d) => d.prediction)
       .map((d) => ({
-        date: normalizeToUTCMidDay(d.referenceDate),
-        targetDate: normalizeToUTCMidDay(d.prediction.targetDate),
+        // Use targetDate for x-axis to align with scores chart
+        date: d.prediction.targetDate,
+        targetDate: d.prediction.targetDate,
         median: d.prediction.median,
         quantile05: d.prediction.q05,
         quantile25: d.prediction.q25,
@@ -222,9 +202,26 @@ const SingleModelHorizonPlot: React.FC = () => {
       return;
     }
 
+    // Collect all unique dates from actual data to use for grid alignment
+    const actualDataDatesSet = new Set<string>();
+    groundTruthPoints.forEach(pt => actualDataDatesSet.add(pt.date.toISOString()));
+    predictionPoints.forEach(pt => actualDataDatesSet.add(pt.date.toISOString()));
+    const actualDataDates = Array.from(actualDataDatesSet)
+      .map(dateStr => new Date(dateStr))
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    // Generate date ticks ALIGNED to actual data dates
+    // This ensures the tick grid matches the data grid, preventing misalignment
+    const allDateTicks = generateAlignedDateTicks(
+      displayStartDate,
+      displayEndDate,
+      timeUnit,
+      actualDataDates
+    );
+
     // Create scales and chart group
     const { xScale, yScale, xAxis, yAxis } = createScalesAndAxes(
-      allSaturdays, // Use generated Saturdays instead of filtered ground truth
+      allDateTicks,
       groundTruthPoints,
       predictionPoints,
       chartWidth,
@@ -232,13 +229,13 @@ const SingleModelHorizonPlot: React.FC = () => {
     );
 
     /* Helper function to wrap x-axis label*/
-    function wrap(text, width) {
-      text.each(function () {
-        const text = d3.select(this);
+    function wrap(text: d3.Selection<d3.BaseType, unknown, SVGGElement, unknown>, width: number) {
+      text.each(function (this: d3.BaseType) {
+        const text = d3.select(this as SVGTextElement);
         const lines = text.text().split(/\n+/);
-        const x = text.attr('x') || 0;
-        const y = text.attr('y') || 0;
-        const dy = parseFloat(text.attr('dy') || 0);
+        const x = text.attr('x') || '0';
+        const y = text.attr('y') || '0';
+        const dy = parseFloat(text.attr('dy') || '0');
 
         // Clear existing content
         text.text(null);
@@ -357,7 +354,7 @@ const SingleModelHorizonPlot: React.FC = () => {
       if (groundTruthPoint.admissions < 0) return; // Skip placeholders
 
       const x = xScale(groundTruthPoint.date.toISOString());
-      if (x === undefined) return;
+      if (x === undefined) return; // Date not in scale domain
 
       pointsGroup
         .append('circle')
@@ -372,7 +369,7 @@ const SingleModelHorizonPlot: React.FC = () => {
     // Render only prediction data elements for dates with predictions
     predictionPoints.forEach((pd) => {
       const x = xScale(pd.date.toISOString());
-      if (x === undefined) return;
+      if (x === undefined) return; // Date not in scale domain
 
       // 90% interval box
       boxesGroup

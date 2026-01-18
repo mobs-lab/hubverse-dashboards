@@ -4,16 +4,10 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { useAppSelector } from '@/store/hooks';
 import { selectSingleModelScoreDataFromJSON } from '@/store/selectors/index';
 import { selectSingleModelTimeSeriesData } from '@/store/selectors/singleModelSelectors';
-import { selectModelColorMap } from '@/store/selectors';
+import { selectModelColorMap, selectTimeUnit } from '@/store/selectors';
 
 import { useResponsiveSVG } from '@/utils/responsiveSVG';
-import { normalizeToUTCMidDay } from '@/utils/date';
-
-interface ScoreDataPoint {
-  referenceDate: Date;
-  score: number;
-  horizon: number;
-}
+import {  generateAlignedDateTicks } from '@/utils/date';
 
 interface ProcessedScoreDataPoint {
   targetDate: Date;
@@ -29,6 +23,7 @@ const SingleModelScoreLineChart: React.FC = () => {
   const scoreDataFromJSON = useAppSelector(selectSingleModelScoreDataFromJSON);
   const timeSeriesData = useAppSelector(selectSingleModelTimeSeriesData);
   const modelColorMap = useAppSelector(selectModelColorMap);
+  const timeUnit = useAppSelector(selectTimeUnit);
 
   const {
     evaluationsSingleModelViewModel,
@@ -186,7 +181,7 @@ const SingleModelScoreLineChart: React.FC = () => {
   }
 
   function createScalesAndAxes(
-    saturdayDates: Date[],
+    allDateTicks: Date[],
     processedData: ProcessedScoreDataPoint[],
     chartWidth: number,
     chartHeight: number,
@@ -200,28 +195,28 @@ const SingleModelScoreLineChart: React.FC = () => {
       }
     };
 
-    const idealTickCount = getIdealTickCount(chartWidth, saturdayDates.length);
-    let selectedTicks = saturdayDates;
+    const idealTickCount = getIdealTickCount(chartWidth, allDateTicks.length);
+    let selectedTicks = allDateTicks;
 
-    if (saturdayDates.length > idealTickCount) {
-      const tickInterval = Math.max(1, Math.floor(saturdayDates.length / idealTickCount));
-      selectedTicks = saturdayDates.filter((_, i) => i % tickInterval === 0);
+    if (allDateTicks.length > idealTickCount) {
+      const tickInterval = Math.max(1, Math.floor(allDateTicks.length / idealTickCount));
+      selectedTicks = allDateTicks.filter((_, i) => i % tickInterval === 0);
 
       // Ensure first and last are included
-      if (selectedTicks[0].getTime() !== saturdayDates[0].getTime()) {
-        selectedTicks.unshift(saturdayDates[0]);
+      if (selectedTicks[0].getTime() !== allDateTicks[0].getTime()) {
+        selectedTicks.unshift(allDateTicks[0]);
       }
       if (
         selectedTicks[selectedTicks.length - 1].getTime() !==
-        saturdayDates[saturdayDates.length - 1].getTime()
+        allDateTicks[allDateTicks.length - 1].getTime()
       ) {
-        selectedTicks.push(saturdayDates[saturdayDates.length - 1]);
+        selectedTicks.push(allDateTicks[allDateTicks.length - 1]);
       }
     }
     // Create band scale for x-axis
     const xScale = d3
       .scaleBand()
-      .domain(saturdayDates.map((d) => d.toISOString()))
+      .domain(allDateTicks.map((d) => d.toISOString()))
       .range([0, chartWidth])
       .padding(0.08);
 
@@ -238,14 +233,14 @@ const SingleModelScoreLineChart: React.FC = () => {
     .tickValues(selectedTicks.map(d => d.toISOString()))
     .tickFormat((d: string, i: number) => {
         const date = new Date(d);
-        const year = d3.timeFormat('%Y')(date);
-        const month = d3.timeFormat('%b')(date);
-        const day = d3.timeFormat('%d')(date);
+        const year = d3.utcFormat('%Y')(date);
+        const month = d3.utcFormat('%b')(date);
+        const day = d3.utcFormat('%d')(date);
 
         const prevTickDate = i > 0 ? new Date(selectedTicks[i-1].toISOString()) : null;
         
-        const isNewYear = prevTickDate ? date.getFullYear() > prevTickDate.getFullYear() : true;
-        const isNewMonth = prevTickDate ? date.getMonth() !== prevTickDate.getMonth() : true;
+        const isNewYear = prevTickDate ? date.getUTCFullYear() > prevTickDate.getUTCFullYear() : true;
+        const isNewMonth = prevTickDate ? date.getUTCMonth() !== prevTickDate.getUTCMonth() : true;
 
         if (chartWidth < 500) {
           if (isNewYear) return `${year}\n${month}`;
@@ -361,15 +356,7 @@ const SingleModelScoreLineChart: React.FC = () => {
       .line<ProcessedScoreDataPoint>()
       .defined((d) => {
         const xPos = xScale(d.targetDate.toISOString());
-        const isValid = !isNaN(d.score) && isFinite(d.score) && xPos !== undefined;
-        if (!isValid) {
-          console.warn(`[renderVisualElements] Skipping invalid point:`, {
-            date: d.targetDate.toISOString(),
-            score: d.score,
-            xPos,
-          });
-        }
-        return isValid;
+        return !isNaN(d.score) && isFinite(d.score) && xPos !== undefined;
       })
       .x((d) => (xScale(d.targetDate.toISOString()) || 0) + xScale.bandwidth() / 2)
       .y((d) => yScale(d.score));
@@ -389,7 +376,10 @@ const SingleModelScoreLineChart: React.FC = () => {
       .data(sortedData)
       .enter()
       .append('circle')
-      .attr('cx', (d) => (xScale(d.targetDate.toISOString()) || 0) + xScale.bandwidth() / 2)
+      .attr('cx', (d) => {
+        const xPos = xScale(d.targetDate.toISOString());
+        return xPos !== undefined ? xPos + xScale.bandwidth() / 2 : 0;
+      })
       .attr('cy', (d) => yScale(d.score))
       .attr('r', 4)
       .attr('fill', modelColorMap[modelName]);
@@ -428,28 +418,6 @@ const SingleModelScoreLineChart: React.FC = () => {
     });
   }
 
-  // Helper function to generate all Saturday dates for mapping out x-axis
-  function generateSaturdayDatesUTC(startDate: Date, endDate: Date): Date[] {
-    const dates: Date[] = [];
-
-    // Normalize start and end dates to UTC midnight
-    let currentDate = normalizeToUTCMidDay(startDate);
-    const normalizedEndDate = normalizeToUTCMidDay(endDate);
-
-    // Move to the first Saturday if not already on one (using UTC day)
-    while (currentDate.getUTCDay() !== 6) {
-      currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
-    }
-
-    // Generate all Saturdays until end date
-    while (currentDate <= normalizedEndDate) {
-      dates.push(new Date(currentDate));
-      currentDate = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-    }
-
-    return dates;
-  }
-
   const renderChart = useCallback(() => {
     if (!chartRef.current || !dimensions.width || !dimensions.height) return;
 
@@ -470,59 +438,33 @@ const SingleModelScoreLineChart: React.FC = () => {
     // Get the time range from metadata to sync up with horizon plot
     const { displayStartDate, displayEndDate } = timeSeriesData.metadata;
 
-    // Get actual score data dates and normalize to UTC midday
+    // Normalize score data dates to UTC midday for consistent display
     const normalizedScoreData = scoreDataFromJSON.map((entry) => ({
       ...entry,
-      targetEndDate: normalizeToUTCMidDay(entry.targetEndDate),
-      referenceDate: normalizeToUTCMidDay(entry.referenceDate),
+      targetEndDate: entry.targetEndDate,
+      referenceDate: entry.referenceDate,
     }));
 
-    // Check for duplicate dates or invalid scores
-    const seenDates = new Set<string>();
-    const duplicates: string[] = [];
-    normalizedScoreData.forEach((entry) => {
-      const dateKey = entry.targetEndDate.toISOString();
-      if (seenDates.has(dateKey)) {
-        duplicates.push(dateKey);
-      }
-      seenDates.add(dateKey);
+    // IMPORTANT: Use TIME SERIES data dates (from horizon plot's source) for tick generation,
+    // NOT score data dates. This ensures the score chart x-axis is exactly synced with horizon plot.
+    // The time series data combines ground truth and predictions, which is the superset of dates.
+    const timeSeriesDataDates = timeSeriesData.data
+    .map((d: any) => d.targetDate)
+      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
 
-      if (!isFinite(entry.score) || isNaN(entry.score)) {
-        console.warn(`[SingleModelScoreLineChart] Invalid score detected:`, {
-          date: dateKey,
-          score: entry.score,
-          refDate: entry.referenceDate.toISOString(),
-        });
-      }
-    });
+    // Remove duplicate dates (same point may appear for both ground truth and prediction)
+    const uniqueTimeSeriesDates = Array.from(
+      new Set(timeSeriesDataDates.map((d: Date) => d.toISOString()))
+    ).map(iso => new Date(iso));
 
-    if (duplicates.length > 0) {
-      console.warn(`[SingleModelScoreLineChart] Duplicate dates found:`, duplicates);
-    }
-
-    const actualScoreDates = normalizedScoreData
-      .map((d) => d.targetEndDate)
-      .sort((a, b) => a.getTime() - b.getTime());
-
-    const allSaturdays = generateSaturdayDatesUTC(displayStartDate, displayEndDate);
-
-    // Create a Set for efficient lookup and deduplication
-    const dateSet = new Set<string>();
-
-    // Add all Saturdays from metadata range
-    allSaturdays.forEach((date) => {
-      dateSet.add(date.toISOString());
-    });
-
-    // Add all actual score dates
-    actualScoreDates.forEach((date) => {
-      dateSet.add(date.toISOString());
-    });
-
-    // Convert back to sorted array
-    const saturdayDates = Array.from(dateSet)
-      .map((dateStr) => new Date(dateStr))
-      .sort((a, b) => a.getTime() - b.getTime());
+    // Generate date ticks ALIGNED to TIME SERIES data dates (same as horizon plot)
+    // This ensures the score chart x-axis exactly matches the horizon plot's x-axis
+    const allDateTicks = generateAlignedDateTicks(
+      new Date(displayStartDate),
+      new Date(displayEndDate),
+      timeUnit,
+      uniqueTimeSeriesDates
+    );
 
     // Create processed data directly from scoreDataFromJSON, filtering out invalid scores
     const processedData = normalizedScoreData
@@ -532,14 +474,6 @@ const SingleModelScoreLineChart: React.FC = () => {
         referenceDate: entry.referenceDate,
         score: entry.score,
       }));
-
-    console.debug(
-      `[SingleModelScoreLineChart] Processed ${processedData.length} valid data points`,
-      {
-        firstPoint: processedData[0],
-        lastPoint: processedData[processedData.length - 1],
-      }
-    );
 
     // Setup dimensions
     const width = dimensions.width;
@@ -568,7 +502,7 @@ const SingleModelScoreLineChart: React.FC = () => {
 
     // Create scales and axes
     const { xScale, yScale, xAxis, yAxis } = createScalesAndAxes(
-      saturdayDates, // Use full range for x-axis
+      allDateTicks, // Use actual data dates for x-axis
       processedData, // Use only actual data for y-scale
       chartWidth,
       chartHeight,
@@ -602,7 +536,7 @@ const SingleModelScoreLineChart: React.FC = () => {
         const t = d3.select(this);
         if (t.attr('dy') === null) t.attr('dy', '0');
       })
-      .call(wrapAxisLabels, 20);
+      .call(wrapAxisLabels);
 
     chart
       .append('g')

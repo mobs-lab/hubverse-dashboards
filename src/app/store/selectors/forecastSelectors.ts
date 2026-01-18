@@ -3,7 +3,13 @@
 
 import { createSelector } from '@reduxjs/toolkit';
 import { RootState } from '../index';
-import { selectLocationMapping, selectTargets } from './sharedSelectors';
+import { 
+  selectLocationMapping, 
+  selectTargets, 
+  selectDateConstraintsForTarget,
+  selectModelNames,
+} from './sharedSelectors';
+import { parseUTCDate, toUTCDateKey } from '@/utils/date';
 // ============================================
 // Forecast-Specific Data Selectors
 // ============================================
@@ -37,6 +43,14 @@ export const selectCurrentTarget = createSelector(
 export const selectCurrentTargetDataProcessing = createSelector([selectCurrentTarget], (target) => {
   return target?.dataValueProcessing ?? null;
 });
+
+/**
+ * Get date constraints for the currently selected target in forecast page
+ */
+export const selectForecastDateConstraints = (state: RootState) => {
+  const selectedTargetId = state.forecastSettings.selectedTargetId;
+  return selectDateConstraintsForTarget(selectedTargetId)(state);
+};
 
 // ============================================
 // Target Data Selectors
@@ -75,7 +89,8 @@ export const selectTargetDataFiltered = createSelector(
       observation: number | null;
     }> = [];
     Object.entries(locationData).forEach(([dateStr, dateData]) => {
-      const safeDate = new Date(dateStr + 'T00:00:00Z'); // Treat date string as UTC
+      // Parse date key as UTC (handles both "YYYY-MM-DD" and "YYYY-MM-DDTHH:mm:ssZ" formats)
+      const safeDate = parseUTCDate(dateStr);
       const isDateInRange = safeDate >= startDate && safeDate <= endDate;
       if (isDateInRange) {
         Object.entries(dateData).forEach(([targetId, targetValue]) => {
@@ -125,7 +140,8 @@ export const selectModelOutputFiltered = createSelector(
     }
 
     const filteredOutput: any = {};
-    const referenceDateStr = userSelectedDate.toISOString().split('T')[0];
+    // Generate UTC date key that matches the format in JSON data
+    const referenceDateStr = toUTCDateKey(userSelectedDate);
 
     selectedModels.forEach((modelName) => {
       const modelData = modelOutput[modelName]?.[locationCode]?.[referenceDateStr];
@@ -184,8 +200,9 @@ export const selectHistoricalTimeSeries = createSelector(
   (historicalData, asOfDate, locationCode, targetId, startDate, endDate) => {
     if (!historicalData || !asOfDate) return [];
 
-    const asOfDateISO = asOfDate.toISOString().split('T')[0];
-    const asOfData = historicalData[asOfDateISO];
+    // Generate UTC date key to look up historical snapshot
+    const asOfDateKey = toUTCDateKey(asOfDate);
+    const asOfData = historicalData[asOfDateKey];
 
     if (!asOfData) return [];
 
@@ -193,7 +210,8 @@ export const selectHistoricalTimeSeries = createSelector(
 
     // Iterate through all dates in the snapshot
     Object.entries(asOfData).forEach(([dateStr, dateData]) => {
-      const date = new Date(dateStr + 'T00:00:00Z'); // UTC
+      // Parse date key as UTC (handles both formats)
+      const date = parseUTCDate(dateStr);
 
       // Filter by time range
       if (date >= startDate && date <= endDate) {
@@ -207,9 +225,8 @@ export const selectHistoricalTimeSeries = createSelector(
         }
       }
     });
-    const result = series.sort((a, b) => a.date.getTime() - b.date.getTime());
-    console.debug('selectHistoricalTimeSeries', result);
-    return result;
+
+    return series.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
 );
 
@@ -234,5 +251,104 @@ export const selectSelectedLocationName = createSelector(
     locationCode = String(locationCode || 'US');
 
     return locationMapping[locationCode]?.locationName || locationCode;
+  }
+);
+
+// ============================================
+// Model Availability for Forecast Page
+// ============================================
+
+/**
+ * Get model availability info for the current forecast date range
+ * Returns models sorted with available first, unavailable last
+ * 
+ * Logic: Data-driven approach - checks which models actually have data points 
+ * within the selected date range by examining the actual model output data
+ */
+export const selectForecastModelAvailability = createSelector(
+  [
+    selectModelNames,
+    selectModelOutput,
+    (state: RootState) => state.forecastSettings.selectedLocationCode,
+    (state: RootState) => state.forecastSettings.timeFilterRangeStart,
+    (state: RootState) => state.forecastSettings.timeFilterRangeEnd,
+  ],
+  (allModels, modelOutput, locationCode, startDate, endDate) => {
+    // Safety check
+    if (!allModels || allModels.length === 0) {
+      console.warn('[selectForecastModelAvailability] No models in config');
+      return {
+        sortedModels: [],
+        availableModels: new Set<string>(),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    if (!modelOutput) {
+      console.warn('[selectForecastModelAvailability] No model output data loaded - assuming all models available');
+      return {
+        sortedModels: allModels,
+        availableModels: new Set(allModels),
+        unavailableModels: new Set<string>(),
+      };
+    }
+
+    // Check each model to see if it has ANY data in the selected date range
+    const modelsWithData = new Set<string>();
+
+    for (const modelName of allModels) {
+      const modelData = modelOutput[modelName]?.[locationCode];
+      
+      if (!modelData) {
+        continue; // No data for this model at this location
+      }
+
+      // Check if any reference dates in the model data fall within our range OR
+      // if any target dates (predictions) fall within our range
+      let hasDataInRange = false;
+      
+      for (const [refDateStr, refData] of Object.entries(modelData)) {
+        // Parse date key as UTC (handles both formats)
+        const refDate = parseUTCDate(refDateStr);
+        
+        // Check if reference date is in range
+        if (refDate >= startDate && refDate <= endDate) {
+          hasDataInRange = true;
+          break;
+        }
+        
+        // Check if any predictions have target dates in range
+        if (refData.predictions) {
+          for (const targetDateStr of Object.keys(refData.predictions)) {
+            const targetDate = parseUTCDate(targetDateStr);
+            if (targetDate >= startDate && targetDate <= endDate) {
+              hasDataInRange = true;
+              break;
+            }
+          }
+        }
+        
+        if (hasDataInRange) break;
+      }
+      
+      if (hasDataInRange) {
+        modelsWithData.add(modelName);
+      }
+    }
+
+    const availableModelsList = Array.from(modelsWithData);
+    const unavailableModelsList = allModels.filter((m) => !modelsWithData.has(m));
+
+    // Sort models: available first (maintaining original order), then unavailable
+    const sortedModels = [
+      ...allModels.filter((m) => modelsWithData.has(m)),
+      ...allModels.filter((m) => !modelsWithData.has(m)),
+    ];
+
+    return {
+      sortedModels,
+      availableModels: new Set(availableModelsList),
+      unavailableModels: new Set(unavailableModelsList),
+    };
   }
 );

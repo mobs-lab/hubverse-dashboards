@@ -145,23 +145,40 @@ export interface AppDataEvaluationsPrecalculated {
 // ============================================
 
 /**
- * Individual score record for a specific forecast instance
+ * Raw score record as stored in JSON (before parsing)
+ * Used for the raw data structure before Date parsing
  */
-export interface ScoreRecord {
-  /** When the forecast was made (ISO date string) */
+export interface RawScoreRecord {
+  /** When the forecast was made (ISO UTC string: "YYYY-MM-DDTHH:mm:ssZ") */
   referenceDate: string;
-  /** What date was being predicted (ISO date string) */
+  /** What date was being predicted (ISO UTC string: "YYYY-MM-DDTHH:mm:ssZ") */
   targetEndDate: string;
   /** The calculated score value (WIS, WIS/Baseline, or MAPE) */
   score: number;
 }
 
 /**
+ * Individual score record for a specific forecast instance (after Date parsing)
+ * Used by: Single Model Score Line Chart and other visualization components
+ */
+export interface ScoreRecord {
+  /** When the forecast was made (Date object, parsed from ISO UTC string) */
+  referenceDate: Date;
+  /** What date was being predicted (Date object, parsed from ISO UTC string) */
+  targetEndDate: Date;
+  /** The calculated score value (WIS, WIS/Baseline, or MAPE) */
+  score: number;
+}
+
+/**
  * Raw, unaggregated evaluation scores for Single Model detailed view
- * Used by: Single Model Score Line Chart
+ * Stored in Redux from fetched JSON data - dates remain as strings
  * 
  * This provides granular, time-series score data for plotting individual scores over time
- * Structure: season → target → metric → model → stateCode → horizon → ScoreRecord[]
+ * Structure: season → target → metric → model → stateCode → horizon → RawScoreRecord[]
+ * 
+ * Note: Uses RawScoreRecord (string dates) because this is raw JSON data.
+ * Selectors convert to ScoreRecord (Date objects) when processing.
  */
 export interface AppDataEvaluationsSingleModelRawScores {
   [seasonId: string]: {
@@ -170,7 +187,7 @@ export interface AppDataEvaluationsSingleModelRawScores {
         // metric: "WIS/Baseline" | "MAPE"
         [model: string]: {
           [stateNum: string]: {
-            [horizon: number]: ScoreRecord[];
+            [horizon: number]: RawScoreRecord[];
           };
         };
       };

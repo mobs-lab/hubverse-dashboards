@@ -43,10 +43,12 @@ export const selectLocationMapping = (state: RootState) =>
  */
 export const selectLocationList = createSelector(
   [selectLocationMapping],
-  (locationMapping): Array<{ 
-    locationCode: string; 
-    locationName: string; 
-    locationNameAlt?: string 
+  (
+    locationMapping
+  ): Array<{
+    locationCode: string;
+    locationName: string;
+    locationNameAlt?: string;
   }> => {
     return Object.entries(locationMapping).map(([code, data]) => ({
       locationCode: code,
@@ -83,8 +85,7 @@ export const selectLocationName = (locationCode: string) =>
 /**
  * Get all targets from config
  */
-export const selectTargets = (state: RootState) => 
-  state.configStore.config?.targets ?? [];
+export const selectTargets = (state: RootState) => state.configStore.config?.targets ?? [];
 
 /**
  * Get default target ID
@@ -99,25 +100,63 @@ export const selectDefaultTargetId = (state: RootState) =>
 /**
  * Get time unit (in days) from config
  */
-export const selectTimeUnit = (state: RootState) => 
-  state.configStore.config?.timeUnit ?? 7;
+export const selectTimeUnit = (state: RootState) => state.configStore.config?.timeUnit ?? 7;
 
 /**
  * Get available horizons from config
  */
-export const selectHorizons = (state: RootState) => 
-  state.configStore.config?.horizons ?? [];
+export const selectHorizons = (state: RootState) => state.configStore.config?.horizons ?? [];
 
 /**
- * Get date constraints from config
+ * Get date constraints from config (global, for backward compatibility)
  */
 export const selectDateConstraints = createSelector([selectConfig], (config) => {
   return {
-    earliestDate: config?.earliestDate ? new Date(config.earliestDate) : new Date(),
-    latestDate: config?.latestDate ? new Date(config.latestDate) : new Date(),
-    defaultSelectedDate: config?.defaultSelectedDate ? new Date(config.defaultSelectedDate) : new Date(),
+    earliestDate: config?.earliestDateAcrossTargets
+      ? new Date(config.earliestDateAcrossTargets)
+      : new Date(),
+    latestDate: config?.latestDateAcrossTargets
+      ? new Date(config.latestDateAcrossTargets)
+      : new Date(),
+    defaultSelectedDate: config?.defaultSelectedDate
+      ? new Date(config.defaultSelectedDate)
+      : new Date(),
   };
 });
+
+/**
+ * Get date constraints for a specific target
+ * Falls back to global date constraints if target-specific dates are not available
+ */
+export const selectDateConstraintsForTarget = (targetId: string) =>
+  createSelector([selectConfig, selectTargets], (config, targets) => {
+    // Find the target configuration
+    const target = targets.find((t) => t.targetId === targetId);
+
+    // Use target-specific dates if available, otherwise fall back to global dates
+    const earliestDate = target?.earliestDate
+      ? new Date(target.earliestDate)
+      : config?.earliestDateAcrossTargets
+        ? new Date(config.earliestDateAcrossTargets)
+        : new Date();
+
+    const latestDate = target?.latestDate
+      ? new Date(target.latestDate)
+      : config?.latestDateAcrossTargets
+        ? new Date(config.latestDateAcrossTargets)
+        : new Date();
+
+    const defaultSelectedDate = config?.defaultSelectedDate
+      ? new Date(config.defaultSelectedDate)
+      : new Date();
+
+    return {
+      earliestDate,
+      latestDate,
+      defaultSelectedDate,
+      hasTargetSpecificDates: !!(target?.earliestDate && target?.latestDate),
+    };
+  });
 
 // ============================================
 // Prediction Interval Selectors (Shared)
@@ -170,8 +209,7 @@ export const selectIsSingleLocation = (state: RootState) =>
 /**
  * Get map shape data (TopoJSON/GeoJSON)
  */
-export const selectMapData = (state: RootState) => 
-  state.auxiliaryDataStore.mapData;
+export const selectMapData = (state: RootState) => state.auxiliaryDataStore.mapData;
 
 // ============================================
 // Forecast Period Selectors (Shared)
@@ -183,3 +221,12 @@ export const selectMapData = (state: RootState) =>
 export const selectForecastPeriodOptions = (state: RootState) =>
   state.configStore.config?.forecastPeriodOptions ?? {};
 
+// ============================================
+// Model Availability Selectors
+// ============================================
+
+/**
+ * Get model availability data per period
+ */
+export const selectModelAvailabilityPerPeriod = (state: RootState) =>
+  state.configStore.config?.modelAvailabilityPerPeriod ?? {};

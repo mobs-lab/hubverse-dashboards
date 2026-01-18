@@ -13,7 +13,7 @@ interface EvaluationsSeasonOverviewSettingsState {
 
   /* Time Range Related */
   evalSOTimeRangeOptions: EvaluationSeasonOverviewTimeRangeOption[];
-  selectedDynamicTimePeriod: string;
+  selectedEvalOverviewTimePeriod: string;
 
   /* Map selection panel related */
   mapSelectedModel: string;
@@ -37,7 +37,7 @@ const initialState: EvaluationsSeasonOverviewSettingsState = {
 
   /* Time Range Defaults*/
   evalSOTimeRangeOptions: [],
-  selectedDynamicTimePeriod: '',
+  selectedEvalOverviewTimePeriod: '',
 
   mapSelectedModel: 'null', // Set default to first model
   mapSelectedScoringOption: 'WIS/Baseline', // Default scoring option. TODO: Make configurable via config.yaml
@@ -74,9 +74,9 @@ const evaluationsSeasonOverviewSettingsSlice = createSlice({
       
       // Set default time period
       if (defaultPeriodId) {
-        state.selectedDynamicTimePeriod = defaultPeriodId;
+        state.selectedEvalOverviewTimePeriod = defaultPeriodId;
       } else if (timeRangeOptions.length > 0) {
-        state.selectedDynamicTimePeriod = timeRangeOptions[0].name;
+        state.selectedEvalOverviewTimePeriod = timeRangeOptions[0].name;
       }
       
       // Set default map model to first model if not specified
@@ -109,8 +109,8 @@ const evaluationsSeasonOverviewSettingsSlice = createSlice({
     ) => {
       state.evalSOTimeRangeOptions = action.payload;
     },
-    updateSelectedDynamicTimePeriod: (state, action: PayloadAction<string>) => {
-      state.selectedDynamicTimePeriod = action.payload;
+    updateSelectedEvalOverviewTimePeriod: (state, action: PayloadAction<string>) => {
+      state.selectedEvalOverviewTimePeriod = action.payload;
     },
     setMapSelectedModel: (state, action: PayloadAction<string>) => {
       state.mapSelectedModel = action.payload;
@@ -135,8 +135,10 @@ const evaluationsSeasonOverviewSettingsSlice = createSlice({
         state.evaluationSeasonOverviewSelectedModels.splice(index, 1);
       }
     },
-    selectAllModels: (state) => {
-      state.evaluationSeasonOverviewSelectedModels = [];
+    selectAllModels: (state, action: PayloadAction<string[] | undefined>) => {
+      if (action.payload) {
+        state.evaluationSeasonOverviewSelectedModels = action.payload;
+      }
     },
     setWisChartScaleType: (state, action: PayloadAction<'linear' | 'log'>) => {
       state.wisChartScaleType = action.payload;
@@ -152,7 +154,7 @@ export const {
   setSelectedTargetId,
   setEvaluationSeasonOverviewHorizon,
   updateEvaluationSeasonOverviewTimeRangeOptions,
-  updateSelectedDynamicTimePeriod,
+  updateSelectedEvalOverviewTimePeriod,
   setMapSelectedModel,
   setMapSelectedScoringOption,
   setUseLogColorScale,

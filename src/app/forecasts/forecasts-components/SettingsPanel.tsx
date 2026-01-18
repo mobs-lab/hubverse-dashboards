@@ -18,14 +18,13 @@ import {
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   selectConfig,
-  selectDateConstraints,
   selectHorizons,
   selectLocationList,
   selectModelColorMap,
-  selectModelNames,
   selectPredictionIntervalOptions,
   selectTargets,
 } from '@/store/selectors';
+import { selectForecastDateConstraints, selectForecastModelAvailability } from '@/store/selectors/forecastSelectors';
 import { Radio, Typography } from '@/styles/material-tailwind-wrapper';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
@@ -38,14 +37,17 @@ const SettingsPanel: React.FC = () => {
 
   // Get config-driven data from selectors
   const locationList = useAppSelector(selectLocationList);
-  const modelNames = useAppSelector(selectModelNames);
   const modelColorMap = useAppSelector(selectModelColorMap);
   const horizons = useAppSelector(selectHorizons);
   const predictionIntervalOptions = useAppSelector(selectPredictionIntervalOptions);
   const targets = useAppSelector(selectTargets);
   const config = useAppSelector(selectConfig);
-  const { earliestDate, latestDate } = useAppSelector(selectDateConstraints);
+  // Use target-specific date constraints based on currently selected target
+  const { earliestDate, latestDate } = useAppSelector(selectForecastDateConstraints);
   const uiConfig = useAppSelector((state) => state.configStore.config?.uiCustomization);
+  
+  // Get model availability info (sorted with available first, unavailable last)
+  const { sortedModels: modelNames, availableModels, unavailableModels } = useAppSelector(selectForecastModelAvailability);
 
   // Get current settings from Redux
   const {
@@ -97,12 +99,26 @@ const SettingsPanel: React.FC = () => {
   const displayedModels = isModelListExpanded ? modelNames : modelNames.slice(0, 4);
   const hasMoreModels = modelNames.length > 4;
 
+  // Effect: Auto-deselect unavailable models when date range changes
+  useEffect(() => {
+    const selectedUnavailableModels = selectedModels.filter(m => unavailableModels.has(m));
+    if (selectedUnavailableModels.length > 0) {
+      const newSelectedModels = selectedModels.filter(m => availableModels.has(m));
+      dispatch(updateSelectedModels(newSelectedModels));
+    }
+  }, [dateStart, dateEnd, unavailableModels, availableModels, selectedModels, dispatch]); // Include all dependencies
+
   // Event Handlers
   const onLocationChange = (locationCode: string) => {
     dispatch(updateSelectedLocation(locationCode));
   };
 
   const onModelSelectionChange = (modelName: string, checked: boolean) => {
+    // Don't allow selection of unavailable models
+    if (unavailableModels.has(modelName) && checked) {
+      return;
+    }
+    
     if (checked) {
       dispatch(updateSelectedModels([...selectedModels, modelName]));
     } else {
@@ -161,9 +177,26 @@ const SettingsPanel: React.FC = () => {
     dispatch(updateSelectedTarget(targetId));
   };
 
-  const handleShowAllModels = () => {
-    dispatch(updateSelectedModels(modelNames));
+  const handleToggleAllModels = () => {
+    // Only work with models that have data available
+    const availableModelsList = modelNames.filter(m => availableModels.has(m));
+    
+    // Check if all available models are currently selected
+    const allAvailableSelected = availableModelsList.every(m => selectedModels.includes(m));
+    
+    if (allAvailableSelected) {
+      // Deselect all
+      dispatch(updateSelectedModels([]));
+    } else {
+      // Select all available
+      dispatch(updateSelectedModels(availableModelsList));
+    }
   };
+  
+  // Determine toggle button text
+  const availableModelsList = modelNames.filter(m => availableModels.has(m));
+  const allAvailableSelected = availableModelsList.every(m => selectedModels.includes(m)) && availableModelsList.length > 0;
+  const toggleButtonText = allAvailableSelected ? 'Toggle All Models Off' : 'Toggle All Models On';
 
   // Handle clicking outside dropdowns to close them
   useEffect(() => {
@@ -287,29 +320,39 @@ const SettingsPanel: React.FC = () => {
                 isModelListExpanded ? 'max-h-96' : 'max-h-40'
               }`}
             >
-              {displayedModels.map((model) => (
-                <label
-                  key={model}
-                  className="inline-flex items-center text-white hover:bg-gray-700 rounded cursor-pointer w-full"
-                >
-                  <span
-                    className="w-[1em] h-[1em] border-2 rounded-sm mr-2"
-                    style={{
-                      backgroundColor: selectedModels.includes(model)
-                        ? modelColorMap[model]
-                        : 'transparent',
-                      borderColor: modelColorMap[model],
-                    }}
-                  />
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={selectedModels.includes(model)}
-                    onChange={(e) => onModelSelectionChange(model, e.target.checked)}
-                  />
-                  <span className="ml-2 xs:text-sm">{model}</span>
-                </label>
-              ))}
+              {displayedModels.map((model) => {
+                const isUnavailable = unavailableModels.has(model);
+                return (
+                  <label
+                    key={model}
+                    className={`inline-flex items-center rounded w-full ${
+                      isUnavailable
+                        ? 'text-gray-500 cursor-not-allowed opacity-50'
+                        : 'text-white hover:bg-gray-700 cursor-pointer'
+                    }`}
+                    title={isUnavailable ? 'No data available for selected date range' : ''}
+                  >
+                    <span
+                      className="w-[1em] h-[1em] border-2 rounded-sm mr-2"
+                      style={{
+                        backgroundColor: selectedModels.includes(model) && !isUnavailable
+                          ? modelColorMap[model]
+                          : 'transparent',
+                        borderColor: modelColorMap[model],
+                        opacity: isUnavailable ? 0.4 : 1,
+                      }}
+                    />
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={selectedModels.includes(model)}
+                      disabled={isUnavailable}
+                      onChange={(e) => onModelSelectionChange(model, e.target.checked)}
+                    />
+                    <span className="ml-2 xs:text-sm">{model}</span>
+                  </label>
+                );
+              })}
             </div>
 
             {/* Expand/Collapse button - anchored to bottom with gradient overlay */}
@@ -338,12 +381,12 @@ const SettingsPanel: React.FC = () => {
             )}
           </div>
 
-          {/* Select All Models button */}
+          {/* Toggle All Models button */}
           <button
             className="w-full mt-2 bg-[#5d636a] hover:bg-blue-600 text-white py-1 px-2 rounded text-sm transition-colors"
-            onClick={handleShowAllModels}
+            onClick={handleToggleAllModels}
           >
-            Select All Models
+            {toggleButtonText}
           </button>
         </div>
 
