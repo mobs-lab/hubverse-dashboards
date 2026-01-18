@@ -45,7 +45,7 @@ const NowcastHeader: React.FC = () => {
             <select
               value={userSelectedRiskLevelModel}
               onChange={handleModelChange}
-              className='bg-mobs-lab-color text-white text-sm font-light border-[#5d636a] border-2 rounded-md my-1 ml-1 px-1 py-1'>
+              className='bg-dashboard-background-color text-white text-sm font-light border-[#5d636a] border-2 rounded-md my-1 ml-1 px-1 py-1'>
               {modelNames.map((model) => (
                 <option key={model} value={model}>
                   {model}

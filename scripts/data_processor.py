@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 def to_utc_iso_string(date_value) -> str:
     """
     Convert a date value to full UTC ISO string format: YYYY-MM-DDTHH:mm:ssZ
-    
+
     This ensures consistent date key formatting that JavaScript will interpret as UTC,
     avoiding local timezone interpretation issues when parsing date-only strings.
-    
+
     Args:
         date_value: A date-like value (string, datetime, Timestamp, etc.)
-        
+
     Returns:
         str: Full ISO UTC string like "2023-04-01T00:00:00Z"
     """
@@ -56,7 +56,7 @@ class NpEncoder(json.JSONEncoder):
         if isinstance(obj, pd.Timestamp):
             # Ensure timestamp includes UTC timezone info (adds 'Z' suffix)
             if obj.tz is None:
-                obj = obj.tz_localize('UTC')
+                obj = obj.tz_localize("UTC")
             return obj.isoformat()
         # Handle regular Python float NaN/Inf
         if isinstance(obj, float):
@@ -130,7 +130,7 @@ class DataProcessor:
 
         # Track date ranges per target for frontend date pickers
         self.date_ranges_per_target = {}
-        
+
         # Track model availability per period for frontend UI (for graying out unavailable models)
         self.model_availability_per_period = {}
 
@@ -162,12 +162,6 @@ class DataProcessor:
         5.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
         6.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
         7.  **Export**: Writes all processed data to JSON files in the public directory.
-        2.  **Discovery**: Detects locations present in the data.
-        3.  **Filtering**: Filters data by config-specified targets and detected locations.
-        4.  **Preprocessing**: Fixes missing time intervals in target data (using filtered data).
-        5.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
-        6.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
-        7.  **Export**: Writes all processed data to JSON files in the public directory.
 
         Returns:
             bool: True if the pipeline completes successfully.
@@ -175,14 +169,12 @@ class DataProcessor:
         logger.info("Starting data processing...")
 
         # 1: Data Ingestion
-        # 1: Data Ingestion
         target_data_df = self._load_target_data()
         self.processing_stats["target_data_rows"] = len(target_data_df)
 
         model_output_df = self._load_model_output_data()
         self.processing_stats["model_output_rows"] = len(model_output_df)
 
-        # 2: Location detection
         # 2: Location detection
         locations = self._detect_locations(target_data_df, model_output_df)
         self.processing_stats["locations_detected"] = len(locations)
@@ -215,7 +207,6 @@ class DataProcessor:
         processed_target_data = self._process_target_data(fixed_target_data_df)
 
         # 6: Process all model output data
-        # 6: Process all model output data
         processed_model_output = self._process_model_output_data(model_output_df)
 
         # 6b: Track model availability per period (for frontend UI)
@@ -228,24 +219,19 @@ class DataProcessor:
 
         if not self.skip_evaluations:
             # Step 7a: Generate raw evaluation metrics for all available data
-            # Step 7a: Generate raw evaluation metrics for all available data
             raw_evaluations = self._generate_raw_evaluation_collection(fixed_target_data_df, self.model_output_unpivoted)
 
             # Step 7b: Aggregate evaluation metrics by periods (for Season Overview)
-            # Step 7b: Aggregate evaluation metrics by periods (for Season Overview)
             aggregated_evaluations = self._generate_aggregated_evaluation_collection(raw_evaluations)
 
-            # Step 7c: Organize raw scores (all data, no period filtering, for Single Model view)
             # Step 7c: Organize raw scores (all data, no period filtering, for Single Model view)
             raw_scores_by_period = self._generate_raw_scores_by_period(raw_evaluations)
         else:
             logger.info("Skipping evaluation calculations (disabled by user)")
 
         # 8: Generate Metadata
-        # 8: Generate Metadata
         metadata = self._generate_metadata(locations, model_output_df, target_data_df)
 
-        # 9: Write output files
         # 9: Write output files
         self._write_output_files(
             processed_target_data,
@@ -275,8 +261,7 @@ class DataProcessor:
             FileNotFoundError: If the specified file does not exist.
             ValueError: If required columns are missing.
         """
-        logger.info("Loading target data...")
-        logger.info(f"  → Looking in: {self.target_data_path}")
+        logger.info(f"Loading target data from {self.target_data_path}")
         file_format = self.config.target_data_file_format
 
         # Single CSV file mode for target-data
@@ -290,7 +275,6 @@ class DataProcessor:
 
                 df = pd.read_csv(csv_file)
                 logger.info(f"  [OK] Loaded target data from {csv_file.name}")
-                logger.info(f"  [OK] Shape: {df.shape[0]} rows x {df.shape[1]} columns")
             except ValueError as e:
                 raise e
             except FileNotFoundError as e:
@@ -321,7 +305,6 @@ class DataProcessor:
 
                     df = pd.read_parquet(parquet_file)
                     logger.info(f"  [OK] Loaded target data from {parquet_file.name}")
-                    logger.info(f"  [OK] Shape: {df.shape[0]} rows x {df.shape[1]} columns")
                 except Exception as e:
                     raise RuntimeError(f"Error loading parquet file: {e}")
         else:
@@ -363,7 +346,6 @@ class DataProcessor:
         # Handle 'as_of' column processing
         # Handle 'as_of' column processing
         if "as_of" in df.columns:
-            logger.info("Found 'as_of' column.")
             logger.info("Found 'as_of' column.")
             df["as_of"] = pd.to_datetime(df["as_of"])
 
@@ -415,18 +397,9 @@ class DataProcessor:
                 logger.info("Processing historical target data snapshots from filtered data...")
                 self.historical_target_data = self._process_historical_target_data(df)
                 logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
-            # Check if historical data feature is enabled
-            if self.config.disable_historical_target_data:
-                logger.info("Historical target data is DISABLED by config flag. Skipping historical snapshot processing.")
-                # Leave self.historical_target_data as None (initialized in __init__)
-            else:
-                # Process historical snapshots: Map<as_of_date, Map<date, Map<location, data>>>
-                logger.info("Processing historical target data snapshots from filtered data...")
-                self.historical_target_data = self._process_historical_target_data(df)
-                logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
 
             return current_df
-        
+
         return df
 
     def _load_partitioned_parquet(self) -> pd.DataFrame:
@@ -440,7 +413,6 @@ class DataProcessor:
             pd.DataFrame: Combined DataFrame with an added ``as_of`` column extracted from the directory name.
         """
         import re
-        from datetime import datetime
 
         all_partitions = []
 
@@ -639,6 +611,134 @@ class DataProcessor:
 
         return final_df
 
+    def _process_target_data(self, target_data_df: pd.DataFrame) -> dict:
+        """
+        Transforms ground truth data into a nested dictionary structure optimized for frontend lookup.
+
+        Structure: ``Map<location, Map<date, Map<target, data>>>``
+
+        Applies configured scaling factors to the values.
+
+        Args:
+            target_data_df (pd.DataFrame): The standardized target data DataFrame.
+
+        Returns:
+            dict: The processed nested dictionary.
+        """
+        logger.info("Processing all ground truth data...")
+        processed_data = {}
+        targets = self.config.targets or []
+
+        for _, row in target_data_df.iterrows():
+            location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
+            date_iso = to_utc_iso_string(row["date"])
+
+            data_entry = {
+                "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= -1 else None,
+            }
+
+            if "location_name" in row and pd.notna(row["location_name"]):
+                data_entry["location_name"] = str(row["location_name"])
+
+            raw_target_key = str(row.get("target", targets[0].target_key_in_data if targets else "default"))
+            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
+
+            # Apply scaling
+            dvp_config = self.target_id_to_dvp_config.get(target_id)
+            if dvp_config and data_entry["observation"] is not None and data_entry["observation"] != -1:
+                scaling_factor = dvp_config.scaling_factor.target_data
+                data_entry["observation"] *= scaling_factor
+
+            # Create nested dictionaries
+            if location_key not in processed_data:
+                processed_data[location_key] = {}
+            if date_iso not in processed_data[location_key]:
+                processed_data[location_key][date_iso] = {}
+
+            processed_data[location_key][date_iso][target_id] = data_entry
+
+        logger.info(f"Processed {len(target_data_df)} rows of target data.")
+        return processed_data
+
+    def _process_model_output_data(self, model_output_df: pd.DataFrame) -> dict:
+        """
+        Transforms model predictions into a highly nested dictionary structure for the frontend.
+
+        Structure: ``Map<model, Map<location, Map<reference_date, Map<target_date, predictions>>>>``
+
+        Each prediction entry includes:
+        -   ``horizon``
+        -   ``targetId``
+        -   ``value_median``
+        -   ``prediction_intervals`` (nested by level)
+
+        Args:
+            model_output_df (pd.DataFrame): The standardized model output DataFrame (long or wide).
+
+        Returns:
+            dict: The nested dictionary structure.
+        """
+        logger.info("Processing all predictions data...")
+        processed_data = {}
+
+        for model_name in model_output_df["model"].unique():
+            model_data = model_output_df[model_output_df["model"] == model_name]
+            model_dict = {}
+
+            for location in model_data["location"].unique():
+                location_key = str(location).zfill(2)
+                location_data = model_data[model_data["location"] == location]
+                location_dict = {}
+
+                for ref_date in location_data["reference_date"].unique():
+                    ref_date_iso = to_utc_iso_string(ref_date)
+                    ref_date_data = location_data[location_data["reference_date"] == ref_date]
+                    predictions_dict = {}
+
+                    for _, row in ref_date_data.iterrows():
+                        target_date_iso = to_utc_iso_string(row["target_end_date"])
+
+                        pred_entry = {"horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None}
+
+                        if "target" in row and pd.notna(row["target"]):
+                            raw_target_key = str(row["target"])
+                            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
+                            pred_entry["targetId"] = target_id
+
+                        dvp_config = self.target_id_to_dvp_config.get(target_id)
+                        scaling_factor = dvp_config.scaling_factor.model_output if dvp_config else 1.0
+
+                        quantile_cols = [col for col in row.index if isinstance(col, float)]
+
+                        for qc in quantile_cols:
+                            if str(qc) == "0.5" and pd.notna(row[qc]):
+                                pred_entry["value_median"] = row[qc] * scaling_factor
+
+                        pred_intervals = {}
+                        for desired_PI in self.config.prediction_intervals:
+                            single_interval_info = {}
+                            for target_quantile in desired_PI.uses_output_type_ids:
+                                for qc in quantile_cols:
+                                    if str(qc) == target_quantile and pd.notna(row[qc]):
+                                        value = row[qc] * scaling_factor
+                                        if target_quantile == desired_PI.uses_output_type_ids[0]:
+                                            single_interval_info["pi_value_low"] = value
+                                        else:
+                                            single_interval_info["pi_value_high"] = value
+                            pred_intervals[str(desired_PI.level)] = single_interval_info
+
+                        pred_entry["prediction_intervals"] = pred_intervals
+                        predictions_dict[target_date_iso] = pred_entry
+
+                    location_dict[ref_date_iso] = {"predictions": predictions_dict}
+
+                model_dict[location_key] = location_dict
+
+            processed_data[model_name] = model_dict
+
+        logger.info(f"Processed predictions for {len(processed_data)} models.")
+        return processed_data
+
     def _process_historical_target_data(self, df: pd.DataFrame) -> dict:
         """
         Process historical target data into a nested dictionary structure.
@@ -774,7 +874,7 @@ class DataProcessor:
         if model_output_df.empty:
             logger.warning("  [!] WARNING: Model output data is empty after filtering!")
 
-        logger.info(f"  [OK] Filtering complete: Target={len(target_data_df)} rows, Model output={len(model_output_df)} rows")
+        logger.info("  [OK] Filtering complete")
 
         return target_data_df, model_output_df
 
@@ -789,8 +889,6 @@ class DataProcessor:
         Now generates placeholders separately for each target, using target-specific date ranges.
 
         Args:
-            target_data_df (pd.DataFrame): The pre-filtered target data.
-            model_output_df (pd.DataFrame): The pre-filtered model output data (used to determine the full date range).
             target_data_df (pd.DataFrame): The pre-filtered target data.
             model_output_df (pd.DataFrame): The pre-filtered model output data (used to determine the full date range).
 
@@ -815,10 +913,9 @@ class DataProcessor:
         all_fixed_dfs = []
         # Multi-target scenario: generate grids separately per target
         if "target" in target_data_df.columns and target_keys:
-            
             for target_key in target_keys:
                 target_id = self.target_key_to_id_map.get(target_key, target_key)
-                
+
                 # Get target-specific date range
                 if target_id in self.date_ranges_per_target:
                     earliest_date = self.date_ranges_per_target[target_id]["earliestDate"]
@@ -827,11 +924,11 @@ class DataProcessor:
                     # Fallback: calculate from data
                     target_specific_df = target_data_df[target_data_df["target"] == target_key]
                     model_specific_df = model_output_df[model_output_df["target"] == target_key] if "target" in model_output_df.columns else model_output_df
-                    
+
                     if target_specific_df.empty:
                         logger.warning(f"No target data for target '{target_id}', skipping placeholder generation")
                         continue
-                    
+
                     earliest_date = target_specific_df["date"].min()
                     latest_date_target = target_specific_df["date"].max()
                     latest_date_model = model_specific_df["target_end_date"].max() if not model_specific_df.empty else latest_date_target
@@ -843,22 +940,14 @@ class DataProcessor:
                 date_range = pd.date_range(start=earliest_date, end=latest_date, freq=f"{time_unit_days}D")
 
                 # Create complete grid for this target: dates x locations
-                complete_grid = pd.MultiIndex.from_product(
-                    [date_range, all_locations, [target_key]], 
-                    names=["date", "location", "target"]
-                )
+                complete_grid = pd.MultiIndex.from_product([date_range, all_locations, [target_key]], names=["date", "location", "target"])
                 complete_df = pd.DataFrame(index=complete_grid).reset_index()
 
                 # Get data for this specific target
                 target_data_subset = target_data_df[target_data_df["target"] == target_key]
 
                 # Merge with existing data
-                fixed_target_df = pd.merge(
-                    complete_df, 
-                    target_data_subset, 
-                    on=["date", "location", "target"], 
-                    how="left"
-                )
+                fixed_target_df = pd.merge(complete_df, target_data_subset, on=["date", "location", "target"], how="left")
 
                 # Fill missing observation values with -1
                 fixed_target_df["observation"] = fixed_target_df["observation"].fillna(-1)
@@ -903,7 +992,7 @@ class DataProcessor:
             fixed_df = pd.merge(complete_df, target_data_df, on=["date"], how="left")
             fixed_df["observation"] = fixed_df["observation"].fillna(-1)
 
-        logger.info(f"Fixed target data shape: {fixed_df.shape}")
+        logger.info("Missing time intervals fix complete.")
 
         return fixed_df
 
@@ -939,14 +1028,14 @@ class DataProcessor:
 
         # Priority 1: If custom mapping file exists, use ALL locations from it
         if has_custom_mapping and location_mapping:
-            logger.info(f"  [OK] Using locations from custom mapping file: {len(location_mapping)} locations")
+            logger.info(f"  Using locations from custom mapping file: {len(location_mapping)} locations")
             locations_list = [{"location": loc_code, "location_name": loc_name} for loc_code, loc_name in location_mapping.items()]
             # Sort by location code
             locations_list.sort(key=lambda x: x["location"])
             return locations_list
 
         # Priority 2 & 3: Detect from data files (target-data first, then model-output)
-        logger.info("  [OK] Auto-detecting locations from data files...")
+        logger.info("  No custom mapping file detected. Auto-detecting locations from data files...")
 
         detected_locations = {}  # Map of code -> name
 
@@ -1065,60 +1154,55 @@ class DataProcessor:
                     "latestDate": latest_date,
                 }
 
-                logger.info(
-                    f"  Target '{target_id}': {earliest_date.date()} to {latest_date.date()}"
-                )
+                logger.info(f"  Target '{target_id}': {earliest_date.date()} to {latest_date.date()}")
 
         return date_ranges
 
     def _track_model_availability_per_period(self, model_output_df: pd.DataFrame):
         """
         Track which models have data available for each forecast period.
-        
+
         This enables the frontend to intelligently gray out and disable models
         that don't have data for the selected time range.
-        
+
         Args:
             model_output_df (pd.DataFrame): The model output data with all models
         """
         logger.info("Tracking model availability per period...")
-        
+
         if "model" not in model_output_df.columns:
             logger.warning("No 'model' column found, skipping model availability tracking")
             return
-        
+
         # Get all unique models
         all_models = model_output_df["model"].unique().tolist()
-        
+
         # Ensure target_end_date is datetime
         if not pd.api.types.is_datetime64_any_dtype(model_output_df["target_end_date"]):
             model_output_df = model_output_df.copy()
             model_output_df["target_end_date"] = pd.to_datetime(model_output_df["target_end_date"])
-        
+
         # Track for both static and special periods
         special_periods = self.config.special_forecast_periods or []
         all_periods = list(self.config.forecast_periods) + list(special_periods)
-        
+
         for period in all_periods:
             period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
-            
+
             # Get date range for this period
             date_range = self._get_period_date_range(period, pd.DataFrame(), model_output_df)
             if not date_range:
                 logger.warning(f"Could not determine date range for period '{period_id}', skipping")
                 continue
-            
+
             start_date, end_date = date_range
-            
+
             # Filter model output to this period
-            period_df = model_output_df[
-                (model_output_df["target_end_date"] >= start_date) & 
-                (model_output_df["target_end_date"] <= end_date)
-            ]
-            
+            period_df = model_output_df[(model_output_df["target_end_date"] >= start_date) & (model_output_df["target_end_date"] <= end_date)]
+
             # Get models that have data in this period
             models_with_data = period_df["model"].unique().tolist() if not period_df.empty else []
-            
+
             # Store availability info
             self.model_availability_per_period[period_id] = {
                 "availableModels": models_with_data,
@@ -1126,13 +1210,11 @@ class DataProcessor:
                 "startDate": to_utc_iso_string(start_date) if pd.notna(start_date) else None,
                 "endDate": to_utc_iso_string(end_date) if pd.notna(end_date) else None,
             }
-            
-            logger.info(
-                f"  Period '{period_id}': {len(models_with_data)}/{len(all_models)} models have data"
-            )
-        
+
+            logger.info(f"  Period '{period_id}': {len(models_with_data)}/{len(all_models)} models have data")
+
         logger.info("Model availability tracking complete.")
-    
+
     def _extract_and_validate_default_location(self, locations_info: list, configured_default: any) -> str:
         """
         Extract and validate default location with fallback chain:
@@ -1166,7 +1248,7 @@ class DataProcessor:
             return fallback_code
 
         # Final fallback
-        logger.warning(f"  [!] No locations detected, defaulting to 'US'")
+        logger.warning("  [!] No locations detected, defaulting to 'US'")
         return "US"
 
     def _get_evaluation_period_ids(self) -> list:
@@ -1269,15 +1351,15 @@ class DataProcessor:
                 "isDefaultSelected": target.is_default_selected,
                 "dataValueProcessing": target.data_value_processing.model_dump() if target.data_value_processing else None,
             }
-            
+
             # Add target-specific date range if available
             if target.target_id in self.date_ranges_per_target:
                 date_range = self.date_ranges_per_target[target.target_id]
                 target_info["earliestDate"] = to_utc_iso_string(date_range["earliestDate"]) if pd.notna(date_range["earliestDate"]) else None
                 target_info["latestDate"] = to_utc_iso_string(date_range["latestDate"]) if pd.notna(date_range["latestDate"]) else None
-            
+
             targets_info.append(target_info)
-            
+
             # Track default target
             if target.is_default_selected:
                 default_target_id = target.target_id
@@ -1306,7 +1388,6 @@ class DataProcessor:
                 "evaluationsEnabled": not self.skip_evaluations,
                 # Historical data is enabled if: (1) not disabled by config AND (2) data was successfully processed
                 "historicalTargetDataEnabled": not self.config.disable_historical_target_data and self.historical_target_data is not None,
-
             },
             # === SPATIAL CONFIGURATION ===
             "spatial": {
@@ -1484,7 +1565,7 @@ class DataProcessor:
             },
             # === METADATA INFO ===
             "_meta": {
-                "generatedAt": pd.Timestamp.now(tz='UTC').isoformat(),
+                "generatedAt": pd.Timestamp.now(tz="UTC").isoformat(),
                 "dataProcessor": {
                     "skipEvaluations": self.skip_evaluations,
                     "devMode": self.dev_mode,
@@ -1497,140 +1578,7 @@ class DataProcessor:
         metadata["defaults"]["location"] = default_location_code
 
         logger.info("Metadata generated.")
-        # Only produce log for now for metadata.
-        logger.info(f"Default selected date for frontend: {metadata['temporal']['defaultSelectedDate']}")
-        logger.info(f"Default selected location for frontend: {default_location_code}")
-        logger.info(f"Evaluations enabled: {metadata['features']['evaluationsEnabled']}")
-        logger.info(f"UI customization: Header title = '{metadata['uiCustomization']['header']['titleName']}'")
         return metadata
-
-    def _process_target_data(self, target_data_df: pd.DataFrame) -> dict:
-        """
-        Transforms ground truth data into a nested dictionary structure optimized for frontend lookup.
-
-        Structure: ``Map<location, Map<date, Map<target, data>>>``
-
-        Applies configured scaling factors to the values.
-
-        Args:
-            target_data_df (pd.DataFrame): The standardized target data DataFrame.
-
-        Returns:
-            dict: The processed nested dictionary.
-        """
-        logger.info("Processing all ground truth data...")
-        processed_data = {}
-        targets = self.config.targets or []
-
-        for _, row in target_data_df.iterrows():
-            location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
-            date_iso = to_utc_iso_string(row["date"])
-
-            data_entry = {
-                "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= -1 else None,
-            }
-
-            if "location_name" in row and pd.notna(row["location_name"]):
-                data_entry["location_name"] = str(row["location_name"])
-
-            raw_target_key = str(row.get("target", targets[0].target_key_in_data if targets else "default"))
-            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
-
-            # Apply scaling
-            dvp_config = self.target_id_to_dvp_config.get(target_id)
-            if dvp_config and data_entry["observation"] is not None and data_entry["observation"] != -1:
-                scaling_factor = dvp_config.scaling_factor.target_data
-                data_entry["observation"] *= scaling_factor
-
-            # Create nested dictionaries
-            if location_key not in processed_data:
-                processed_data[location_key] = {}
-            if date_iso not in processed_data[location_key]:
-                processed_data[location_key][date_iso] = {}
-
-            processed_data[location_key][date_iso][target_id] = data_entry
-
-        logger.info(f"Processed {len(target_data_df)} rows of target data.")
-        return processed_data
-
-    def _process_model_output_data(self, model_output_df: pd.DataFrame) -> dict:
-        """
-        Transforms model predictions into a highly nested dictionary structure for the frontend.
-
-        Structure: ``Map<model, Map<location, Map<reference_date, Map<target_date, predictions>>>>``
-
-        Each prediction entry includes:
-        -   ``horizon``
-        -   ``targetId``
-        -   ``value_median``
-        -   ``prediction_intervals`` (nested by level)
-
-        Args:
-            model_output_df (pd.DataFrame): The standardized model output DataFrame (long or wide).
-
-        Returns:
-            dict: The nested dictionary structure.
-        """
-        logger.info("Processing all predictions data...")
-        processed_data = {}
-
-        for model_name in model_output_df["model"].unique():
-            model_data = model_output_df[model_output_df["model"] == model_name]
-            model_dict = {}
-
-            for location in model_data["location"].unique():
-                location_key = str(location).zfill(2)
-                location_data = model_data[model_data["location"] == location]
-                location_dict = {}
-
-                for ref_date in location_data["reference_date"].unique():
-                    ref_date_iso = to_utc_iso_string(ref_date)
-                    ref_date_data = location_data[location_data["reference_date"] == ref_date]
-                    predictions_dict = {}
-
-                    for _, row in ref_date_data.iterrows():
-                        target_date_iso = to_utc_iso_string(row["target_end_date"])
-
-                        pred_entry = {"horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None}
-
-                        if "target" in row and pd.notna(row["target"]):
-                            raw_target_key = str(row["target"])
-                            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
-                            pred_entry["targetId"] = target_id
-
-                        dvp_config = self.target_id_to_dvp_config.get(target_id)
-                        scaling_factor = dvp_config.scaling_factor.model_output if dvp_config else 1.0
-
-                        quantile_cols = [col for col in row.index if isinstance(col, float)]
-
-                        for qc in quantile_cols:
-                            if str(qc) == "0.5" and pd.notna(row[qc]):
-                                pred_entry["value_median"] = row[qc] * scaling_factor
-
-                        pred_intervals = {}
-                        for desired_PI in self.config.prediction_intervals:
-                            single_interval_info = {}
-                            for target_quantile in desired_PI.uses_output_type_ids:
-                                for qc in quantile_cols:
-                                    if str(qc) == target_quantile and pd.notna(row[qc]):
-                                        value = row[qc] * scaling_factor
-                                        if target_quantile == desired_PI.uses_output_type_ids[0]:
-                                            single_interval_info["pi_value_low"] = value
-                                        else:
-                                            single_interval_info["pi_value_high"] = value
-                            pred_intervals[str(desired_PI.level)] = single_interval_info
-
-                        pred_entry["prediction_intervals"] = pred_intervals
-                        predictions_dict[target_date_iso] = pred_entry
-
-                    location_dict[ref_date_iso] = {"predictions": predictions_dict}
-
-                model_dict[location_key] = location_dict
-
-            processed_data[model_name] = model_dict
-
-        logger.info(f"Processed predictions for {len(processed_data)} models.")
-        return processed_data
 
     def _generate_raw_evaluation_collection(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
@@ -1663,7 +1611,6 @@ class DataProcessor:
         total_evals = sum(len(df) for df in evaluation_results.values() if isinstance(df, pd.DataFrame))
         self.processing_stats["evaluations_calculated"] = total_evals
 
-        logger.info(f"Generated {total_evals} total evaluation records")
         logger.info("Raw evaluation collection complete.")
         return evaluation_results
 
@@ -1843,18 +1790,18 @@ class DataProcessor:
                     precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name] = {}
 
                     if "location" in model_df.columns and "horizon" in model_df.columns:
-                        # Detect invalid values before filtering
-                        invalid_mask = ~np.isfinite(model_df[val_col])
-                        if invalid_mask.any():
-                            invalid_count = invalid_mask.sum()
-                            logger.warning(
-                                f"[NaN/Inf Detection] Found {invalid_count} invalid {metric_name} values for "
-                                f"model={model_name}, target={target_id}, period={period_id}"
-                            )
-                            # Log horizon breakdown
-                            invalid_df = model_df[invalid_mask]
-                            horizon_breakdown = invalid_df.groupby("horizon").size()
-                            logger.warning(f"  Invalid values by horizon: {dict(horizon_breakdown)}")
+                        # # Detect invalid values before filtering
+                        # invalid_mask = ~np.isfinite(model_df[val_col])
+                        # if invalid_mask.any():
+                        #     invalid_count = invalid_mask.sum()
+                        #     logger.warning(
+                        #         f"[NaN/Inf Detection] Found {invalid_count} invalid {metric_name} values for "
+                        #         f"model={model_name}, target={target_id}, period={period_id}"
+                        #     )
+                        #     # Log horizon breakdown
+                        #     invalid_df = model_df[invalid_mask]
+                        #     horizon_breakdown = invalid_df.groupby("horizon").size()
+                        #     logger.warning(f"  Invalid values by horizon: {dict(horizon_breakdown)}")
 
                         # Filter out NaN and Infinity values before aggregation
                         model_df = model_df[np.isfinite(model_df[val_col])]
@@ -1937,10 +1884,8 @@ class DataProcessor:
 
         Returns:
             dict: Raw scores organized by target for frontend consumption
-            dict: Raw scores organized by target for frontend consumption
         """
         logger.info("=" * 60)
-        logger.info("STEP 3: ORGANIZING ALL RAW SCORES (NO PERIOD FILTERING)")
         logger.info("STEP 3: ORGANIZING ALL RAW SCORES (NO PERIOD FILTERING)")
         logger.info("=" * 60)
 
@@ -1950,21 +1895,13 @@ class DataProcessor:
         if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
             logger.info("Organizing WIS/Baseline raw scores...")
             self._organize_metric_all_data(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", raw_scores_data)
-        # Process WIS Ratio
-        if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
-            logger.info("Organizing WIS/Baseline raw scores...")
-            self._organize_metric_all_data(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", raw_scores_data)
 
         # Process MAPE
         if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
             logger.info("Organizing MAPE raw scores...")
             self._organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data)
-        # Process MAPE
-        if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
-            logger.info("Organizing MAPE raw scores...")
-            self._organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data)
 
-        logger.info("Raw scores organization complete.")  
+        logger.info("Raw scores organization complete.")
         return raw_scores_data
 
     def _organize_metric_all_data(self, df: pd.DataFrame, metric_name: str, val_col: str, raw_scores_dict: dict):
@@ -1978,19 +1915,14 @@ class DataProcessor:
 
         # Group by target
         unique_targets = df["target"].unique() if "target" in df.columns else ["default"]
-        unique_targets = df["target"].unique() if "target" in df.columns else ["default"]
 
         for target in unique_targets:
             target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
             target_df = df if target == "default" else df[df["target"] == target]
-            target_df = df if target == "default" else df[df["target"] == target]
 
             if target_id not in raw_scores_dict:
                 raw_scores_dict[target_id] = {}
-            if target_id not in raw_scores_dict:
-                raw_scores_dict[target_id] = {}
 
-            raw_scores_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
             raw_scores_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
 
     def _calculate_boxplot_stats(self, location_averages: list) -> dict:
@@ -2030,7 +1962,7 @@ class DataProcessor:
 
         # Double-check that our computed values are valid
         if not all(np.isfinite([min_val, max_val, mean_val, *percentiles])):
-            logger.warning(f"Boxplot stats computation produced non-finite values, skipping")
+            logger.warning("Boxplot stats computation produced non-finite values, skipping")
             return None
 
         stats = {
@@ -2065,13 +1997,12 @@ class DataProcessor:
         - forecast/historical-target-data.json (optional)
         - evaluations/{period_id}/aggregates.json (per period)
         - evaluations/rawScores.json (single file with all raw scores)
-        - evaluations/rawScores.json (single file with all raw scores)
+
 
         Args:
             target_data: Processed target data for forecast visualization
             model_output_data: Processed model output data for forecast visualization
             metadata: Metadata object
-            raw_scores_by_period: Raw evaluation scores (all data, not filtered by period)
             raw_scores_by_period: Raw evaluation scores (all data, not filtered by period)
             aggregated_evaluations: Aggregated evaluation statistics (iqr, locationMap_aggregates, detailedCoverage_aggregates)
         """
@@ -2110,7 +2041,6 @@ class DataProcessor:
                 json.dump(self.historical_target_data, f, cls=NpEncoder, separators=(",", ":"))
             self._track_file_written(historical_file)
 
-        
         # Create and populate evaluations subdirectory
         if aggregated_evaluations or raw_scores_by_period:
             eval_base_dir = self.output_base_path / "evaluations"
@@ -2127,10 +2057,6 @@ class DataProcessor:
                     # Create period-specific folder
                     period_dir = eval_base_dir / period_id
                     period_dir.mkdir(exist_ok=True, parents=True)
-                for period_id in period_ids:
-                    # Create period-specific folder
-                    period_dir = eval_base_dir / period_id
-                    period_dir.mkdir(exist_ok=True, parents=True)
 
                     # Extract aggregated data for this period
                     period_aggregates = {
@@ -2138,18 +2064,7 @@ class DataProcessor:
                         "locationMap_aggregates": aggregated_evaluations.get("locationMap_aggregates", {}).get(period_id, {}),
                         "detailedCoverage_aggregates": aggregated_evaluations.get("detailedCoverage_aggregates", {}).get(period_id, {}),
                     }
-                    # Extract aggregated data for this period
-                    period_aggregates = {
-                        "iqr": aggregated_evaluations.get("iqr", {}).get(period_id, {}),
-                        "locationMap_aggregates": aggregated_evaluations.get("locationMap_aggregates", {}).get(period_id, {}),
-                        "detailedCoverage_aggregates": aggregated_evaluations.get("detailedCoverage_aggregates", {}).get(period_id, {}),
-                    }
 
-                    # Write aggregates for this period
-                    aggregates_file = period_dir / "aggregates.json"
-                    with open(aggregates_file, "w") as f:
-                        json.dump(period_aggregates, f, cls=NpEncoder, separators=(",", ":"))
-                    self._track_file_written(aggregates_file)
                     # Write aggregates for this period
                     aggregates_file = period_dir / "aggregates.json"
                     with open(aggregates_file, "w") as f:
@@ -2208,61 +2123,6 @@ class DataProcessor:
         """Track files written for summary reporting."""
         self.processing_stats["files_written"] += 1
         self.processing_stats["output_files"].append(str(file_path.relative_to(self.project_root)))
-
-    def _print_processing_summary(
-        self,
-        target_data_df: pd.DataFrame,
-        model_output_df: pd.DataFrame,
-        metadata: dict,
-    ):
-        """Print a comprehensive summary of the data processing."""
-        logger.info("")
-        logger.info("=" * 60)
-        logger.info("DATA PROCESSING SUMMARY")
-        logger.info("=" * 60)
-
-        # Input data summary
-        logger.info("")
-        logger.info("INPUT DATA:")
-        logger.info(f"  - Target data rows: {self.processing_stats['target_data_rows']:,}")
-        if "date" in target_data_df.columns:
-            date_range = f"{target_data_df['date'].min().date()} to {target_data_df['date'].max().date()}"
-            logger.info(f"  - Target date range: {date_range}")
-
-        logger.info(f"  - Model output rows: {self.processing_stats['model_output_rows']:,}")
-        if "reference_date" in model_output_df.columns:
-            ref_date_range = f"{model_output_df['reference_date'].min().date()} to {model_output_df['reference_date'].max().date()}"
-            logger.info(f"  - Model reference date range: {ref_date_range}")
-
-        # Processing results
-        logger.info("")
-        logger.info("PROCESSING RESULTS:")
-        logger.info(f"  - Models processed: {self.processing_stats['models_processed']}")
-        logger.info(f"  - Locations detected: {self.processing_stats['locations_detected']}")
-        logger.info(f"  - Forecast periods: {self.processing_stats['forecast_periods']}")
-
-        if self.skip_evaluations:
-            logger.info(f"  - Evaluations: DISABLED (skipped by user)")
-        else:
-            logger.info(f"  - Evaluations calculated: {self.processing_stats['evaluations_calculated']}")
-
-        if self.historical_target_data:
-            logger.info(f"  - Historical snapshots: {len(self.historical_target_data)}")
-
-        # Output files
-        logger.info("")
-        logger.info("OUTPUT:")
-        logger.info(f"  - Files written: {self.processing_stats['files_written']}")
-        logger.info(f"  - Output directory: {self.output_base_path.relative_to(self.project_root)}")
-
-        if self.dev_mode:
-            logger.info("")
-            logger.info("DEV MODE - Files written:")
-            for file_path in self.processing_stats["output_files"]:
-                logger.info(f"  [OK] {file_path}")
-
-        logger.info("")
-        logger.info("=" * 60)
 
     def _get_period_date_range(
         self,

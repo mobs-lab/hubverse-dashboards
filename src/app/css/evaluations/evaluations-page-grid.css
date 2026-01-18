@@ -20,7 +20,7 @@
 .evaluations-settings {
     grid-area: evaluationsSettingsPanel;
     overflow-y: auto;
-    background-color: var(--mobs-lab-color);
+    background-color: var(--dashboard-background-color);
 }
 
 .evaluations-content {

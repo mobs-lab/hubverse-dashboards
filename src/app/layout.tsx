@@ -64,7 +64,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang='en' className={dmSans.className}>
-      <body className='flex flex-col min-h-screen bg-mobs-lab-color text-white overflow-clip'>
+      <body className='flex flex-col min-h-screen bg-dashboard-background-color text-white overflow-clip'>
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>

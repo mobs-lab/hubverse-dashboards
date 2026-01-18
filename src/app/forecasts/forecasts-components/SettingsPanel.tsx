@@ -226,7 +226,7 @@ const SettingsPanel: React.FC = () => {
   }, [locationList, selectedLocationCode]);
 
   return (
-    <div className="bg-mobs-lab-color-filterspane text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings">
+    <div className="bg-dashboard-settings-panel-color text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings">
       <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length">
         {/* Location Selector */}
         {!isSingleLocation && (
@@ -260,7 +260,7 @@ const SettingsPanel: React.FC = () => {
                     setLocationSearchText('');
                     setIsLocationDropdownOpen(true);
                   }}
-                  className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 pr-10"
+                  className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 pr-10"
                 />
                 <button
                   type="button"
@@ -277,7 +277,7 @@ const SettingsPanel: React.FC = () => {
 
               {/* Dropdown list */}
               {isLocationDropdownOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+                <div className="absolute z-50 w-full mt-1 bg-dashboard-settings-panel-color border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
                   {filteredLocations.length > 0 ? (
                     filteredLocations.map(
                       (location: {
@@ -359,7 +359,7 @@ const SettingsPanel: React.FC = () => {
             {hasMoreModels && (
               <div className="relative">
                 {!isModelListExpanded && (
-                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-mobs-lab-color-filterspane to-transparent pointer-events-none" />
+                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-dashboard-settings-panel-color to-transparent pointer-events-none" />
                 )}
                 <button
                   className="w-full mt-2 bg-[#5d636a]/60 hover:bg-[#5d636a]/90 text-white py-2 px-2 rounded text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
@@ -400,7 +400,7 @@ const SettingsPanel: React.FC = () => {
               id="settings-panel-period-select"
               value={selectedForecastPeriod?.timeValue || ''}
               onChange={(e) => onForecastPeriodChange(e.target.value)}
-              className="text-white border-[#5d636a] border-2 flex-wrap bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 overflow-ellipsis"
+              className="text-white border-[#5d636a] border-2 flex-wrap bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 overflow-ellipsis"
             >
               {forecastPeriodOptions.map((option: any) => (
                 <option key={option.forecastPeriodId} value={option.timeValue}>
@@ -452,7 +452,7 @@ const SettingsPanel: React.FC = () => {
           <select
             value={selectedTargetId}
             onChange={(e) => onTargetSelectionChange(e.target.value)}
-            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2"
+            className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2"
             disabled={!hasMultipleTargets}
           >
             {targets.map(
@@ -490,7 +490,7 @@ const SettingsPanel: React.FC = () => {
           <select
             value={selectedHorizon ?? horizons[0]}
             onChange={onHorizonChange}
-            className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 mt-2"
+            className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 mt-2"
           >
             {horizons.map((horizon) => (
               <option key={horizon} value={horizon}>
@@ -535,7 +535,7 @@ const SettingsPanel: React.FC = () => {
                 onClick={() =>
                   setIsPredictionIntervalDropdownOpen(!isPredictionIntervalDropdownOpen)
                 }
-                className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 flex items-center justify-between"
+                className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 flex items-center justify-between"
               >
                 <span>
                   {selectedPredictionIntervals.length === 0
@@ -551,7 +551,7 @@ const SettingsPanel: React.FC = () => {
 
               {/* Dropdown menu */}
               {isPredictionIntervalDropdownOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+                <div className="absolute z-50 w-full mt-1 bg-dashboard-settings-panel-color border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
                   {predictionIntervalOptions.map((interval) => (
                     <label
                       key={interval.level}

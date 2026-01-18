@@ -167,7 +167,7 @@ export const SeasonOverviewSettings = () => {
   };
 
   return (
-    <div className="bg-mobs-lab-color-filterspane text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings">
+    <div className="bg-dashboard-settings-panel-color text-white fill-white flex flex-col h-full rounded-md overflow-hidden util-responsive-text-settings">
       <div className="flex-grow nowrap overflow-y-auto p-4 util-no-sb-length">
         <div className="mb-4 w-full overflow-ellipsis">
           <Typography variant="h6" className="text-white mb-2" placeholder="">
@@ -219,7 +219,7 @@ export const SeasonOverviewSettings = () => {
             {hasMoreModels && (
               <div className="relative">
                 {!isModelListExpanded && (
-                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-mobs-lab-color-filterspane to-transparent pointer-events-none" />
+                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-dashboard-settings-panel-color to-transparent pointer-events-none" />
                 )}
                 <button
                   className="w-full mt-2 bg-[#5d636a]/60 hover:bg-[#5d636a]/90 text-white py-2 px-2 rounded text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
@@ -267,7 +267,7 @@ export const SeasonOverviewSettings = () => {
               <button
                 type="button"
                 onClick={() => setIsHorizonDropdownOpen(!isHorizonDropdownOpen)}
-                className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2 flex items-center justify-between"
+                className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2 flex items-center justify-between"
               >
                 <span>
                   {evaluationSeasonOverviewHorizon.length === 0
@@ -285,7 +285,7 @@ export const SeasonOverviewSettings = () => {
 
               {/* Dropdown menu */}
               {isHorizonDropdownOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-mobs-lab-color-filterspane border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
+                <div className="absolute z-50 w-full mt-1 bg-dashboard-settings-panel-color border-2 border-[#5d636a] rounded-md max-h-60 overflow-y-auto shadow-lg">
                   {availableHorizons.map((horizon) => {
                     return (
                       <label
@@ -331,7 +331,7 @@ export const SeasonOverviewSettings = () => {
             <select
               value={selectedTargetId}
               onChange={(e) => onTargetSelectionChange(e.target.value)}
-              className="text-white border-[#5d636a] border-2 bg-mobs-lab-color-filterspane rounded-md w-full py-2 px-2"
+              className="text-white border-[#5d636a] border-2 bg-dashboard-settings-panel-color rounded-md w-full py-2 px-2"
             >
               {availableTargets.map((target) => (
                 <option key={target.targetId} value={target.targetId}>

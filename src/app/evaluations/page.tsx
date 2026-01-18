@@ -50,7 +50,7 @@ const SeasonOverviewContent: React.FC = () => {
       </div>
       {/* Top charts section - 3 charts in a row */}
       <div className="grid grid-cols-3 gap-4 min-h-[480px]">
-        <Card className="bg-mobs-lab-color text-white overflow-hidden" placeholder="">
+        <Card className="bg-dashboard-background-color text-white overflow-hidden" placeholder="">
           <div className="p-1 border-b border-gray-700 flex justify-between items-center">
             <h3 className="text-lg font-medium"> Weighted Interval Score / Baseline </h3>
             <button
@@ -67,7 +67,7 @@ const SeasonOverviewContent: React.FC = () => {
           </div>
         </Card>
 
-        <Card className="bg-mobs-lab-color text-white overflow-hidden" placeholder="">
+        <Card className="bg-dashboard-background-color text-white overflow-hidden" placeholder="">
           <div className="p-1 border-b border-gray-700 flex justify-between items-center">
             <h3 className="text-lg font-medium">Mean Absolute Percentage Error</h3>
             <button
@@ -84,7 +84,7 @@ const SeasonOverviewContent: React.FC = () => {
           </div>
         </Card>
 
-        <Card className="bg-mobs-lab-color text-white overflow-hidden" placeholder="">
+        <Card className="bg-dashboard-background-color text-white overflow-hidden" placeholder="">
           <div className="p-1 border-b border-gray-700 flex-row flex-nowrap align-end justify-center items-center">
             <h3 className="text-lg font-medium flex-shrink">Coverage</h3>
           </div>
@@ -95,7 +95,7 @@ const SeasonOverviewContent: React.FC = () => {
       </div>
 
       {/* US Map section - full width */}
-      <Card className="bg-mobs-lab-color text-white mt-4" placeholder="">
+      <Card className="bg-dashboard-background-color text-white mt-4" placeholder="">
         <div className="w-full aspect-[16/9] min-h-[360px] max-h-[480px]">
           <SeasonOverviewLocationHotMap />
         </div>
@@ -262,7 +262,7 @@ const EvaluationsPage = () => {
               onClick={() => setActiveTab('season-overview')}
               className={`px-6 py-2 text-sm relative ${
                 activeTab === 'season-overview'
-                  ? 'text-white hover:text-white bg-mobs-lab-color border-t border-l border-r border-gray-700'
+                  ? 'text-white hover:text-white bg-dashboard-background-color border-t border-l border-r border-gray-700'
                   : 'text-gray-300 hover:text-white'
               }`}
               style={{
@@ -277,7 +277,7 @@ const EvaluationsPage = () => {
               onClick={() => setActiveTab('single-model')}
               className={`px-6 py-2 text-sm relative ${
                 activeTab === 'single-model'
-                  ? 'text-white hover:text-white bg-mobs-lab-color border-t border-l border-r border-gray-700'
+                  ? 'text-white hover:text-white bg-dashboard-background-color border-t border-l border-r border-gray-700'
                   : 'text-gray-300 hover:text-white border-r border-gray-700'
               }`}
               style={{
@@ -291,7 +291,7 @@ const EvaluationsPage = () => {
         </div>
 
         <div className="tab-container">
-          <Card className="p-4 flex-1 bg-mobs-lab-color text-white min-h-0" placeholder="">
+          <Card className="p-4 flex-1 bg-dashboard-background-color text-white min-h-0" placeholder="">
             {renderContent()}
           </Card>
         </div>
