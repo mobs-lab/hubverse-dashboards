@@ -31,7 +31,7 @@ import {
 import { Typography } from '@/styles/material-tailwind-wrapper';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 
-import SettingsStyledDatePicker from '@/forecasts/forecasts-components/SettingsStyledDatePicker';
+import SettingsStyledDatePicker from '@/shared-components/SettingsStyledDatePicker';
 import InfoButton from '@/shared-components/InfoButton';
 import Image from 'next/image';
 import { horizonSelectorsInfo } from 'types/infobutton-content';
