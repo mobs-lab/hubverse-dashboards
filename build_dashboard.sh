@@ -295,7 +295,8 @@ main() {
                     exit 1
                 fi
                 ;;
-
+            
+            # TODO: 3rd Major task, the data-update feature and workflow, need to be done. The entrance is here, for user to use, or in the future for their hooked automated pipeline
             5)
                 echo ""
                 print_info "Data Update Feature"
