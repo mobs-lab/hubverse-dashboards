@@ -1,9 +1,9 @@
-import React, { useCallback } from 'react';
-import DatePicker from 'react-date-picker';
+import React, { useCallback, useMemo } from 'react';
+import DatePicker, { DatePickerProps } from 'react-date-picker';
 import 'react-date-picker/dist/DatePicker.css';
 import 'react-calendar/dist/Calendar.css';
-import '../../css/component_styles/StyledDatePicker.css';
-import {  normalizeToUTCMidnight } from '@/utils/date';
+import '@/styles/component_styles/StyledDatePicker.css';
+import { utcToLocalDateSameDay, localToUTCDateSameDay } from '@/utils/date';
 
 interface StyledDatePickerProps {
     value: Date | null;
@@ -14,23 +14,47 @@ interface StyledDatePickerProps {
 }
 
 /**
- * Date picker component that normalizes all dates to UTC midnight.
- * 
- * The react-date-picker returns dates in local timezone when user picks a date.
- * This wrapper ensures the date is converted to UTC midnight (00:00:00Z) before
- * being passed to the onChange handler, maintaining consistency with UTC-based
- * date keys in the data.
+ * Date picker component that properly handles UTC dates with react-date-picker.
+ * - Convert UTC dates TO local dates (same calendar day) before passing to picker
+ * - Convert local dates FROM picker back to UTC dates (same calendar day)
+ * - User sees correct calendar dates regardless of timezone
+ * - Data filtering works correctly with UTC keys in the Redux backend
  */
-const SettingsStyledDatePicker: React.FC<StyledDatePickerProps> = ({value, onChange, minDate, maxDate, className}) => {
+const SettingsStyledDatePicker: React.FC<StyledDatePickerProps> = ({
+    value, 
+    onChange, 
+    minDate, 
+    maxDate, 
+    className
+}) => {
     /**
-     * Handle date change by normalizing to UTC midnight
-     * This prevents timezone-related issues when comparing dates
+     * Convert UTC dates to local dates for the picker
+     * This ensures the picker displays the correct calendar day
      */
-    const handleDateChange = useCallback((date: Date | null) => {
-        if (date) {
-            // Normalize the local date to UTC midnight
-            // This ensures consistent date handling regardless of user's timezone
-            const utcDate = normalizeToUTCMidnight(date);
+    const localValue = useMemo(() => 
+        value ? utcToLocalDateSameDay(value) : null,
+        [value]
+    );
+    
+    const localMinDate = useMemo(() => 
+        minDate ? utcToLocalDateSameDay(minDate) : undefined,
+        [minDate]
+    );
+    
+    const localMaxDate = useMemo(() => 
+        maxDate ? utcToLocalDateSameDay(maxDate) : undefined,
+        [maxDate]
+    );
+
+    /**
+     * Handle outgoing date change by converting local date back to UTC
+     */
+    const handleDateChange = useCallback((value: Date | null) => {
+        // react-date-picker can return Date, null, or Range (for range picker)
+        // We only use single date mode, so value should be Date | null
+        if (value && value instanceof Date) {
+            // Convert local date back to UTC with same calendar day
+            const utcDate = localToUTCDateSameDay(value);
             onChange(utcDate);
         } else {
             onChange(null);
@@ -40,16 +64,14 @@ const SettingsStyledDatePicker: React.FC<StyledDatePickerProps> = ({value, onCha
     return (
         <div className={`styled-date-picker ${className}`}>
             <DatePicker
-                onChange={handleDateChange}
-                value={value}
-                minDate={minDate}
-                maxDate={maxDate}
+                onChange={handleDateChange as any}
+                value={localValue}
+                minDate={localMinDate}
+                maxDate={localMaxDate}
                 format="y-MM-dd"
                 className="custom-date-picker"
-                calendarClassName="custom-calendar"
                 clearIcon={null}
                 calendarIcon={null}
-                
             />
         </div>
     );

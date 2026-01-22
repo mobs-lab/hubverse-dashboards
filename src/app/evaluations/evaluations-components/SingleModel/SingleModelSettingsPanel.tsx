@@ -1,22 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-
-import {
-  selectHorizons,
-  selectLocationData,
-  selectModelColorMap,
-} from '@/store/selectors';
-import { 
-  selectSingleModelDateConstraints,
-  selectSingleModelAvailability,
-} from '@/store/selectors/evaluationSelectors';
-import { ForecastPeriodOption } from '@/types/domains/forecasting';
-
+import InfoButton from '@/shared-components/InfoButton';
 import SettingsStateMap from '@/shared-components/SettingsStateMap';
-
-import { useAppDispatch, useAppSelector } from '@/store/hooks';
-
+import SettingsStyledDatePicker from '@/shared-components/SettingsStyledDatePicker';
 import {
   setSingleModelSelectedTargetId,
   updateEvaluationScores,
@@ -27,13 +13,21 @@ import {
   updateEvaluationsSingleModelViewModel,
   updateEvaluationsSingleModelViewSeasonId,
 } from '@/store/data-slices/settings/SettingsSliceEvaluationSingleModel';
-
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import {
+  selectHorizons,
+  selectLocationData,
+  selectModelColorMap,
+} from '@/store/selectors';
+import {
+  selectSingleModelAvailability,
+  selectSingleModelDateConstraints,
+} from '@/store/selectors/evaluationSelectors';
 import { Typography } from '@/styles/material-tailwind-wrapper';
+import { ForecastPeriodOption } from '@/types/domains/forecasting';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
-
-import SettingsStyledDatePicker from '@/shared-components/SettingsStyledDatePicker';
-import InfoButton from '@/shared-components/InfoButton';
 import Image from 'next/image';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { horizonSelectorsInfo } from 'types/infobutton-content';
 
 const SingleModelSettingsPanel: React.FC = () => {
@@ -44,7 +38,7 @@ const SingleModelSettingsPanel: React.FC = () => {
   const availableHorizons = useAppSelector(selectHorizons);
   // Use target-specific date constraints based on currently selected target
   const { earliestDate, latestDate } = useAppSelector(selectSingleModelDateConstraints);
-  
+
   // Get model availability info (sorted with available first, unavailable last)
   const { sortedModels: modelNames, availableModels, unavailableModels } = useAppSelector(selectSingleModelAvailability);
 
@@ -58,7 +52,7 @@ const SingleModelSettingsPanel: React.FC = () => {
   const [locationSearchText, setLocationSearchText] = useState('');
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const locationDropdownRef = useRef<HTMLDivElement>(null);
-  
+
   // Local state for model list expansion
   const [isModelListExpanded, setIsModelListExpanded] = useState(false);
 
@@ -183,7 +177,7 @@ const SingleModelSettingsPanel: React.FC = () => {
     );
     return location ? location.locationName : '';
   }, [locationData, evaluationsSingleModelViewSelectedStateCode]);
-  
+
   // Model list preview/expansion
   const displayedModels = isModelListExpanded ? modelNames : modelNames.slice(0, 4);
   const hasMoreModels = modelNames.length > 4;
@@ -262,11 +256,10 @@ const SingleModelSettingsPanel: React.FC = () => {
                         setLocationSearchText('');
                         setIsLocationDropdownOpen(false);
                       }}
-                      className={`px-3 py-2 cursor-pointer hover:bg-gray-700 ${
-                        location.locationCode === evaluationsSingleModelViewSelectedStateCode
-                          ? 'bg-gray-700'
-                          : ''
-                      }`}
+                      className={`px-3 py-2 cursor-pointer hover:bg-gray-700 ${location.locationCode === evaluationsSingleModelViewSelectedStateCode
+                        ? 'bg-gray-700'
+                        : ''
+                        }`}
                     >
                       {location.locationName}
                     </div>
@@ -285,20 +278,18 @@ const SingleModelSettingsPanel: React.FC = () => {
           </Typography>
           <div className="relative">
             <div
-              className={`space-y-2 overflow-y-auto pr-1 transition-all duration-300 ${
-                isModelListExpanded ? 'max-h-96' : 'max-h-40'
-              }`}
+              className={`space-y-2 overflow-y-auto pr-1 transition-all duration-300 ${isModelListExpanded ? 'max-h-96' : 'max-h-40'
+                }`}
             >
               {displayedModels.map((model) => {
                 const isUnavailable = unavailableModels.has(model);
                 return (
                   <label
                     key={model}
-                    className={`inline-flex items-center rounded w-full ${
-                      isUnavailable
-                        ? 'text-gray-500 cursor-not-allowed opacity-50'
-                        : 'text-white hover:bg-gray-700 cursor-pointer'
-                    }`}
+                    className={`inline-flex items-center rounded w-full ${isUnavailable
+                      ? 'text-gray-500 cursor-not-allowed opacity-50'
+                      : 'text-white hover:bg-gray-700 cursor-pointer'
+                      }`}
                     title={isUnavailable ? 'No data available for selected date range' : ''}
                   >
                     <span
