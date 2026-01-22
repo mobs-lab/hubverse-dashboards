@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from yaml_config_processor_pydantic import load_and_validate_config, DashboardConfig
 from csv_shape_generator import generate_and_print_samples
 from data_processor import process_data
+from data_fetcher import DataFetcher
 
 
 # Configure logging
@@ -50,6 +51,7 @@ class DashboardBuilder:
         self.project_root = self._get_project_root()
         self.dev_mode = dev_mode
         self.skip_evaluations = skip_evaluations
+        self.data_fetcher = DataFetcher(self.project_root)
 
     def _get_project_root(self) -> Path:
         """Get the project root directory"""
@@ -71,6 +73,12 @@ class DashboardBuilder:
         if not self._load_configuration():
             return False
 
+        # Step 2: Fetch remote data if configured
+        if not self._fetch_remote_data():
+            # If fetching failed but was attempted, we should stop
+            if self.config.link_to_hubverse_compatible_data:
+                return False
+
         self._prompt_to_continue()
 
         # Step 3: Generate and display CSV samples
@@ -78,6 +86,37 @@ class DashboardBuilder:
 
         # Step 4: Ask user for confirmation
         return self._get_user_confirmation()
+
+    def _fetch_remote_data(self) -> bool:
+        """
+        Checks config for remote data URL and fetches it if present.
+        Returns: 
+            bool: True if successful or no remote data needed. False if fetch failed.
+        """
+        repo_url = self.config.link_to_hubverse_compatible_data
+        
+        if not repo_url:
+            return True
+            
+        print("\n[Step 1.5] Fetching remote data...")
+        print(f"Remote Repository: {repo_url}")
+        
+        cache_dir_name = ".data_cache"
+        success = self.data_fetcher.fetch_data(repo_url, cache_dir_name)
+        
+        if success:
+            # Sync to input directories
+            # Determine destination
+            if self.dev_mode:
+                dest = self.project_root / "test-data-input"
+            else:
+                dest = self.project_root
+                
+            self.data_fetcher.sync_to_destination(cache_dir_name, dest)
+            return True
+        else:
+            logger.error("Failed to fetch remote data.")
+            return False
 
     def _load_configuration(self) -> bool:
         """Load and validate the configuration file"""

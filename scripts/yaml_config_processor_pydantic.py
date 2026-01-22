@@ -64,7 +64,6 @@ class TimeAnchorConfig(BaseModel):
     """Time anchor configuration for special forecast periods"""
 
     anchor_on: str = Field(..., description="ID of forecast period to anchor to")
-    anchor_mode: Literal["target-data", "model-output"] = Field(..., description="What data to use for calculating current date")
     range_calculation: int = Field(..., description="Number of time units backwards (must be negative)", lt=0)
 
 
