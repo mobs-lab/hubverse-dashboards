@@ -44,15 +44,54 @@ export function toUTCDateKey(date: Date): string {
 }
 
 /**
- * Normalize a user-selected Date (which may be in local time from date picker)
- * to UTC midnight. This is useful when user picks a date and we need to
- * store/compare it as UTC.
- *
- * @param date - A Date object (possibly from a date picker in local time)
- * @returns Date object normalized to UTC midnight
+ * Convert a UTC date to a local date representing the same calendar day.
+ * 
+ * This is used when passing dates TO react-date-picker. For this dashboard it means the setting up of min/max selectable date from configurations, and refreshing displayed values when Redux updates via other channels (forecast period selection)
+ * 
+ * Problem Description: When we have a Date object representing "2025-10-18T00:00:00Z" (Oct 18 UTC),
+ * and user is in EST (UTC-5), the browser displays this as "Oct 17, 7:00 PM EST".
+ * The date picker then shows Oct 17 instead of Oct 18.
+ * 
+ * Solution: Extract the UTC year/month/day and create a new Date in LOCAL time
+ * with those same values. So "2025-10-18T00:00:00Z" becomes "Oct 18 00:00 AM EST".
+ * 
+ * @param utcDate - Date object representing UTC midnight (e.g., from metadata)
+ * @returns Date object representing local midnight with same calendar day
+ * 
  */
-export function normalizeToUTCMidnight(date: Date): Date {
-  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0));
+export function utcToLocalDateSameDay(utcDate: Date): Date {
+  // Extract UTC date components
+  const year = utcDate.getUTCFullYear();
+  const month = utcDate.getUTCMonth();
+  const day = utcDate.getUTCDate();
+  
+  // Create new Date in LOCAL timezone with same calendar day
+  return new Date(year, month, day, 0, 0, 0, 0);
+}
+
+/**
+ * Convert a local date to a UTC date representing the same calendar day.
+ * 
+ * This is used when sending dates FROM react-date-picker (via selection).
+ * 
+ * Problem Description: When user selects "Oct 18" in the picker, it creates a Date representing
+ * "Oct 18 00:00 AM EST" which is "2025-10-18T05:00:00Z" in UTC (5 hours ahead).
+ * This doesn't match our data keys which are at UTC midnight "2025-10-18T00:00:00Z".
+ * 
+ * Solution: Extract the LOCAL year/month/day and create a new Date in UTC
+ * with those same values. So "Oct 18 00:00 AM EST" becomes "2025-10-18T00:00:00Z".
+ * 
+ * @param localDate - Date object from date picker (local midnight)
+ * @returns Date object representing UTC midnight with same calendar day
+ */
+export function localToUTCDateSameDay(localDate: Date): Date {
+  // Extract LOCAL date components
+  const year = localDate.getFullYear();
+  const month = localDate.getMonth();
+  const day = localDate.getDate();
+  
+  // Create new Date in UTC timezone with same calendar day
+  return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
 }
 
 /**
