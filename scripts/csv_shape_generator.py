@@ -450,7 +450,7 @@ class CSVShapeGenerator:
 
         print("\nExpected Values:")
         exp = sample["expected_values"]
-        print(f"  • target: {', '.join([f'"{t}"' for t in exp['targets']])}")
+        #print(f"  • target: {', '.join([f'"{t}"' for t in exp['targets']])}")
         print(f"  • horizons: {exp['horizons']}")
         print(f'  • output_type: "{exp["output_type"]}"')
         print(f"  • output_type_ids: {exp['output_type_ids']}")
