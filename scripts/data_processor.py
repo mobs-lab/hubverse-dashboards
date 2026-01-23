@@ -11,58 +11,15 @@ from pathlib import Path
 import logging
 import json
 import numpy as np
+import sys
 
 from evaluation_processor import EvaluationProcessor
+from manifest_manager import ManifestManager
+from data_utils import to_utc_iso_string, NpEncoder, ensure_string_column
+from forecast_period_utils import compute_ongoing_period_metadata, compute_special_period_date_range
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
-
-
-def to_utc_iso_string(date_value) -> str:
-    """
-    Convert a date value to full UTC ISO string format: YYYY-MM-DDTHH:mm:ssZ
-
-    This ensures consistent date key formatting that JavaScript will interpret as UTC,
-    avoiding local timezone interpretation issues when parsing date-only strings.
-
-    Args:
-        date_value: A date-like value (string, datetime, Timestamp, etc.)
-
-    Returns:
-        str: Full ISO UTC string like "2023-04-01T00:00:00Z"
-    """
-    dt = pd.to_datetime(date_value)
-    return dt.strftime("%Y-%m-%dT00:00:00Z")
-
-
-class NpEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle NumPy and Pandas types.
-
-    Handles special float values (NaN, Infinity) that are not valid JSON
-    by converting them to None (which becomes null in JSON).
-    """
-
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            # Handle NaN and Infinity - convert to None for valid JSON
-            if np.isnan(obj) or np.isinf(obj):
-                return None
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            # Convert array, handling NaN/Inf values
-            return [None if (isinstance(x, float) and (np.isnan(x) or np.isinf(x))) else x for x in obj.tolist()]
-        if isinstance(obj, pd.Timestamp):
-            # Ensure timestamp includes UTC timezone info (adds 'Z' suffix)
-            if obj.tz is None:
-                obj = obj.tz_localize("UTC")
-            return obj.isoformat()
-        # Handle regular Python float NaN/Inf
-        if isinstance(obj, float):
-            if np.isnan(obj) or np.isinf(obj):
-                return None
-        return super(NpEncoder, self).default(obj)
 
 
 class DataProcessor:
@@ -93,7 +50,7 @@ class DataProcessor:
 
         Args:
             config (DashboardConfig): The validated Pydantic configuration object.
-            dev_mode (bool, optional): If True, reads from ``test-data-input/``. Defaults to False.
+            dev_mode (bool, optional): If True, reads from ``development-mode-root/``. Defaults to False.
             skip_evaluations (bool, optional): If True, skips evaluation generation, calculating WIS/Baseline, MAPE Coverage and all evaluation related logic. Defaults to False.
         """
         self.config = config
@@ -103,7 +60,16 @@ class DataProcessor:
         self.historical_target_data = None  # Map<as_of_date, Map<date, data>>
         self.current_target_data = None
         self.fixed_target_data = None
-        self.model_output_unpivoted = None  # Keep unpivoted data for evaluations
+        
+        # IMPORTANT: We maintain TWO versions of model output:
+        # 1. model_output_unpivoted: Long format with output_type & output_type_id columns
+        #    - Required by EvaluationProcessor for WIS, MAPE, Coverage calculations
+        #    - Allows filtering by output_type="quantile" and specific output_type_id values
+        # 2. model_output_pivoted: Wide format with quantiles as separate columns (q_0.25, q_0.5, etc.)
+        #    - Used for frontend JSON export (easier for React to map prediction intervals)
+        self.model_output_unpivoted = None
+        self.raw_evaluations = None # DataFrame for raw evaluations
+        self.aggregated_evaluations = {} # Cached aggregated evaluations
 
         # Create a mapping from the raw target key in data to the corresponding targetId
         targets = self.config.targets if self.config.targets else []
@@ -115,6 +81,16 @@ class DataProcessor:
             self.evaluation_processor = EvaluationProcessor(config=config, baseline_model=config.baseline_model_for_relative_WIS)
         else:
             self.evaluation_processor = None
+            
+        # Manifest Manager
+        self.manifest_manager = ManifestManager(self.project_root)
+        
+        # Intermediates directory (separate for dev/prod)
+        if self.dev_mode:
+            self.intermediates_dir = self.project_root / "development-mode-root" / "intermediates"
+        else:
+            self.intermediates_dir = self.project_root / "intermediates"
+        self.intermediates_dir.mkdir(exist_ok=True, parents=True)
 
         # For tracking processing statistics
         self.processing_stats = {
@@ -134,103 +110,432 @@ class DataProcessor:
         # Track model availability per period for frontend UI (for graying out unavailable models)
         self.model_availability_per_period = {}
 
-        # TODO: Handle GitHub data sources
-
         if self.dev_mode:
             logger.info("=" * 60)
             logger.info("   DEVELOPMENT MODE ENABLED")
             logger.info("=" * 60)
-            logger.info("Reading data from: test-data-input/")
-            logger.info("Writing output to: test-data-output/")
-            self.target_data_path = self.project_root / "test-data-input" / "target-data"
-            self.model_output_path = self.project_root / "test-data-input" / "model-output"
+            logger.info("Reading data from: development-mode-root/")
+            logger.info("Writing output to: public/test-data-output/")
+            logger.info("Intermediates: development-mode-root/intermediates/")
+            self.target_data_path = self.project_root / "development-mode-root" / "target-data"
+            self.model_output_path = self.project_root / "development-mode-root" / "model-output"
             self.output_base_path = self.project_root / "public" / "test-data-output"
         else:
             self.target_data_path = self.project_root / "target-data"
             self.model_output_path = self.project_root / "model-output"
             self.output_base_path = self.project_root / "public" / "data"
 
-    def run(self):
+    def run(self, is_data_update_run: bool = False):
         """
-        Executes the full data processing pipeline.
-
-        Steps:
-        1.  **Ingestion**: Loads target data and model output data.
-        2.  **Discovery**: Detects locations present in the data.
-        3.  **Filtering**: Filters data by config-specified targets and detected locations.
-        4.  **Preprocessing**: Fixes missing time intervals in target data (using filtered data).
-        5.  **Processing**: Transforms data into the nested JSON structure required by the frontend.
-        6.  **Evaluations**: Calculates metrics (WIS, coverage) if enabled.
-        7.  **Export**: Writes all processed data to JSON files in the public directory.
-
-        Returns:
-            bool: True if the pipeline completes successfully.
+        Executes the full data processing pipeline with incremental update support.
+        
+        Implements intelligent change detection and selective reprocessing:
+        - Target data: Full reprocessing on any change, track affected keys
+        - Model output: Incremental loading of new/modified files
+        - Evaluations: Recalculate only affected rows based on data changes
+        - Aggregations: Re-aggregate only affected forecast periods
+        
+        Args:
+            is_data_update_run: If True, this is a data update run (not initial build)
         """
         logger.info("Starting data processing...")
 
-        # 1: Data Ingestion
-        target_data_df = self._load_target_data()
-        self.processing_stats["target_data_rows"] = len(target_data_df)
+        # 0. Check for changes using new manifest structure
+        auxiliary_data_path = self.project_root / ("development-mode-root" if self.dev_mode else "") / "auxiliary-data"
+        
+        # Get configured model names for efficient scanning
+        configured_models = [m.model_name for m in self.config.available_models] if self.config.available_models else None
+        
+        changes = self.manifest_manager.check_changes(
+            self.target_data_path, 
+            self.model_output_path,
+            auxiliary_data_path if auxiliary_data_path.exists() else None,
+            configured_models=configured_models
+        )
+        
+        target_changed = changes["target_data_changed"]
+        model_changed = changes["model_output_changed"]
+        model_details = changes["model_output_details"]
+        
+        # Load intermediates if they exist and we are doing an incremental run
+        has_intermediates = self._load_intermediates()
+        
+        # HALT if this is a data update run but no intermediates exist
+        if is_data_update_run and not has_intermediates:
+            logger.error("ERROR: You selected a data update run, but no intermediates were found.")
+            logger.error("This usually means:")
+            logger.error("  1. This is your first time running the dashboard builder")
+            logger.error("  2. Intermediates were deleted or lost")
+            logger.error("")
+            logger.error("Please run an initial build first.")
+            logger.error("=" * 60)
+            sys.exit(1)
+        
+        full_model_load = False
+        if not has_intermediates:
+            logger.info("=" * 60)
+            logger.info("INITIAL RUN: No intermediates found")
+            logger.info("=" * 60)
+            logger.info("Running full processing pipeline...")
+            target_changed = True
+            model_changed = True
+            full_model_load = True
+        else:
+            logger.info("=" * 60)
+            logger.info("DATA UPDATE: Intermediates found")
+            logger.info("=" * 60)
+            if not target_changed and not model_changed:
+                logger.info("No data changes detected. Using cached data.")
 
-        model_output_df = self._load_model_output_data()
-        self.processing_stats["model_output_rows"] = len(model_output_df)
+        # 1: Data Ingestion & Processing
+        
+        affected_target_keys = set() # Set of (location, date, target) tuples
+        new_model_predictions = set() # Set of (location, reference_date, target_end_date, target, model) tuples
 
-        # 2: Location detection
-        locations = self._detect_locations(target_data_df, model_output_df)
+        # ======================
+        # TARGET DATA PROCESSING
+        # ======================
+        # Strategy: If ANY change is detected in target data, fully reprocess it.
+        # We need to find the latest as_of date and extract the current ground truth.
+        # Then identify what changed compared to previous run.
+        
+        if target_changed or not isinstance(self.fixed_target_data, pd.DataFrame):
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("PROCESSING TARGET DATA (Full Reprocess)")
+            logger.info("=" * 60)
+            target_data_df = self._load_target_data()
+            self.processing_stats["target_data_rows"] = len(target_data_df)
+            
+            # Extract latest ground truth and historical snapshots
+            # This method updates self.historical_target_data
+            current_target_df = self._extract_latest_ground_truth_and_history(target_data_df)
+            
+            # Identify changes if we have previous data
+            if self.current_target_data is not None and not self.current_target_data.empty:
+                logger.info("")
+                logger.info("Identifying target data changes (new/revised observations)...")
+                affected_target_keys = self._identify_target_data_changes(
+                    self.current_target_data, 
+                    current_target_df
+                )
+                if affected_target_keys:
+                    logger.info(f"  [!] Found {len(affected_target_keys)} changed target data points")
+                    logger.info(f"      (new observations or revisions to existing dates)")
+            else:
+                logger.info("  [!] First run - all target data is new")
+            
+            # Ensure location is string type for consistency
+            current_target_df = ensure_string_column(current_target_df, "location")
+            
+            # Update state
+            self.current_target_data = current_target_df
+            target_data_df = current_target_df
+                
+        else:
+            logger.info("=" * 60)
+            logger.info("TARGET DATA: Using cached data (no changes detected)")
+            logger.info("=" * 60)
+            target_data_df = self.current_target_data
+
+        # ==========================
+        # MODEL OUTPUT PROCESSING
+        # ==========================
+        # Strategy: 
+        # - Full load: Load all model output files
+        # - Incremental: Load only new/modified files and merge with existing data
+        
+        if full_model_load:
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("PROCESSING MODEL OUTPUT (Full Load)")
+            logger.info("=" * 60)
+            model_output_pivoted = self._load_model_output_data()
+            # self.model_output_unpivoted is set inside _load_model_output_data
+        else:
+            # Incremental load based on detected changes
+            if model_changed:
+                logger.info("")
+                logger.info("=" * 60)
+                logger.info("PROCESSING MODEL OUTPUT (Incremental Update)")
+                logger.info("=" * 60)
+                
+                # Collect all new and modified files
+                files_to_load = []
+                changes_by_model = model_details["changes_by_model"]
+                
+                for model_name, model_changes in changes_by_model.items():
+                    new_files = model_changes.get("new_files", [])
+                    modified_files = model_changes.get("modified_files", [])
+                    
+                    if new_files:
+                        logger.info(f"  Model '{model_name}': {len(new_files)} new file(s)")
+                        files_to_load.extend(new_files)
+                    if modified_files:
+                        logger.info(f"  Model '{model_name}': {len(modified_files)} modified file(s)")
+                        files_to_load.extend(modified_files)
+                
+                if files_to_load:
+                    logger.info(f"Loading {len(files_to_load)} new/modified model files...")
+                    delta_model_df = self._load_specific_model_files(files_to_load)
+                    
+                    if not delta_model_df.empty:
+                        # Track new predictions for evaluation
+                        new_model_predictions = self._extract_prediction_keys(delta_model_df)
+                        
+                        # Update unpivoted store
+                        if self.model_output_unpivoted is None or self.model_output_unpivoted.empty:
+                            self.model_output_unpivoted = delta_model_df
+                        else:
+                            # Merge and deduplicate (keep newer data)
+                            self.model_output_unpivoted = pd.concat(
+                                [self.model_output_unpivoted, delta_model_df], 
+                                ignore_index=True
+                            )
+                            
+                            # Deduplicate: prefer newer data (keep='last')
+                            keys_for_dupe_detection = [
+                                "model", "location", "reference_date", "target_end_date", "target", 
+                                "output_type", "output_type_id"
+                            ]
+                            valid_keys = [k for k in keys_for_dupe_detection 
+                                         if k in self.model_output_unpivoted.columns]
+                            
+                            initial_len = len(self.model_output_unpivoted)
+                            self.model_output_unpivoted.drop_duplicates(
+                                subset=valid_keys, 
+                                keep='last', 
+                                inplace=True
+                            )
+                            final_len = len(self.model_output_unpivoted)
+                            
+                            if initial_len > final_len:
+                                logger.info(f"  [OK] Deduplicated model output: removed {initial_len - final_len} old rows")
+                        
+                        logger.info(f"  [OK] Loaded {len(delta_model_df)} new prediction rows")
+                        logger.info(f"  [OK] Tracked {len(new_model_predictions)} unique prediction keys")
+
+            # Pivot the master unpivoted data for frontend export
+            logger.info("Pivoting quantile data for frontend...")
+            if (self.model_output_unpivoted is not None and 
+                not self.model_output_unpivoted.empty and
+                "output_type" in self.model_output_unpivoted.columns and 
+                "quantile" in self.model_output_unpivoted["output_type"].unique()):
+                model_output_pivoted = self._pivot_quantiles(self.model_output_unpivoted)
+            else:
+                model_output_pivoted = self.model_output_unpivoted
+
+        # 2: Location detection (on full datasets)
+        # Note: we use target_data_df for detection
+        locations = self._detect_locations(target_data_df)
         self.processing_stats["locations_detected"] = len(locations)
 
-        # 3: Filter data by config specifications (targets and locations)
-        # This ensures date range calculations are based only on relevant data
-        target_data_df, model_output_df = self._filter_data_by_config_specs(target_data_df, model_output_df, locations)
-        logger.info(f"After filtering - Target data: {len(target_data_df)} rows, Model output: {len(model_output_df)} rows")
+        # 3: Filter data
+        target_data_df, self.model_output_unpivoted = self._filter_data_by_config_specs(
+            target_data_df, self.model_output_unpivoted, locations
+        )
+        
+        # 2: Location detection (on full datasets)
+        logger.info("")
+        logger.info("Detecting locations...")
+        locations = self._detect_locations(target_data_df)
+        self.processing_stats["locations_detected"] = len(locations)
+        logger.info(f"  [OK] Found {len(locations)} location(s)")
 
-        # Update unpivoted model output with filtered data (needed for evaluations)
-        # We must filter the unpivoted data separately because model_output_df is potentially pivoted (wide format)
-        # while evaluations require long format. Reusing the filter method works as it filters by 'target' and 'location' columns.
-        _, self.model_output_unpivoted = self._filter_data_by_config_specs(target_data_df, self.model_output_unpivoted, detected_locations=locations)
-        logger.info(f"Filtered unpivoted model output data: {len(self.model_output_unpivoted)} rows")
+        # 3: Filter data by config specifications
+        logger.info("")
+        logger.info("Filtering data by config specifications...")
+        target_data_df, self.model_output_unpivoted = self._filter_data_by_config_specs(
+            target_data_df, self.model_output_unpivoted, locations
+        )
 
-        # 3b: Extract Latest Ground Truth & Process History (from filtered data)
-        # This ensures historical data json only contains relevant locations/targets
-        # and that downstream processing only uses the latest 'as_of' slice.
-        target_data_df = self._extract_latest_ground_truth_and_history(target_data_df)
+        # 3c: Calculate date ranges per target
+        self.date_ranges_per_target = self._calculate_date_ranges_per_target(
+            target_data_df, self.model_output_unpivoted
+        )
 
-        # 3c: Calculate date ranges per target (after filtering)
-        # This ensures each target has its own valid date range for frontend date pickers
-        self.date_ranges_per_target = self._calculate_date_ranges_per_target(target_data_df, model_output_df)
-
-        # 4: Fix missing time intervals (now operates on pre-filtered data and uses per-target date ranges)
-        fixed_target_data_df = self._fix_missing_time_intervals(target_data_df, model_output_df)
+        # 4: Fix missing time intervals (for frontend target data)
+        logger.info("Filling missing time intervals in target data...")
+        fixed_target_data_df = self._fix_missing_time_intervals(
+            target_data_df, self.model_output_unpivoted
+        )
         self.fixed_target_data = fixed_target_data_df
 
-        # 5: Process all target data (periods are now frontend presets)
+        # 5: Process all target data (for frontend JSON)
+        logger.info("Processing target data for frontend...")
         processed_target_data = self._process_target_data(fixed_target_data_df)
 
-        # 6: Process all model output data
-        processed_model_output = self._process_model_output_data(model_output_df)
+        # 6: Process all model output data (for frontend JSON)
+        logger.info("Processing model output data for frontend...")
+        processed_model_output = self._process_model_output_data(model_output_pivoted)
 
-        # 6b: Track model availability per period (for frontend UI)
-        self._track_model_availability_per_period(model_output_df)
+        # 6b: Track model availability per period
+        self._track_model_availability_per_period(model_output_pivoted)
 
-        # 7: Calculate evaluations
-        raw_evaluations = {}
+        # ========================
+        # EVALUATION PROCESSING
+        # ========================
+        # Strategy:
+        # - Full run: Calculate all evaluations
+        # - Incremental: Recalculate only affected rows based on:
+        #   A. New/modified model predictions
+        #   B. Revised target data
+        # - Smart aggregation: Re-aggregate only affected forecast periods
+        
         aggregated_evaluations = None
         raw_scores_by_period = {}
 
         if not self.skip_evaluations:
-            # Step 7a: Generate raw evaluation metrics for all available data
-            raw_evaluations = self._generate_raw_evaluation_collection(fixed_target_data_df, self.model_output_unpivoted)
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("EVALUATION PROCESSING")
+            logger.info("=" * 60)
+            
+            # Scenario 1: Full evaluation (initial run or no previous evaluations)
+            if full_model_load or not self.raw_evaluations or not any(self.raw_evaluations.values()):
+                logger.info("Running FULL evaluation calculation...")
+                logger.info("  This will calculate WIS, MAPE, and Coverage for all predictions")
+                
+                eval_results = self._generate_raw_evaluation_collection(
+                    fixed_target_data_df, 
+                    self.model_output_unpivoted
+                )
+                self.raw_evaluations = eval_results
+                
+                # All periods need aggregation
+                affected_date_range = None
+                logger.info(f"  [OK] Calculated evaluations for {len(self.model_output_unpivoted)} prediction rows")
+            
+            else:
+                # Scenario 2: Incremental evaluation update
+                logger.info("Running INCREMENTAL evaluation update...")
+                
+                rows_to_evaluate = pd.DataFrame()
+                evaluation_reasons = []
+                
+                # A. New/modified model predictions
+                if new_model_predictions:
+                    logger.info(f"  Reason A: {len(new_model_predictions)} new model predictions")
+                    evaluation_reasons.append(f"{len(new_model_predictions)} new predictions")
+                    
+                    # Extract rows matching new prediction keys
+                    # Convert set to dataframe for efficient merging
+                    pred_keys_list = list(new_model_predictions)
+                    if pred_keys_list:
+                        pred_keys_df = pd.DataFrame(pred_keys_list, columns=[
+                            "location", "reference_date", "target_end_date", "target", "model"
+                        ])
+                        
+                        # Merge to get full rows
+                        new_pred_rows = pd.merge(
+                            self.model_output_unpivoted,
+                            pred_keys_df,
+                            on=["location", "reference_date", "target_end_date", "target", "model"],
+                            how="inner"
+                        )
+                        
+                        if not new_pred_rows.empty:
+                            rows_to_evaluate = pd.concat([rows_to_evaluate, new_pred_rows])
+                
+                # B. Revised target data affecting existing predictions
+                if affected_target_keys:
+                    logger.info(f"  Reason B: {len(affected_target_keys)} revised target data points")
+                    evaluation_reasons.append(f"{len(affected_target_keys)} revised observations")
+                    
+                    # Convert affected keys to DataFrame
+                    keys_df = pd.DataFrame(
+                        list(affected_target_keys), 
+                        columns=["location", "target_end_date", "target"]
+                    )
+                    
+                    # Ensure types match
+                    keys_df["target_end_date"] = pd.to_datetime(keys_df["target_end_date"])
+                    keys_df["location"] = keys_df["location"].astype(str)
+                    
+                    # Find all predictions for these target keys
+                    affected_pred_rows = pd.merge(
+                        self.model_output_unpivoted,
+                        keys_df,
+                        on=["location", "target_end_date", "target"],
+                        how="inner"
+                    )
+                    
+                    if not affected_pred_rows.empty:
+                        rows_to_evaluate = pd.concat([rows_to_evaluate, affected_pred_rows])
+                
+                # Deduplicate rows to evaluate
+                if not rows_to_evaluate.empty:
+                    rows_to_evaluate.drop_duplicates(inplace=True)
+                    
+                    logger.info(f"  [!] Recalculating evaluations for {len(rows_to_evaluate)} prediction rows")
+                    logger.info(f"      ({', '.join(evaluation_reasons)})")
+                    
+                    # Calculate new evaluations
+                    new_eval_results = self._generate_raw_evaluation_collection(
+                        fixed_target_data_df, 
+                        rows_to_evaluate
+                    )
+                    
+                    # Merge with existing evaluations (update/append)
+                    for metric, new_df in new_eval_results.items():
+                        if metric not in self.raw_evaluations or self.raw_evaluations[metric] is None or self.raw_evaluations[metric].empty:
+                            self.raw_evaluations[metric] = new_df
+                            continue
+                        
+                        if new_df.empty:
+                            continue
+                        
+                        old_df = self.raw_evaluations[metric]
+                        
+                        # Define evaluation keys for deduplication
+                        eval_keys = ["model", "location", "target_end_date", "target", "horizon", "reference_date"]
+                        valid_keys = [k for k in eval_keys if k in old_df.columns and k in new_df.columns]
+                        
+                        # Concatenate and keep last (newest)
+                        combined = pd.concat([old_df, new_df], ignore_index=True)
+                        combined.drop_duplicates(subset=valid_keys, keep='last', inplace=True)
+                        self.raw_evaluations[metric] = combined
+                        
+                        logger.info(f"      Updated {metric}: {len(new_df)} new/revised scores")
+                    
+                    # Determine affected date range for smart aggregation
+                    min_date = rows_to_evaluate["target_end_date"].min()
+                    max_date = rows_to_evaluate["target_end_date"].max()
+                    affected_date_range = (min_date, max_date) if pd.notna(min_date) and pd.notna(max_date) else None
+                    
+                    if affected_date_range:
+                        logger.info(f"  [!] Date range affected: {min_date.date()} to {max_date.date()}")
+                else:
+                    logger.info("  [OK] No evaluation changes needed")
+                    affected_date_range = None
 
-            # Step 7b: Aggregate evaluation metrics by periods (for Season Overview)
-            aggregated_evaluations = self._generate_aggregated_evaluation_collection(raw_evaluations)
+            # Step 7b: Aggregate evaluation metrics (smart aggregation)
+            logger.info("")
+            logger.info("Aggregating evaluations by forecast period...")
+            if affected_date_range:
+                logger.info(f"  Smart aggregation: only periods overlapping {affected_date_range[0].date()} - {affected_date_range[1].date()}")
+            else:
+                logger.info("  Full aggregation: all forecast periods")
+            
+            aggregated_evaluations = self._generate_aggregated_evaluation_collection(
+                self.raw_evaluations, 
+                affected_date_range
+            )
+            self.aggregated_evaluations = aggregated_evaluations
 
-            # Step 7c: Organize raw scores (all data, no period filtering, for Single Model view)
-            raw_scores_by_period = self._generate_raw_scores_by_period(raw_evaluations)
+            # Step 7c: Organize raw scores for Single Model view
+            logger.info("Organizing raw scores for Single Model view...")
+            raw_scores_by_period = self._generate_raw_scores_by_period(self.raw_evaluations)
+            
+            logger.info("  [OK] Evaluation processing complete")
         else:
-            logger.info("Skipping evaluation calculations (disabled by user)")
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("EVALUATION SKIPPED (disabled by user)")
+            logger.info("=" * 60)
 
         # 8: Generate Metadata
-        metadata = self._generate_metadata(locations, model_output_df, target_data_df)
+        metadata = self._generate_metadata(locations, model_output_pivoted, target_data_df)
 
         # 9: Write output files
         self._write_output_files(
@@ -240,9 +545,84 @@ class DataProcessor:
             raw_scores_by_period,
             aggregated_evaluations,
         )
+        
+        # 10: Save Intermediates & Manifest
+        self._save_intermediates()
+        self.manifest_manager.save()
 
         logger.info("Data processing completed successfully.")
-        return True  # Indicate success
+        return True
+
+    def _load_intermediates(self) -> bool:
+        """
+        Load intermediate data from previous runs.
+        
+        Loads:
+        - Current target data (parquet)
+        - Model output unpivoted data (parquet)
+        - Raw evaluations per metric (parquet files: WIS, MAPE, Coverage)
+        - Aggregated evaluations (JSON)
+        
+        Returns:
+            bool: True if all core intermediates loaded successfully, False otherwise
+        """
+        try:
+            target_path = self.intermediates_dir / "target_data.parquet"
+            model_path = self.intermediates_dir / "model_output_unpivoted.parquet"
+            
+            if not target_path.exists() or not model_path.exists():
+                logger.info("Core intermediates not found (first run or clean slate)")
+                return False
+                
+            logger.info("Loading intermediates from previous run...")
+            
+            # Load target and model data
+            self.current_target_data = pd.read_parquet(target_path)
+            logger.info(f"  Loaded target data: {len(self.current_target_data)} rows")
+            
+            self.model_output_unpivoted = pd.read_parquet(model_path)
+            logger.info(f"  Loaded model output: {len(self.model_output_unpivoted)} rows")
+            
+            # Load raw evaluations (stored as separate parquet files per metric)
+            self.raw_evaluations = {}
+            metrics_loaded = []
+            
+            for metric in ["wis", "wis_ratio", "mape", "coverage"]:
+                eval_path = self.intermediates_dir / f"raw_evaluations_{metric}.parquet"
+                if eval_path.exists():
+                    try:
+                        self.raw_evaluations[metric] = pd.read_parquet(eval_path)
+                        metrics_loaded.append(f"{metric} ({len(self.raw_evaluations[metric])} rows)")
+                    except Exception as e:
+                        logger.warning(f"  Failed to load {metric} evaluations: {e}")
+                        self.raw_evaluations[metric] = pd.DataFrame()
+                else:
+                    self.raw_evaluations[metric] = pd.DataFrame()
+            
+            if metrics_loaded:
+                logger.info(f"  Loaded evaluations: {', '.join(metrics_loaded)}")
+            
+            # Load aggregated evaluations (cached for performance)
+            agg_path = self.intermediates_dir / "aggregated_evaluations.json"
+            if agg_path.exists():
+                try:
+                    with open(agg_path, "r") as f:
+                        self.aggregated_evaluations = json.load(f)
+                    logger.info(f"  Loaded aggregated evaluations cache")
+                except Exception as e:
+                    logger.warning(f"  Failed to load aggregated evaluations: {e}")
+                    self.aggregated_evaluations = {}
+            else:
+                self.aggregated_evaluations = {}
+
+            logger.info("  [OK] Intermediates loaded successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to load intermediates: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     def _load_target_data(self) -> pd.DataFrame:
         """
@@ -343,7 +723,7 @@ class DataProcessor:
 
         df["date"] = pd.to_datetime(df["date"])
 
-        # Handle 'as_of' column processing
+        
         # Handle 'as_of' column processing
         if "as_of" in df.columns:
             logger.info("Found 'as_of' column.")
@@ -522,13 +902,25 @@ class DataProcessor:
                 logger.warning(f"  [!] Directory not found for model '{model.model_name}', skipping.")
                 continue
 
-            model_files = list(model_dir.glob("*.csv"))
+            model_files = list(model_dir.glob("*.csv")) + list(model_dir.glob("*.parquet")) + list(model_dir.glob("*.pq"))
             if not model_files:
-                logger.warning(f"  [!] No CSV files found for model '{model.model_name}', skipping.")
+                logger.warning(f"  [!] No data files found for model '{model.model_name}', skipping.")
                 continue
 
             logger.info(f"  [OK] Loading model '{model.model_name}': {len(model_files)} files")
-            df_list = [pd.read_csv(f, low_memory=False) for f in model_files]
+            df_list = []
+            for f in model_files:
+                try:
+                    if f.suffix == ".csv":
+                        df_list.append(pd.read_csv(f, low_memory=False))
+                    else:
+                        df_list.append(pd.read_parquet(f))
+                except Exception as e:
+                    logger.error(f"Error loading file {f}: {e}")
+            
+            if not df_list:
+                continue
+                
             model_df = pd.concat(df_list, ignore_index=True)
             model_df["model"] = model.model_name
             all_model_dfs.append(model_df)
@@ -546,6 +938,9 @@ class DataProcessor:
 
         df["reference_date"] = pd.to_datetime(df["reference_date"])
         df["target_end_date"] = pd.to_datetime(df["target_end_date"])
+        
+        # Ensure location is string type for consistency and parquet compatibility
+        df = ensure_string_column(df, "location")
 
         time_unit = self.config.time_unit
         if "horizon" not in df.columns:
@@ -996,7 +1391,7 @@ class DataProcessor:
 
         return fixed_df
 
-    def _detect_locations(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> list:
+    def _detect_locations(self, target_data_df: pd.DataFrame) -> list:
         """
         Detects all unique locations from the provided data and configuration.
 
@@ -1008,12 +1403,10 @@ class DataProcessor:
             ONLY these locations are used.
         2.  **Target Data**: Locations found in ``target_data_df``. If a ``location_name`` column exists,
             those names are used.
-        3.  **Model Output**: Additional locations found in ``model_output_df`` that weren't in target data.
-        4.  **Default Fallback**: Uses the built-in US FIPS code mapping (e.g., "01" -> "Alabama").
+        3.  **Default Fallback**: Uses the built-in US FIPS code mapping (e.g., "01" -> "Alabama").
 
         Args:
             target_data_df (pd.DataFrame): The loaded ground truth data.
-            model_output_df (pd.DataFrame): The loaded model predictions data.
 
         Returns:
             list: A list of dictionaries, where each dictionary contains:
@@ -1034,12 +1427,12 @@ class DataProcessor:
             locations_list.sort(key=lambda x: x["location"])
             return locations_list
 
-        # Priority 2 & 3: Detect from data files (target-data first, then model-output)
-        logger.info("  No custom mapping file detected. Auto-detecting locations from data files...")
+        # Priority 2: Detect from target-data
+        logger.info("  No custom mapping file detected. Auto-detecting locations from target data...")
 
         detected_locations = {}  # Map of code -> name
 
-        # Check target-data first
+        # Check target-data
         if "location" in target_data_df.columns and not target_data_df.empty:
             target_loc_codes = target_data_df["location"].unique()
             logger.info(f"  [OK] Found {len(target_loc_codes)} unique locations in target-data")
@@ -1057,21 +1450,6 @@ class DataProcessor:
                 # Use names from default mapping
                 for loc_code in target_loc_codes:
                     loc_code_str = str(loc_code)
-                    loc_name = location_mapping.get(loc_code_str, f"Location {loc_code_str}")
-                    detected_locations[loc_code_str] = loc_name
-
-        # Check model-output (fills in any missing locations)
-        if "location" in model_output_df.columns and not model_output_df.empty:
-            model_loc_codes = model_output_df["location"].unique()
-            new_locs = [loc for loc in model_loc_codes if str(loc) not in detected_locations]
-
-            if new_locs:
-                logger.info(f"  [OK] Found {len(new_locs)} additional locations in model-output")
-
-            for loc_code in model_loc_codes:
-                loc_code_str = str(loc_code)
-                if loc_code_str not in detected_locations:
-                    # Use name from default mapping
                     loc_name = location_mapping.get(loc_code_str, f"Location {loc_code_str}")
                     detected_locations[loc_code_str] = loc_name
 
@@ -1273,6 +1651,7 @@ class DataProcessor:
             period_ids.append(period.special_period_id)
 
         return period_ids
+    
 
     def _generate_metadata(
         self,
@@ -1308,33 +1687,79 @@ class DataProcessor:
         # Since all the models are toggled on by default, visualization guaranteed has prediction line thus
         latest_model_ref_date = model_output_df["reference_date"].max()
 
-        # Build forecast period info
+        # Build forecast period info with ongoing period detection
+        logger.info("Building forecast period metadata...")
         forecast_periods_info = []
+        ongoing_periods_metadata = {}  # Store for special period calculation
+        
         for idx, period in enumerate(self.config.forecast_periods):
-            forecast_periods_info.append(
-                {
-                    "forecastPeriodId": period.forecast_period_id,
-                    "displayString": period.display_string,
-                    "timeValue": f"{period.start_date.date()}/{period.end_date.date()}",
-                    "startDate": to_utc_iso_string(period.start_date),
-                    "endDate": to_utc_iso_string(period.end_date),
-                    "isDefaultSelected": period.is_default_selected,
-                }
+            # Compute ongoing period metadata
+            ongoing_meta = compute_ongoing_period_metadata(
+                period, target_data_df, model_output_df
             )
+            
+            period_info = {
+                "forecastPeriodId": period.forecast_period_id,
+                "displayString": period.display_string,
+                "timeValue": f"{period.start_date.date()}/{period.end_date.date()}",
+                "startDate": to_utc_iso_string(period.start_date),
+                "endDate": to_utc_iso_string(period.end_date),
+                "isDefaultSelected": period.is_default_selected,
+            }
+            
+            # Add ongoing period specific fields
+            if ongoing_meta["isOngoing"]:
+                period_info["isOngoing"] = True
+                period_info["actualEndDate"] = ongoing_meta["actualEndDate"]
+                period_info["anchorDate"] = ongoing_meta["anchorDate"]
+                period_info["configuredEndDate"] = ongoing_meta["configuredEndDate"]
+                
+                logger.info(f"  Ongoing period '{period.forecast_period_id}':")
+                logger.info(f"    Configured end: {period.end_date.date()}")
+                logger.info(f"    Actual end: {pd.to_datetime(ongoing_meta['actualEndDate']).date()}")
+                logger.info(f"    Anchor: {pd.to_datetime(ongoing_meta['anchorDate']).date()}")
+                
+                # Store for special period calculation
+                ongoing_periods_metadata[period.forecast_period_id] = ongoing_meta
+            
+            forecast_periods_info.append(period_info)
 
-        # Dynamic/special forecast periods
+        # Process special/dynamic forecast periods
         special_periods = self.config.special_forecast_periods or []
+        if special_periods:
+            logger.info("Processing special forecast periods...")
+            
         for period in special_periods:
-            # Note: special periods have placeholder dates, computed at runtime
+            anchor_period_id = period.time_anchor.anchor_on
+            
+            # Get metadata for the period this special period anchors to
+            if anchor_period_id not in ongoing_periods_metadata:
+                logger.warning(f"Special period '{period.special_period_id}' anchors to '{anchor_period_id}' "
+                              f"which is not an ongoing period. Skipping.")
+                continue
+            
+            # Compute date range for special period
+            special_meta = compute_special_period_date_range(
+                period,
+                ongoing_periods_metadata[anchor_period_id],
+                self.config.time_unit
+            )
+            
+            if not special_meta["startDate"] or not special_meta["endDate"]:
+                logger.warning(f"Could not compute date range for special period '{period.special_period_id}'. Skipping.")
+                continue
+            
             period_meta = {
                 "forecastPeriodId": period.special_period_id,
                 "displayString": period.display_string,
-                "timeValue": "dynamic",  # Computed at runtime
-                "startDate": None,  # Computed at runtime
-                "endDate": None,  # Computed at runtime
+                "timeValue": f"{pd.to_datetime(special_meta['startDate']).date()}/{pd.to_datetime(special_meta['endDate']).date()}",
+                "startDate": special_meta["startDate"],
+                "endDate": special_meta["endDate"],
                 "isDefaultSelected": False,
                 "isDynamic": True,
                 "isSpecial": True,
+                "anchorDate": special_meta["anchorDate"],
+                "anchoredTo": special_meta["anchoredTo"],
             }
             forecast_periods_info.append(period_meta)
 
@@ -1614,15 +2039,18 @@ class DataProcessor:
         logger.info("Raw evaluation collection complete.")
         return evaluation_results
 
-    def _generate_aggregated_evaluation_collection(self, raw_evaluations: dict) -> dict:
+    def _generate_aggregated_evaluation_collection(self, raw_evaluations: dict, affected_date_range: tuple = None) -> dict:
         """
         Generate aggregated evaluation statistics by forecast period.
 
         Takes the raw scores and groups them by configured forecast periods
         to produce frontend-ready aggregated statistics.
-
+        
         Args:
             raw_evaluations: Dictionary of raw evaluation DataFrames
+            affected_date_range: tuple (start_date, end_date) of changed data. 
+                               If None, re-aggregate ALL periods.
+                               If provided, only re-aggregate periods overlapping with this range.
 
         Returns:
             dict: Aggregated evaluation data for AppDataEvaluationsPrecalculated
@@ -1631,8 +2059,11 @@ class DataProcessor:
         logger.info("STEP 2: GENERATING AGGREGATED EVALUATION COLLECTION")
         logger.info("=" * 60)
 
-        # Initialize structure
-        precalculated = {"iqr": {}, "locationMap_aggregates": {}, "detailedCoverage_aggregates": {}}
+        # Initialize structure with existing aggregates or empty
+        precalculated = self.aggregated_evaluations.copy()
+        if "iqr" not in precalculated: precalculated["iqr"] = {}
+        if "locationMap_aggregates" not in precalculated: precalculated["locationMap_aggregates"] = {}
+        if "detailedCoverage_aggregates" not in precalculated: precalculated["detailedCoverage_aggregates"] = {}
 
         # Get configuration values
         cov_levels = sorted([int(x) for x in (self.config.evaluation_coverage_levels or [50, 95])])
@@ -1650,10 +2081,18 @@ class DataProcessor:
                 logger.warning(f"Could not determine date range for period '{period_id}', skipping")
                 continue
             start, end = date_range
+            
+            # Check if we need to re-aggregate this period
+            if affected_date_range:
+                aff_start, aff_end = affected_date_range
+                # Check for overlap: start <= aff_end and end >= aff_start
+                if not (start <= aff_end and end >= aff_start):
+                    logger.info(f"Skipping static period '{period_id}' (No changes in {start.date()} - {end.date()})")
+                    continue
 
             logger.info(f"Processing period: '{period_id}' ({start.date()} to {end.date()})")
 
-            # Initialize period structure
+            # Initialize/Clear period structure
             precalculated["iqr"][period_id] = {}
             precalculated["locationMap_aggregates"][period_id] = {}
             precalculated["detailedCoverage_aggregates"][period_id] = {}
@@ -2124,6 +2563,117 @@ class DataProcessor:
         self.processing_stats["files_written"] += 1
         self.processing_stats["output_files"].append(str(file_path.relative_to(self.project_root)))
 
+    def _save_intermediates(self):
+        """
+        Save current state to intermediate files for future incremental updates.
+        
+        Saves:
+        - Current target data (parquet)
+        - Model output unpivoted data (parquet)
+        - Raw evaluations per metric (separate parquet files)
+        - Aggregated evaluations (JSON cache for performance)
+        """
+        try:
+            logger.info("")
+            logger.info("Saving intermediates for future incremental updates...")
+            
+            files_saved = []
+            
+            # Save target data
+            if self.current_target_data is not None and not self.current_target_data.empty:
+                target_path = self.intermediates_dir / "target_data.parquet"
+                # Ensure location column is string type for parquet compatibility
+                target_df_to_save = self.current_target_data.copy()
+                target_df_to_save = ensure_string_column(target_df_to_save, "location")
+                target_df_to_save.to_parquet(target_path)
+                files_saved.append(f"target_data ({len(target_df_to_save)} rows)")
+            
+            # Save model output (unpivoted for evaluations)
+            if self.model_output_unpivoted is not None and not self.model_output_unpivoted.empty:
+                model_path = self.intermediates_dir / "model_output_unpivoted.parquet"
+                # Ensure location column is string type for parquet compatibility
+                model_df_to_save = self.model_output_unpivoted.copy()
+                model_df_to_save = ensure_string_column(model_df_to_save, "location")
+                model_df_to_save.to_parquet(model_path)
+                files_saved.append(f"model_output ({len(model_df_to_save)} rows)")
+            
+            # Save raw evaluations (separate parquet per metric)
+            if self.raw_evaluations:
+                for metric, df in self.raw_evaluations.items():
+                    if isinstance(df, pd.DataFrame) and not df.empty:
+                        eval_path = self.intermediates_dir / f"raw_evaluations_{metric}.parquet"
+                        df.to_parquet(eval_path)
+                        files_saved.append(f"{metric}_evaluations ({len(df)} rows)")
+            
+            # Save aggregated evaluations cache (for faster incremental updates)
+            if self.aggregated_evaluations:
+                agg_path = self.intermediates_dir / "aggregated_evaluations.json"
+                with open(agg_path, "w") as f:
+                    json.dump(self.aggregated_evaluations, f, cls=NpEncoder)
+                files_saved.append("aggregated_evaluations_cache")
+            
+            logger.info(f"  [OK] Saved: {', '.join(files_saved)}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save intermediates: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _load_specific_model_files(self, file_rel_paths: list) -> pd.DataFrame:
+        """
+        Load specific model output files (for incremental updates).
+        """
+        all_dfs = []
+        mapping = self.config.model_output_data_header_mapping
+        rename_dict = {
+            mapping.reference_date_col_name: "reference_date",
+            mapping.target_end_date_col_name: "target_end_date",
+            mapping.target_col_name: "target",
+            mapping.horizon_col_name: "horizon",
+            mapping.location_col_name: "location",
+            mapping.output_type_col_name: "output_type",
+            mapping.output_type_id_col_name: "output_type_id",
+            mapping.value_col_name: "value",
+        }
+        valid_rename_dict = {k: v for k, v in rename_dict.items() if k is not None}
+        
+        for rel_path in file_rel_paths:
+            file_path = self.project_root / rel_path
+            if not file_path.exists():
+                continue
+                
+            try:
+                df = pd.read_csv(file_path, low_memory=False)
+                # Determine model name from path
+                # Fallback: assume parent of file is model name
+                model_name = file_path.parent.name
+                
+                df["model"] = model_name
+                df.rename(columns=valid_rename_dict, inplace=True)
+                
+                # Ensure date columns
+                for col in ["reference_date", "target_end_date"]:
+                    if col in df.columns:
+                        df[col] = pd.to_datetime(df[col])
+                
+                # Ensure location is string type
+                df = ensure_string_column(df, "location")
+                        
+                # Calculate horizon if missing
+                time_unit = self.config.time_unit
+                if "horizon" not in df.columns and "target_end_date" in df.columns and "reference_date" in df.columns:
+                    df["horizon"] = ((df["target_end_date"] - df["reference_date"]).dt.days / time_unit).astype(int)
+                
+                all_dfs.append(df)
+                
+            except Exception as e:
+                logger.error(f"Error loading file {rel_path}: {e}")
+                
+        if all_dfs:
+            combined_df = pd.concat(all_dfs, ignore_index=True)
+            return combined_df
+        return pd.DataFrame()
+
     def _get_period_date_range(
         self,
         period,
@@ -2134,48 +2684,206 @@ class DataProcessor:
         # Check if this is a special period (has special_period_id attribute)
         is_special = hasattr(period, "special_period_id")
         period_id = period.special_period_id if is_special else period.forecast_period_id
+        
         if is_special:
             anchor_config = period.time_anchor
             if not anchor_config:
                 logger.warning(f"Special period '{period_id}' is missing time_anchor config. Skipping.")
                 return None
 
-            anchor_mode = anchor_config.anchor_mode
+            # Always anchor on latest VALID target data date within the referenced period
+            anchor_on_period_id = anchor_config.anchor_on
             range_calc = anchor_config.range_calculation
             time_unit = self.config.time_unit
 
-            if anchor_mode == "model-output":
-                anchor_date = model_output_df["reference_date"].max()
-            elif anchor_mode == "target-data":
-                anchor_date = target_data_df["date"].max()
-            else:
-                logger.warning(f"Invalid anchor_mode '{anchor_mode}' for special period '{period_id}'. Skipping.")
+            # Find the referenced period
+            ref_period = next((p for p in self.config.forecast_periods if p.forecast_period_id == anchor_on_period_id), None)
+            if not ref_period:
+                logger.warning(f"Special period '{period_id}' references unknown period '{anchor_on_period_id}'. Skipping.")
                 return None
 
+            # Filter target data to the referenced period's static range
+            if target_data_df.empty:
+                logger.warning(f"No target data available for special period '{period_id}'. Skipping.")
+                return None
+                
+            # Filter by date range of the referenced period
+            # Note: ref_period.start_date/end_date are already datetime objects from Pydantic
+            # Ensure target_data_df['date'] is datetime
+            if not pd.api.types.is_datetime64_any_dtype(target_data_df["date"]):
+                target_data_df = target_data_df.copy()
+                target_data_df["date"] = pd.to_datetime(target_data_df["date"])
+
+            relevant_data = target_data_df[
+                (target_data_df["date"] >= ref_period.start_date) & 
+                (target_data_df["date"] <= ref_period.end_date)
+            ]
+            
+            if relevant_data.empty:
+                logger.warning(f"No valid target data found within referenced period '{anchor_on_period_id}' for '{period_id}'. Skipping.")
+                return None
+            
+            # Anchor date is the latest date with ground truth
+            anchor_date = relevant_data["date"].max()
+            
             if pd.isna(anchor_date):
-                logger.warning(f"Could not determine anchor date for special period '{period_id}'. Skipping.")
                 return None
 
+            # Calculate start date: anchor_date + (range_calc * time_unit)
+            # range_calc is negative (e.g., -1 for last 2 weeks)
+            # 0 shift = just the anchor week.
+            start_date = anchor_date + pd.Timedelta(days=range_calc * time_unit)
             end_date = anchor_date
-            start_date = end_date + pd.Timedelta(days=range_calc * time_unit)
+            
+            logger.info(f"  Dynamic Period '{period_id}': {start_date.date()} to {end_date.date()} (Anchored on {anchor_date.date()})")
             return start_date, end_date
         else:
             return period.start_date, period.end_date
 
+    def _identify_target_data_changes(self, old_df: pd.DataFrame, new_df: pd.DataFrame) -> set:
+        """
+        Identify which keys (location, date, target) have changed between old and new target data.
+        
+        Tracks both new observations and revisions to existing observations.
+        
+        NOTE ON DATA COMPARISON STRATEGY:
+        - Manifest Manager: Compares RAW file checksums to detect IF source files changed
+        - This method: Compares PROCESSED data (after column renaming, as_of shifting, etc.)
+        - old_df: Previously processed data (loaded from intermediates/target_data.parquet)
+        - new_df: Newly processed data (loaded from raw files and transformed)
+        - Both are in same format (standard column names, shifted as_of dates, etc.)
+        - This ensures apples-to-apples comparison while detecting byte-level source changes
+        
+        Args:
+            old_df: Previous target data (PROCESSED)
+            new_df: New target data (PROCESSED)
+        
+        Returns:
+            set of tuples: {(location, date, target), ...}
+        """
+        if old_df is None or old_df.empty:
+            return set() # Empty set means all data is new (handled differently)
+            
+        # Ensure consistency in comparison columns
+        old_comp = old_df.copy()
+        new_comp = new_df.copy()
+        
+        # Ensure target column exists
+        if "target" not in old_comp.columns: 
+            old_comp["target"] = "default"
+        if "target" not in new_comp.columns: 
+            new_comp["target"] = "default"
+        
+        keys = ["location", "date", "target"]
+        
+        # Convert date to datetime if not already
+        old_comp["date"] = pd.to_datetime(old_comp["date"])
+        new_comp["date"] = pd.to_datetime(new_comp["date"])
+        
+        # Convert observation to float for comparison stability
+        old_comp["observation"] = old_comp["observation"].astype(float)
+        new_comp["observation"] = new_comp["observation"].astype(float)
+        
+        # Merge on keys to compare observations
+        merged = pd.merge(
+            new_comp, old_comp, 
+            on=keys, 
+            suffixes=('_new', '_old'), 
+            how='outer', 
+            indicator=True
+        )
+        
+        # 1. New rows (left_only) - new observations
+        new_rows = merged[merged["_merge"] == "left_only"]
+        
+        # 2. Changed rows (both, but observation differs) - revisions
+        changed_mask = (merged["_merge"] == "both") & (
+            (merged["observation_new"] != merged["observation_old"]) & 
+            ~(merged["observation_new"].isna() & merged["observation_old"].isna())
+        )
+        changed_rows = merged[changed_mask]
+        
+        affected_keys = set()
+        
+        for df in [new_rows, changed_rows]:
+            if not df.empty:
+                for _, row in df.iterrows():
+                    affected_keys.add((
+                        str(row["location"]), 
+                        row["date"], 
+                        str(row["target"])
+                    ))
+                    
+        return affected_keys
+    
+    def _extract_prediction_keys(self, model_df: pd.DataFrame) -> set:
+        """
+        Extract unique prediction keys from model output dataframe.
+        
+        Used to track which predictions are new and need evaluation.
+        
+        Args:
+            model_df: Model output dataframe
+        
+        Returns:
+            set of tuples: {(location, reference_date, target_end_date, target, model), ...}
+        """
+        if model_df is None or model_df.empty:
+            return set()
+        
+        keys = set()
+        required_cols = ["location", "reference_date", "target_end_date", "model"]
+        
+        # Check if all required columns exist
+        if not all(col in model_df.columns for col in required_cols):
+            logger.warning("Missing required columns for prediction key extraction")
+            return keys
+        
+        # Add target column if it exists
+        has_target = "target" in model_df.columns
+        
+        # Extract unique combinations
+        if has_target:
+            for _, row in model_df[required_cols + ["target"]].drop_duplicates().iterrows():
+                keys.add((
+                    str(row["location"]),
+                    pd.to_datetime(row["reference_date"]),
+                    pd.to_datetime(row["target_end_date"]),
+                    str(row["target"]),
+                    str(row["model"])
+                ))
+        else:
+            for _, row in model_df[required_cols].drop_duplicates().iterrows():
+                keys.add((
+                    str(row["location"]),
+                    pd.to_datetime(row["reference_date"]),
+                    pd.to_datetime(row["target_end_date"]),
+                    "default",
+                    str(row["model"])
+                ))
+        
+        return keys
 
-def process_data(config: DashboardConfig, dev_mode: bool = False, skip_evaluations: bool = False):
+
+def process_data(
+    config: DashboardConfig, 
+    dev_mode: bool = False, 
+    skip_evaluations: bool = False,
+    is_data_update_run: bool = False
+):
     """
     Main function to instantiate and run the data processor.
     This will be called by the main workflow orchestrator.
 
     Args:
         config (DashboardConfig): DashboardConfig object with all settings
-        dev_mode (bool): If True, use test-data-input/ directory
+        dev_mode (bool): If True, use development-mode-root/ directory
         skip_evaluations (bool): If True, skip evaluation metrics calculation
+        is_data_update_run (bool): If True, halt if no intermediates found
     """
     try:
         processor = DataProcessor(config, dev_mode=dev_mode, skip_evaluations=skip_evaluations)
-        success = processor.run()
+        success = processor.run(is_data_update_run=is_data_update_run)
         if not success:
             raise RuntimeError("Data processing failed.")
     except Exception as e:

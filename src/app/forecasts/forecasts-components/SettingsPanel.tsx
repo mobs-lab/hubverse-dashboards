@@ -29,7 +29,7 @@ import { Radio, Typography } from '@/styles/material-tailwind-wrapper';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { horizonSelectorsInfo } from 'types/infobutton-content';
-import SettingsStyledDatePicker from './SettingsStyledDatePicker';
+import SettingsStyledDatePicker from '@/shared-components/SettingsStyledDatePicker';
 
 const SettingsPanel: React.FC = () => {
   /* Redux-Managed State Variables */

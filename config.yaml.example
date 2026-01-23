@@ -3,15 +3,15 @@
 # HUBVERSE DASHBOARD CONFIGURATION FILE
 #==============================================================================
 # This file customizes the dashboard to work with your HubVerse-compatible data.
-# It is heavily commented to guide you through the setup process.
-#
+# The in-line comments are here to guide you through the setup process.
+# Also see the full, auto-generated documentation here:
+# ./docs/build/html/index.html
+
 # LEGEND:
 #   [REQUIRED]     - Must be provided, will fail otherwise
 #   [CONDITIONAL]  - Required only if certain other options are set
 #   [OPTIONAL]     - Has a default value or can be omitted
-#
-# See the full, auto-generated documentation here after you build it:
-# ./docs/build/html/index.html
+
 #==============================================================================
 
 #==============================================================================
@@ -20,13 +20,12 @@
 # [CONDITIONAL] You must provide EITHER a local path OR a remote link.
 #
 # Option 1: Local Data (recommended for development)
-#   - Place your data in directories named `target-data/` and `model-output/`
+#   - Place your data in directories named `target-data/`, `model-output/`, and `auxiliary-data/`
 #     in the project root.
 #   - Set link_to_hubverse_compatible_data to null.
 #
 # Option 2: Remote Data (for production or shared data)
-#   - Provide a URL to a GitHub repository containing your data.
-#   - The repository must follow the Hubverse data structure.
+#   - Provide a URL to a valid Hubverse-compatible GitHub repository containing your data.
 #------------------------------------------------------------------------------
 
 link_to_hubverse_compatible_data: null
@@ -42,30 +41,33 @@ link_to_hubverse_compatible_data: null
 #------------------------------------------------------------------------------
 
 forecast_periods:
-  - forecast_period_id: "season-2024-2025"
-    start_date: "2025-03-01T00:00:00"
-    end_date: "2025-10-20T00:00:00"
-    display_string: "COVID-19 2024-2025 Forecast (Sample Portion) "
+  # Example of a dynamic (ongoing) forecast period where the end_date is in the future.
+  # Only ongoing
+  # This is useful for ongoing forecasting efforts.
+  - forecast_period_id: "season-2025-2026"
+    start_date: "2025-08-01T00:00:00"
+    end_date: "2026-07-31T00:00:00"
+    display_string: "2025 March to October"
     is_default_selected: true # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
-  
-  - forecast_period_id: "season-2024-2025-test2"
+
+  # Examples of static forecast period where the entire range is in the past.
+  - forecast_period_id: "season_2024_Oct_to_2025_Feb"
     start_date: "2024-10-01T00:00:00"
     end_date: "2025-02-01T00:00:00"
-    display_string: "Oct2024 to Feb2025 Test portion"
-    is_default_selected: false # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
+    display_string: "2024 October to 2025 February"
+    is_default_selected: false
+
+  - forecast_period_id: "latest_couple_of_horizons_2025"
+    start_date: "2025-08-23T00:00:00"
+    end_date: "2025-09-27T00:00:00"
+    display_string: "2025 Tail"
+    is_default_selected: false
 
   - forecast_period_id: "test-season-2022-2023"
     start_date: "2022-08-01T00:00:00"
     end_date: "2023-07-31T00:00:00"
-    display_string: "test out of range time period option"
-    is_default_selected: false # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
-
-  # Example of a dynamic forecast period where the end_date is in the future.
-  # This is useful for ongoing forecasting efforts.
-  # - forecast_period_id: "season-2025-2026"
-  #   start_date: "2025-08-01T00:00:00"
-  #   end_date: "2026-07-31T00:00:00"
-  #   display_string: "(Ongoing) COVID-19 Forecast 2025-2026"
+    display_string: "Test: out of range time period option"
+    is_default_selected: false
 
 #==============================================================================
 # SPECIAL FORECAST PERIODS (Dynamic Time Windows)
@@ -78,12 +80,13 @@ forecast_periods:
 #------------------------------------------------------------------------------
 
 special_forecast_periods:
-  # - special_period_id: "last-2-weeks"
-  #   display_string: "Last 2 Weeks"
-  #   time_anchor:
-  #     anchor_on: "season-2024-2025"  # Must be a dynamic period ID from above
-  #     anchor_mode: "model-output"     # Use latest model output date (reference date) as 'today'
-  #     range_calculation: -2           # Include data ranging 4 time units (weeks in this example) back from 'today'
+  - special_period_id: "last-2-weeks"
+    display_string: "Last 2 Weeks"
+    time_anchor:
+      anchor_on: "season-2025-2026" # Must be a dynamic period ID from above
+      # TODO: Remove the deprecated `anchor_mode` option
+      anchor_mode: "model-output" # Use latest model output date (reference date) as 'today'
+      range_calculation: -1 # Include data ranging 2 time units (weeks in this example) back from the latest valid target-data (ground truth) data date
 
 #==============================================================================
 # LOCATION DATA CONFIGURATION
@@ -203,7 +206,8 @@ disable_historical_target_data: false
 # Use negative values to shift backwards, positive to shift forwards.
 # The absolute value must not exceed `time_unit` to avoid forecast cycle misalignment.
 # Applies to both single-file target data and partitioned parquet files.
-as_of_column_date_shift: 0
+# NOTE: Please make sure your data's "as_of" column dates are consistent in terms of Day of Week ()
+as_of_column_date_shift: -4
 
 #------------------------------------------------------------------------------
 # Target Data Column Mapping
@@ -388,7 +392,7 @@ ui_customization:
   ui_evaluation_overview_horizon_infobutton_content:
     title: "Forecast Horizons"
     content: "This is also a test."
-  
+
   ui_evaluation_single_model_infobutton_content:
     title: "Single Model Evaluations"
     content: "Something something"
@@ -396,9 +400,8 @@ ui_customization:
     title: "Forecast Horizons"
     content: "This should be different from the text of the infobutton on overview page's horizon selector"
 
-
   # Evaluation page's tab bar UI customization. This changes what the text in the two tabs display in the built dashboard.
-  # Currently we support two tabs: 
+  # Currently we support two tabs:
   #   - "Overview", for visualizations on location-aggregated evaluation metrics
   #   - "Single-Model", for comprehensive visualizations on metrics associated with one model's performance, allowing multi-dimensional criteria filtering such as spatial & temporal.
   ui_evaluation_overview_tab_name: "Location-Aggregated Overview" # Default is "Season Overview".

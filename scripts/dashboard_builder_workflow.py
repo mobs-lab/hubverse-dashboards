@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from yaml_config_processor_pydantic import load_and_validate_config, DashboardConfig
 from csv_shape_generator import generate_and_print_samples
 from data_processor import process_data
+from data_fetcher import DataFetcher
 
 
 # Configure logging
@@ -44,12 +45,14 @@ logger = logging.getLogger(__name__)
 class DashboardBuilder:
     """Main dashboard builder orchestrator"""
 
-    def __init__(self, config_path: str = "config.yaml", dev_mode: bool = False, skip_evaluations: bool = False):
+    def __init__(self, config_path: str = "config.yaml", dev_mode: bool = False, skip_evaluations: bool = False, is_data_update: bool = False):
         self.config_path = Path(config_path)
         self.config: Optional[DashboardConfig] = None
         self.project_root = self._get_project_root()
         self.dev_mode = dev_mode
         self.skip_evaluations = skip_evaluations
+        self.is_data_update = is_data_update
+        self.data_fetcher = DataFetcher(self.project_root, dev_mode=dev_mode)
 
     def _get_project_root(self) -> Path:
         """Get the project root directory"""
@@ -71,6 +74,12 @@ class DashboardBuilder:
         if not self._load_configuration():
             return False
 
+        # Step 2: Fetch remote data if configured
+        if not self._fetch_remote_data():
+            # If fetching failed but was attempted, we should stop
+            if self.config.link_to_hubverse_compatible_data:
+                return False
+
         self._prompt_to_continue()
 
         # Step 3: Generate and display CSV samples
@@ -79,12 +88,44 @@ class DashboardBuilder:
         # Step 4: Ask user for confirmation
         return self._get_user_confirmation()
 
+    def _fetch_remote_data(self) -> bool:
+        """
+        Checks config for remote data URL and fetches it if present.
+        Returns: 
+            bool: True if successful or no remote data needed. False if fetch failed.
+        """
+        repo_url = self.config.link_to_hubverse_compatible_data
+        
+        if not repo_url:
+            return True
+            
+        print("\n[Step 1.5] Fetching remote data...")
+        print(f"Remote Repository: {repo_url}")
+        
+        # Let DataFetcher handle cache location based on dev_mode
+        success, cache_path = self.data_fetcher.fetch_data(repo_url)
+        
+        if success:
+            # Sync to input directories
+            # Determine destination
+            if self.dev_mode:
+                dest = self.project_root / "development-mode-root"
+            else:
+                dest = self.project_root
+            
+            # Use the actual cache path returned
+            self.data_fetcher.sync_to_destination(str(cache_path.relative_to(self.project_root)), dest)
+            return True
+        else:
+            logger.error("Failed to fetch remote data.")
+            return False
+
     def _load_configuration(self) -> bool:
         """Load and validate the configuration file"""
         print("\n[Step 1/3] Loading configuration file...")
         print(f"Config path: {self.config_path}")
         if self.dev_mode:
-            print("Dev mode: ON - will check for data in test-data-input/")
+            print("Dev mode: ON - will check for data in development-mode-root/")
 
         # Call the YAML config processor's load_config method
         try:
@@ -156,7 +197,7 @@ class DashboardBuilder:
         
         # Determine source directory based on dev_mode
         if self.dev_mode:
-            auxiliary_source = self.project_root / "test-data-input" / "auxiliary-data"
+            auxiliary_source = self.project_root / "development-mode-root" / "auxiliary-data"
         else:
             auxiliary_source = self.project_root / "auxiliary-data"
         
@@ -220,7 +261,12 @@ class DashboardBuilder:
             self._copy_auxiliary_files()
             
             # Run main data processing
-            process_data(self.config, dev_mode=self.dev_mode, skip_evaluations=self.skip_evaluations)
+            process_data(
+                self.config, 
+                dev_mode=self.dev_mode, 
+                skip_evaluations=self.skip_evaluations,
+                is_data_update_run=self.is_data_update
+            )
             print("\n[OK] Data processing core logic completed successfully.")
         except Exception as e:
             logger.error(f"Data processing failed: {e}")
@@ -242,18 +288,28 @@ def main():
     parser.add_argument(
         "--dev",
         action="store_true",
-        help="Run in local development mode, using data from 'test-data-input/' directory.",
+        help="Run in local development mode, using data from 'development-mode-root/' directory.",
     )
     parser.add_argument(
         "--skip-evaluations",
         action="store_true",
         help="Skip evaluation metrics calculation (WIS, Coverage, MAPE). Dashboard will disable the Evaluations page.",
     )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Data update run (requires existing intermediates from initial build).",
+    )
 
     args = parser.parse_args()
 
     # Create builder instance
-    builder = DashboardBuilder(config_path=args.config, dev_mode=args.dev, skip_evaluations=args.skip_evaluations)
+    builder = DashboardBuilder(
+        config_path=args.config, 
+        dev_mode=args.dev, 
+        skip_evaluations=args.skip_evaluations,
+        is_data_update=args.update
+    )
 
     if not builder.run_config_validation():
         sys.exit(1)
