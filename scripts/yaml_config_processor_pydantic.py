@@ -602,7 +602,7 @@ def load_and_validate_config(config_path: Union[str, Path] = "config.yaml", dev_
 
     Args:
         config_path: Path to config.yaml file.
-        dev_mode: If True, look for data in test-data-input/ instead of project root.
+        dev_mode: If True, look for data in development-mode-root/ instead of project root.
 
     Returns:
         DashboardConfig: Validated configuration object.
@@ -688,7 +688,7 @@ def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode:
     """
     # Determine base path
     project_root = config_path.parent
-    data_base_path = project_root / "test-data-input" if dev_mode else project_root
+    data_base_path = project_root / "development-mode-root" if dev_mode else project_root
     auxiliary_data_dir = data_base_path / "auxiliary-data"
 
     # Check if custom location mapping is specified

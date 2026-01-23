@@ -261,5 +261,8 @@ config.yaml.*
 !config.yaml.example
 
 # Ignored folders for development
-/test-data-input
+/development-mode-root
 /public/test-data-output
+
+# Data cache (dev and prod)
+/.data_cache
