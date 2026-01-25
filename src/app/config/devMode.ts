@@ -36,29 +36,3 @@ export const isDevMode = (): boolean => {
 export const getDataPath = (): string => {
   return isDevMode() ? '/test-data-output' : '/data';
 };
-
-/**
- * Check if running in Next.js development mode specifically
- */
-export const isNextJsDevMode = (): boolean => {
-  return isNextDevMode;
-};
-
-/**
- * Check if user-configured development mode is enabled
- */
-export const isUserDevMode = (): boolean => {
-  return userDevModeEnabled;
-};
-
-/**
- * Get development mode status details
- */
-export const getDevModeStatus = () => {
-  return {
-    isDevMode: isDevMode(),
-    isNextJsDevMode: isNextDevMode,
-    isUserDevMode: userDevModeEnabled,
-    dataPath: getDataPath(),
-  };
-};

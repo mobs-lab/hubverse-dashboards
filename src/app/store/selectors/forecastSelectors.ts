@@ -147,15 +147,18 @@ export const selectModelOutputFiltered = createSelector(
       const modelData = modelOutput[modelName]?.[locationCode]?.[referenceDateStr];
       if (modelData?.predictions) {
         const predictionsForModel: any = {};
-        Object.entries(modelData.predictions).forEach(([targetDate, prediction]) => {
-          // Filter by horizon
-          const isHorizonIncluded =
-            prediction.horizon !== null && prediction.horizon <= selectedHorizon;
-          // Filter by target
-          const isTargetIncluded = prediction.targetId === selectedTargetId;
+        Object.entries(modelData.predictions).forEach(([targetDate, targetPredictions]) => {
+          // Access the prediction for the selected target
+          const prediction = targetPredictions[selectedTargetId];
+          
+          if (prediction) {
+            // Filter by horizon
+            const isHorizonIncluded =
+              prediction.horizon !== null && prediction.horizon <= selectedHorizon;
 
-          if (isHorizonIncluded && isTargetIncluded) {
-            predictionsForModel[targetDate] = prediction;
+            if (isHorizonIncluded) {
+              predictionsForModel[targetDate] = prediction;
+            }
           }
         });
 
@@ -319,11 +322,14 @@ export const selectForecastModelAvailability = createSelector(
         
         // Check if any predictions have target dates in range
         if (refData.predictions) {
-          for (const targetDateStr of Object.keys(refData.predictions)) {
+          for (const [targetDateStr, targetPredictions] of Object.entries(refData.predictions)) {
             const targetDate = parseUTCDate(targetDateStr);
             if (targetDate >= startDate && targetDate <= endDate) {
-              hasDataInRange = true;
-              break;
+              // Check if any targetId has data
+              if (Object.keys(targetPredictions).length > 0) {
+                hasDataInRange = true;
+                break;
+              }
             }
           }
         }

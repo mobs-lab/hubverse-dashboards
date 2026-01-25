@@ -84,11 +84,13 @@ export const selectSingleModelTimeSeriesData = createSelector(
       // Removed refDate filter here, as we filter by targetDate now
 
       if (refData.predictions) {
-        Object.entries(refData.predictions).forEach(([targetDateStr, pred]: [string, any]) => {
+        Object.entries(refData.predictions).forEach(([targetDateStr, targetPreds]: [string, any]) => {
           const targetDate = parseUTCDate(targetDateStr);
           // Filter by target date being in the selected range
           if (targetDate >= dateStart && targetDate <= dateEnd) {
-             if (pred.horizon === horizon && pred.targetId === targetId) {
+             // Access prediction for the selected target
+             const pred = targetPreds[targetId];
+             if (pred && pred.horizon === horizon) {
                 predictionsByTargetDate.set(targetDateStr, {
                   referenceDate: refDate,
                   targetDate: targetDate,

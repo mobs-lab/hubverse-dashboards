@@ -35,7 +35,6 @@ class ManifestManager:
                 "last_modified": "ISO datetime"
             },
             "model_output": {
-                "files": {"relative/path": "checksum"},
                 "by_model": {
                     "model_name": {
                         "files": ["file1", "file2"],

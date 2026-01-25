@@ -302,7 +302,7 @@ class DashboardConfig(BaseModel):
     """
 
     # Strip whitespace, re-evaluate when data change, and ignore unwarranted configurations
-    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="ignore")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
 
     # Data Source
     link_to_hubverse_compatible_data: Optional[str] = Field(
@@ -420,13 +420,6 @@ class DashboardConfig(BaseModel):
         if self.is_single_location_forecast and not self.single_location_mapping:
             raise ValueError("single_location_mapping is REQUIRED when is_single_location_forecast is True")
         return self
-
-    # @model_validator(mode="after")
-    # def validate_multi_target_requires_targets(self):
-    #     """Ensure targets defined when not in single-target mode"""
-    #     if not self.targets or len(self.targets) == 0:
-    #         raise ValueError("At least one modelling task target is required.")
-    #     return self
 
     @model_validator(mode="after")
     def validate_single_file_name_required(self):

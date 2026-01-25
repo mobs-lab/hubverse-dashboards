@@ -72,19 +72,3 @@ def ensure_string_column(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
     if column_name in df.columns:
         df[column_name] = df[column_name].astype(str)
     return df
-
-
-def ensure_datetime_column(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
-    """
-    Ensure a DataFrame column is datetime type.
-    
-    Args:
-        df: DataFrame to modify
-        column_name: Name of column to convert
-    
-    Returns:
-        DataFrame with column converted to datetime
-    """
-    if column_name in df.columns and not pd.api.types.is_datetime64_any_dtype(df[column_name]):
-        df[column_name] = pd.to_datetime(df[column_name])
-    return df

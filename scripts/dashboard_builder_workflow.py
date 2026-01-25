@@ -32,7 +32,6 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent))
 
 from yaml_config_processor_pydantic import load_and_validate_config, DashboardConfig
-from csv_shape_generator import generate_and_print_samples
 from data_processor import process_data
 from data_fetcher import DataFetcher
 
@@ -56,12 +55,12 @@ class DashboardBuilder:
 
     def _get_project_root(self) -> Path:
         """Get the project root directory"""
-        # Assume script is in project_root/scripts/=]\65
+        # Assume script is in `PROJECTROOT/scripts`
         return Path(__file__).parent.parent
 
     def run_config_validation(self) -> bool:
         """
-        Load configuration and show CSV samples for user validation
+        Load configuration and validate before processing
 
         Returns:
             bool: True if user confirms to proceed, False otherwise
@@ -82,29 +81,26 @@ class DashboardBuilder:
 
         self._prompt_to_continue()
 
-        # Step 3: Generate and display CSV samples
-        self._display_csv_samples()
-
-        # Step 4: Ask user for confirmation
+        # Step 3: Ask user for confirmation
         return self._get_user_confirmation()
 
     def _fetch_remote_data(self) -> bool:
         """
         Checks config for remote data URL and fetches it if present.
-        Returns: 
+        Returns:
             bool: True if successful or no remote data needed. False if fetch failed.
         """
         repo_url = self.config.link_to_hubverse_compatible_data
-        
+
         if not repo_url:
             return True
-            
+
         print("\n[Step 1.5] Fetching remote data...")
         print(f"Remote Repository: {repo_url}")
-        
+
         # Let DataFetcher handle cache location based on dev_mode
         success, cache_path = self.data_fetcher.fetch_data(repo_url)
-        
+
         if success:
             # Sync to input directories
             # Determine destination
@@ -112,9 +108,20 @@ class DashboardBuilder:
                 dest = self.project_root / "development-mode-root"
             else:
                 dest = self.project_root
-            
+
+            # Get configured model names to sync only those models
+            configured_models = None
+            if self.config and self.config.available_models:
+                configured_models = [m.model_name for m in self.config.available_models]
+
+                # Add baseline model if not already in list
+                baseline = self.config.baseline_model_for_relative_WIS
+                if baseline and baseline not in configured_models:
+                    configured_models.append(baseline)
+                    logger.info(f"Including baseline model '{baseline}' in sync")
+
             # Use the actual cache path returned
-            self.data_fetcher.sync_to_destination(str(cache_path.relative_to(self.project_root)), dest)
+            self.data_fetcher.sync_to_destination(str(cache_path.relative_to(self.project_root)), dest, configured_models=configured_models)
             return True
         else:
             logger.error("Failed to fetch remote data.")
@@ -122,7 +129,7 @@ class DashboardBuilder:
 
     def _load_configuration(self) -> bool:
         """Load and validate the configuration file"""
-        print("\n[Step 1/3] Loading configuration file...")
+        print("\n[Step 1/2] Loading configuration file...")
         print(f"Config path: {self.config_path}")
         if self.dev_mode:
             print("Dev mode: ON - will check for data in development-mode-root/")
@@ -152,28 +159,12 @@ class DashboardBuilder:
         """Pauses execution and waits for user to press Enter."""
         input(f"\n{message}")
 
-    def _display_csv_samples(self):
-        """Generate and display expected CSV structures"""
-        print("[Step 2/3] Generating expected CSV structures...\n")
-
-        try:
-            generate_and_print_samples(self.config)
-        except Exception as e:
-            logger.error(f"Error generating CSV samples: {e}")
-            raise
-
     def _get_user_confirmation(self) -> bool:
         """Ask user to confirm before proceeding"""
-        print("\n[Step 3/3] User Confirmation Required")
+        print("\n[Step 2/2] User Confirmation Required")
         print("=" * 80)
-        print("\nPlease review the expected CSV structures above and compare with")
-        print("your actual data files to ensure they match.\n")
-        print("Important checks:")
-        print("  1. Column names match exactly (case-sensitive)")
-        print("  2. Target identifiers match (e.g., 'wk inc flu hosp')")
-        print("  3. Location codes are formatted correctly")
-        print("  4. Horizons match your model outputs")
-        print("  5. Features are present in your model outputs, such as Quantile levels\n")
+        print("\nConfiguration loaded successfully. Data fetching complete.")
+        print("Ready to proceed with data processing.\n")
 
         while True:
             response = input("Do you want to proceed with data processing? (Yes/No): ").strip().lower()
@@ -194,37 +185,37 @@ class DashboardBuilder:
         This ensures custom map files are available for the frontend.
         """
         logger.info("Checking for auxiliary files to copy...")
-        
+
         # Determine source directory based on dev_mode
         if self.dev_mode:
             auxiliary_source = self.project_root / "development-mode-root" / "auxiliary-data"
         else:
             auxiliary_source = self.project_root / "auxiliary-data"
-        
+
         # Target directory is always public
         public_dir = self.project_root / "public"
         public_dir.mkdir(exist_ok=True, parents=True)
-        
+
         # Check if custom shapefile is specified in config
         custom_shape_file = self.config.spatial_config.custom_shape_file_name
-        
+
         if custom_shape_file:
             logger.info(f"Custom shapefile specified: {custom_shape_file}")
-            
+
             # Check if auxiliary directory exists
             if not auxiliary_source.exists():
                 logger.warning(f"Auxiliary data directory not found: {auxiliary_source}")
                 logger.warning("  Custom shapefile will not be available")
                 return
-            
+
             # Look for the shapefile in auxiliary directory
             shapefile_path = auxiliary_source / custom_shape_file
-            
+
             if not shapefile_path.exists():
                 logger.warning(f"Custom shapefile not found: {shapefile_path}")
                 logger.warning("  The dashboard will fall back to default map")
                 return
-            
+
             # Copy to public directory
             target_path = public_dir / custom_shape_file
             try:
@@ -259,14 +250,9 @@ class DashboardBuilder:
         try:
             # Copy auxiliary files before main processing
             self._copy_auxiliary_files()
-            
+
             # Run main data processing
-            process_data(
-                self.config, 
-                dev_mode=self.dev_mode, 
-                skip_evaluations=self.skip_evaluations,
-                is_data_update_run=self.is_data_update
-            )
+            process_data(self.config, dev_mode=self.dev_mode, skip_evaluations=self.skip_evaluations, is_data_update_run=self.is_data_update)
             print("\n[OK] Data processing core logic completed successfully.")
         except Exception as e:
             logger.error(f"Data processing failed: {e}")
@@ -304,12 +290,7 @@ def main():
     args = parser.parse_args()
 
     # Create builder instance
-    builder = DashboardBuilder(
-        config_path=args.config, 
-        dev_mode=args.dev, 
-        skip_evaluations=args.skip_evaluations,
-        is_data_update=args.update
-    )
+    builder = DashboardBuilder(config_path=args.config, dev_mode=args.dev, skip_evaluations=args.skip_evaluations, is_data_update=args.update)
 
     if not builder.run_config_validation():
         sys.exit(1)

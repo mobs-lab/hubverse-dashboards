@@ -28,7 +28,7 @@
 #   - Provide a URL to a valid Hubverse-compatible GitHub repository containing your data.
 #------------------------------------------------------------------------------
 
-link_to_hubverse_compatible_data: null
+link_to_hubverse_compatible_data: https://github.com/CDCgov/covid19-forecast-hub.git
 
 # Example remote configuration:
 # link_to_hubverse_compatible_data: "https://github.com/hubverse-org/covid-19-forecast-hub-data/"
@@ -47,7 +47,7 @@ forecast_periods:
   - forecast_period_id: "season-2025-2026"
     start_date: "2025-08-01T00:00:00"
     end_date: "2026-07-31T00:00:00"
-    display_string: "2025 March to October"
+    display_string: "Season 2025-2026"
     is_default_selected: true # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
 
   # Examples of static forecast period where the entire range is in the past.
@@ -72,11 +72,11 @@ forecast_periods:
 #==============================================================================
 # SPECIAL FORECAST PERIODS (Dynamic Time Windows)
 #==============================================================================
-# [OPTIONAL] Create relative time windows like "Last 4 Weeks".
+# [OPTIONAL] Create relative time windows like "Last 2/3/4 Weeks".
 # These are calculated dynamically based on the latest available data.
 #
-# This requires a "dynamic" forecast_period (one with an end_date in the future)
-# to serve as a reference point.
+# This requires an ongoing forecast_period (one with an end_date in the future)
+# to achieve dynamic update when data updates
 #------------------------------------------------------------------------------
 
 special_forecast_periods:
@@ -84,8 +84,6 @@ special_forecast_periods:
     display_string: "Last 2 Weeks"
     time_anchor:
       anchor_on: "season-2025-2026" # Must be a dynamic period ID from above
-      # TODO: Remove the deprecated `anchor_mode` option
-      anchor_mode: "model-output" # Use latest model output date (reference date) as 'today'
       range_calculation: -1 # Include data ranging 2 time units (weeks in this example) back from the latest valid target-data (ground truth) data date
 
 #==============================================================================
@@ -206,7 +204,7 @@ disable_historical_target_data: false
 # Use negative values to shift backwards, positive to shift forwards.
 # The absolute value must not exceed `time_unit` to avoid forecast cycle misalignment.
 # Applies to both single-file target data and partitioned parquet files.
-# NOTE: Please make sure your data's "as_of" column dates are consistent in terms of Day of Week ()
+# NOTE: Please make sure your data's "as_of" column dates are consistent in terms of Day of Week
 as_of_column_date_shift: -4
 
 #------------------------------------------------------------------------------

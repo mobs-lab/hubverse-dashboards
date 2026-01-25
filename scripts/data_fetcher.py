@@ -52,7 +52,7 @@ class DataFetcher:
             logger.info(f"Dev mode: caching to {cache_dir.relative_to(self.project_root)}")
         else:
             cache_dir = self.project_root / ".data_cache"
-            logger.info(f"Prod mode: caching to .data_cache")
+            logger.info("Prod mode: caching to .data_cache")
         
         try:
             # 1. Fetch/Update Cache
@@ -65,13 +65,17 @@ class DataFetcher:
             logger.error(f"Error fetching data: {e}")
             return False, None
 
-    def sync_to_destination(self, source_dir_name_or_path: str, destination_root: Path):
+    def sync_to_destination(self, source_dir_name_or_path: str, destination_root: Path, configured_models: list = None):
         """
         Copy data folders from source (cache) to destination.
+        
+        For model-output folder, only syncs subdirectories for configured models when provided.
+        This prevents syncing unnecessary model data from the remote repository.
         
         Args:
             source_dir_name_or_path: Relative path to cache directory
             destination_root: Destination directory path
+            configured_models: Optional list of model names to sync (for model-output only)
         """
         folders_to_copy = ["target-data", "model-output", "auxiliary-data"]
         
@@ -90,14 +94,40 @@ class DataFetcher:
             src = source_dir / folder
             dst = destination_root / folder
             
-            if src.exists():
+            if not src.exists():
+                logger.warning(f"  [!] Folder {folder} not found in remote repository")
+                continue
+            
+            # Special handling for model-output when configured_models is provided
+            if folder == "model-output" and configured_models:
+                logger.info(f"  Syncing {folder} (configured models only)...")
+                
+                # Create destination directory if it doesn't exist
+                dst.mkdir(parents=True, exist_ok=True)
+                
+                synced_count = 0
+                for model_name in configured_models:
+                    model_src = src / model_name
+                    model_dst = dst / model_name
+                    
+                    if model_src.exists() and model_src.is_dir():
+                        # Remove old model directory if exists
+                        if model_dst.exists():
+                            shutil.rmtree(model_dst)
+                        # Copy model directory
+                        shutil.copytree(model_src, model_dst)
+                        synced_count += 1
+                    else:
+                        logger.debug(f"    Model '{model_name}' not found in remote repository")
+                
+                logger.info(f"    [OK] Synced {synced_count} model(s): {', '.join(configured_models)}")
+            else:
+                # Standard full folder sync for target-data and auxiliary-data
                 logger.info(f"  Syncing {folder}...")
                 if dst.exists():
                     shutil.rmtree(dst)
                 shutil.copytree(src, dst)
                 logger.info(f"    [OK] Synced {folder}")
-            else:
-                logger.warning(f"  [!] Folder {folder} not found in remote repository")
 
     def _update_or_clone_repo(self, repo_url: str, target_dir: Path) -> bool:
         """Helper to clone or update a repository"""

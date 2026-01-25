@@ -7,8 +7,7 @@ Helper functions for computing ongoing and special forecast period metadata.
 import logging
 import pandas as pd
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, Optional
+
 
 from yaml_config_processor_pydantic import ForecastPeriodConfig, SpecialForecastPeriodConfig
 from data_utils import to_utc_iso_string
@@ -69,14 +68,28 @@ def compute_ongoing_period_metadata(
         if not pd.api.types.is_datetime64_any_dtype(target_dates):
             target_dates = pd.to_datetime(target_dates)
         
-        period_target = target_dates[
-            (target_dates >= period_start) & (target_dates <= period_end)
-        ]
-        if not period_target.empty:
-            latest_target_date = period_target.max()
-            latest_dates.append(latest_target_date)
-            # Anchor is the latest target-data date
-            result["anchorDate"] = to_utc_iso_string(latest_target_date)
+        # Filter to period range AND exclude placeholder observations (-1)
+        # Placeholder dates are added for dates with model predictions but no ground truth yet
+        if "observation" in target_data_df.columns:
+            valid_target = target_data_df[
+                (target_data_df["date"] >= period_start) & 
+                (target_data_df["date"] <= period_end) &
+                (target_data_df["observation"] != -1)  # Exclude placeholders
+            ]
+            if not valid_target.empty:
+                latest_target_date = valid_target["date"].max()
+                latest_dates.append(latest_target_date)
+                # Anchor is the latest ACTUAL target-data date
+                result["anchorDate"] = to_utc_iso_string(latest_target_date)
+        else:
+            # Fallback if observation column missing
+            period_target = target_dates[
+                (target_dates >= period_start) & (target_dates <= period_end)
+            ]
+            if not period_target.empty:
+                latest_target_date = period_target.max()
+                latest_dates.append(latest_target_date)
+                result["anchorDate"] = to_utc_iso_string(latest_target_date)
     
     # Check model output
     if not model_output_df.empty:
