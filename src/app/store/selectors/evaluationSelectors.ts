@@ -463,11 +463,14 @@ export const selectSingleModelAvailability = createSelector(
         
         // Check if any predictions have target dates in range
         if (refData.predictions) {
-          for (const targetDateStr of Object.keys(refData.predictions)) {
+          for (const [targetDateStr, targetPreds] of Object.entries(refData.predictions)) {
             const targetDate = new Date(targetDateStr);
             if (targetDate >= startDate && targetDate <= endDate) {
-              hasDataInRange = true;
-              break;
+              // Check if any targetId has data
+              if (Object.keys(targetPreds).length > 0) {
+                hasDataInRange = true;
+                break;
+              }
             }
           }
         }

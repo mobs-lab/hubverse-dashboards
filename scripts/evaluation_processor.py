@@ -179,20 +179,33 @@ class EvaluationProcessor:
         # Pivot to get quantiles as columns
         pivot_df = quantile_df.pivot_table(index=group_cols, columns="output_type_id", values="value").reset_index()
 
+        # Validate pivot results
+        self._validate_pivot_quantiles(pivot_df, "WIS")
+
         # Get available quantiles and sort them
         q_cols = [c for c in pivot_df.columns if isinstance(c, (float, str)) and str(c).replace(".", "", 1).isdigit()]
         quantiles = sorted([float(q) for q in q_cols])
 
-        # Check for median (required)
-        if 0.5 not in quantiles:
+        # Check for median (required) - handle both string and float column names
+        median_col = None
+        if 0.5 in quantiles:
+            # Try to find the median column (could be stored as "0.5" string or 0.5 float)
+            if "0.5" in pivot_df.columns:
+                median_col = "0.5"
+            elif 0.5 in pivot_df.columns:
+                median_col = 0.5
+        
+        if median_col is None:
             logger.error("Median (0.5) quantile missing. Cannot calculate WIS.")
+            logger.error(f"  Available quantiles: {quantiles}")
+            logger.error(f"  Available columns (first 20): {list(pivot_df.columns[:20])}")
             return pd.DataFrame()
 
         logger.info(f"Using {len(quantiles)} quantiles for WIS: {quantiles}")
 
         # Vectorized WIS calculation
         # Start with median component: 0.5 * |truth - median|
-        wis_scores = 0.5 * np.abs(pivot_df["truth_value"] - pivot_df[0.5])
+        wis_scores = 0.5 * np.abs(pivot_df["truth_value"] - pivot_df[median_col])
 
         # Add interval components
         K = 0  # Number of intervals
@@ -206,9 +219,14 @@ class EvaluationProcessor:
             if abs(q_upper - expected_upper) > 0.001:  # Allow small floating point errors
                 continue
 
-            # Get interval bounds
-            lower_vals = pivot_df[q_lower]
-            upper_vals = pivot_df[q_upper]
+            # Get interval bounds - try both numeric and string column names for robustness
+            lower_vals = self._get_quantile_column(pivot_df, q_lower)
+            upper_vals = self._get_quantile_column(pivot_df, q_upper)
+            
+            if lower_vals is None or upper_vals is None:
+                logger.warning(f"  Skipping interval [{q_lower}, {q_upper}] - columns not found")
+                continue
+            
             truth_vals = pivot_df["truth_value"]
 
             # Interval Score components
@@ -266,7 +284,9 @@ class EvaluationProcessor:
         logger.info("Calculating MAPE scores...")
 
         # Filter for median predictions (0.5 quantile)
-        median_df = merged_df[(merged_df["output_type"] == "quantile") & (merged_df["output_type_id"] == 0.5)].copy()
+        # Use string comparison to handle both float and string types robustly
+        median_df = merged_df[(merged_df["output_type"] == "quantile") & 
+                             (merged_df["output_type_id"].astype(str) == "0.5")].copy()
 
         if median_df.empty:
             logger.warning("No median (0.5) predictions found for MAPE calculation")
@@ -327,6 +347,9 @@ class EvaluationProcessor:
         # Pivot to get quantiles as columns
         pivot_df = quantile_df.pivot_table(index=group_cols, columns="output_type_id", values="value").reset_index()
 
+        # Validate pivot results
+        self._validate_pivot_quantiles(pivot_df, "Coverage")
+
         # Calculate coverage for each level
         result_cols = [c for c in group_cols if c != "truth_value"]
 
@@ -336,14 +359,15 @@ class EvaluationProcessor:
             q_lower = round(alpha / 2.0, 3)
             q_upper = round(1.0 - (alpha / 2.0), 3)
 
-            # Check if required quantiles exist
-            if q_lower not in pivot_df.columns or q_upper not in pivot_df.columns:
+            # Check if required quantiles exist - use robust column access
+            lower_vals = self._get_quantile_column(pivot_df, q_lower)
+            upper_vals = self._get_quantile_column(pivot_df, q_upper)
+            
+            if lower_vals is None or upper_vals is None:
                 logger.warning(f"Quantiles {q_lower}, {q_upper} required for {level}% coverage not found in data")
                 continue
 
             # Calculate coverage (boolean: 1 if covered, 0 if not)
-            lower_vals = pivot_df[q_lower]
-            upper_vals = pivot_df[q_upper]
             truth_vals = pivot_df["truth_value"]
 
             coverage_col = f"{level}_coverage"
@@ -356,3 +380,64 @@ class EvaluationProcessor:
 
         logger.info(f"Calculated coverage for {len(result_df)} prediction instances across {len(levels)} levels")
         return result_df
+
+    def _get_quantile_column(self, df: pd.DataFrame, quantile_value: float) -> pd.Series:
+        """
+        Robustly retrieve a quantile column from a DataFrame.
+        
+        Tries both numeric and string column names to handle cases where
+        column names might be stored as either type.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with quantile columns
+            quantile_value (float): The quantile value to retrieve (e.g., 0.5)
+            
+        Returns:
+            pd.Series: The column data, or None if not found
+        """
+        # Try numeric column name first
+        if quantile_value in df.columns:
+            return df[quantile_value]
+        
+        # Try string column name
+        str_quantile = str(quantile_value)
+        if str_quantile in df.columns:
+            return df[str_quantile]
+        
+        # Not found
+        return None
+
+    def _validate_pivot_quantiles(self, pivoted_df: pd.DataFrame, metric_name: str = "metric") -> None:
+        """
+        Validate pivoted quantile data for issues like duplicate columns.
+        
+        This detects cases where mixed types in source data (e.g., both 0.5 and "0.5")
+        create duplicate quantile columns after pivoting.
+        
+        Args:
+            pivoted_df (pd.DataFrame): Pivoted DataFrame with quantiles as columns
+            metric_name (str): Name of the metric being calculated (for logging)
+        """
+        # Get quantile columns (numeric-looking column names)
+        q_cols = [c for c in pivoted_df.columns 
+                 if isinstance(c, (float, int, str)) and 
+                 str(c).replace(".", "", 1).replace("-", "").replace("e", "").isdigit()]
+        
+        if not q_cols:
+            return
+        
+        # Convert to strings and check for duplicates
+        q_strings = [str(c) for c in q_cols]
+        unique_q_strings = set(q_strings)
+        
+        if len(q_strings) != len(unique_q_strings):
+            # Find which quantiles are duplicated
+            duplicates = [q for q in unique_q_strings if q_strings.count(q) > 1]
+            logger.warning(
+                f"  ⚠️  [{metric_name}] Duplicate quantile columns detected: {duplicates}. "
+                f"This indicates mixed data types (float vs string) in source data. "
+                f"Data normalization should have prevented this."
+            )
+            # Log the actual column types for debugging
+            dup_cols = [c for c in q_cols if str(c) in duplicates]
+            logger.warning(f"      Duplicate column details: {[(c, type(c).__name__) for c in dup_cols]}")

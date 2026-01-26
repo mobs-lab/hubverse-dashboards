@@ -32,7 +32,7 @@ Template for quickly spinning up Hubverse-standard-compatible dashboard, visuali
 
 7. (Optional) Make sure `build_dashboard.sh` is executable
 
-`chmod +x build_dashboard.sh` 
+`chmod +x build_dashboard.sh`
 
 8. Run the `build_dashboard.sh`:
 

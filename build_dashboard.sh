@@ -76,6 +76,7 @@ show_menu() {
     print_header
     echo "Please select an option:"
     echo ""
+    echo "  === Initial Dashboard Build ==="
     echo "  1) Build Dashboard - Full (with evaluations)"
     echo ""
     echo "  2) Build Dashboard - Without Evaluations (disables Evaluations page)"
@@ -84,9 +85,14 @@ show_menu() {
     echo ""
     echo "  4) Build Dashboard - Dev Mode (without evaluations)"
     echo ""
-    echo "  5) Check for New Data"
+    echo "  === Data Update ==="
+    echo "  5) Update Data - Production Mode"
+    echo "     (Intelligently detects and processes only changed data)"
     echo ""
-    echo "  6) Exit"
+    echo "  6) Update Data - Dev Mode"
+    echo "     (Intelligently detects and processes only changed data)"
+    echo ""
+    echo "  7) Exit"
     echo ""
 }
 
@@ -295,17 +301,52 @@ main() {
                     exit 1
                 fi
                 ;;
-
+            
             5)
                 echo ""
-                print_info "Data Update Feature"
+                print_info "Starting Data Update Process (Production Mode)..."
+                print_info "This will intelligently detect and process only changed data."
                 echo ""
-                print_warning "This feature is not yet implemented."
-                echo ""
-                read -p "Press Enter to return to menu..."
+
+                # Run the Python workflow for data update (no --dev flag, with --update)
+                if python3 scripts/dashboard_builder_workflow.py --config config.yaml --update; then
+                    print_success "Data update completed successfully!"
+                    print_info "Changes detected and processed incrementally."
+                    print_info ""
+                    print_info "Updated data is now in public/data/"
+                    print_info "Restart your dashboard server to see the changes."
+                    echo ""
+                    read -p "Press Enter to return to menu..."
+                else
+                    print_error "Data update failed. Please check the errors above."
+                    echo ""
+                    read -p "Press Enter to return to menu..."
+                fi
                 ;;
 
             6)
+                echo ""
+                print_info "Starting Data Update Process (Dev Mode)..."
+                print_info "This will intelligently detect and process only changed data."
+                echo ""
+
+                # Run the Python workflow with --dev and --update flags for data update
+                if python3 scripts/dashboard_builder_workflow.py --config config.yaml --dev --update; then
+                    print_success "Data update completed successfully!"
+                    print_info "Changes detected and processed incrementally."
+                    print_info ""
+                    print_info "Updated data is now in public/test-data-output/"
+                    print_info "Restart your dashboard server to see the changes."
+                    echo ""
+                    read -p "Press Enter to return to menu..."
+                else
+                    print_error "Data update failed. Please check the errors above."
+                    echo ""
+                    read -p "Press Enter to return to menu..."
+                fi
+                ;;
+
+            7)
                 echo ""
                 print_info "Exiting..."
                 exit 0
@@ -313,7 +354,7 @@ main() {
 
             *)
                 echo ""
-                print_error "Invalid choice. Please enter a number from 1 to 6."
+                print_error "Invalid choice. Please enter a number from 1 to 7."
                 echo ""
                 read -p "Press Enter to continue..."
                 ;;

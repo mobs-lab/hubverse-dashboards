@@ -64,7 +64,6 @@ class TimeAnchorConfig(BaseModel):
     """Time anchor configuration for special forecast periods"""
 
     anchor_on: str = Field(..., description="ID of forecast period to anchor to")
-    anchor_mode: Literal["target-data", "model-output"] = Field(..., description="What data to use for calculating current date")
     range_calculation: int = Field(..., description="Number of time units backwards (must be negative)", lt=0)
 
 
@@ -303,7 +302,7 @@ class DashboardConfig(BaseModel):
     """
 
     # Strip whitespace, re-evaluate when data change, and ignore unwarranted configurations
-    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="ignore")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
 
     # Data Source
     link_to_hubverse_compatible_data: Optional[str] = Field(
@@ -421,13 +420,6 @@ class DashboardConfig(BaseModel):
         if self.is_single_location_forecast and not self.single_location_mapping:
             raise ValueError("single_location_mapping is REQUIRED when is_single_location_forecast is True")
         return self
-
-    # @model_validator(mode="after")
-    # def validate_multi_target_requires_targets(self):
-    #     """Ensure targets defined when not in single-target mode"""
-    #     if not self.targets or len(self.targets) == 0:
-    #         raise ValueError("At least one modelling task target is required.")
-    #     return self
 
     @model_validator(mode="after")
     def validate_single_file_name_required(self):
@@ -603,7 +595,7 @@ def load_and_validate_config(config_path: Union[str, Path] = "config.yaml", dev_
 
     Args:
         config_path: Path to config.yaml file.
-        dev_mode: If True, look for data in test-data-input/ instead of project root.
+        dev_mode: If True, look for data in development-mode-root/ instead of project root.
 
     Returns:
         DashboardConfig: Validated configuration object.
@@ -689,7 +681,7 @@ def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode:
     """
     # Determine base path
     project_root = config_path.parent
-    data_base_path = project_root / "test-data-input" if dev_mode else project_root
+    data_base_path = project_root / "development-mode-root" if dev_mode else project_root
     auxiliary_data_dir = data_base_path / "auxiliary-data"
 
     # Check if custom location mapping is specified

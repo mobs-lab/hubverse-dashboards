@@ -42,23 +42,6 @@ export const metadata: Metadata = {
     },
   },
 
-  /* TODO: Add in the future */
-  /* openGraph: {
-    type: 'website',
-    locale: 'en_US',
-    url: 'https://fluforecast.epistorm.org',
-    title: 'Epistorm - Flu Forecast Dashboard',
-    description: 'Weekly flu predictions and evaluations. US influenza forecasts and surveillance dashboard provided by Epistorm.',
-    siteName: 'Epistorm',
-    images: [
-      {
-        url: 'https://fluforecast.epistorm.org/og-image.jpg',
-        width: 1200,
-        height: 630,
-        alt: 'Epistorm Flu Forecast Dashboard',
-      },
-    ],
-  }, */
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

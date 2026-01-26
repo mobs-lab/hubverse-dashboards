@@ -150,7 +150,7 @@ export interface SinglePredictionIntervalInfo {
 export interface PredictionPointInterval {
   /** Forecast horizon (in time_unit units from reference_date) */
   horizon: number | null;
-  /** Target being predicted (for multi-target dashboards) */
+  /** KEPT FOR REFERENCE Target being predicted (for multi-target dashboards) */
   targetId?: string;
   /** Median (point) prediction value */
   value_median: number;
@@ -166,8 +166,9 @@ export interface PredictionPointInterval {
 /**
  * Complete collection of all model output data
  * 
- * Structure: model → location → reference_date → predictions
+ * Structure: model → location → reference_date → predictions → target_end_date → targetId
  * This nested structure enables efficient lookup by the forecast visualization components
+ * and supports multiple targets for the same prediction date
  */
 export interface ModelOutputCollection {
   [modelName: string]: {
@@ -176,10 +177,12 @@ export interface ModelOutputCollection {
         /** ISO date string (YYYY-MM-DD) */
         predictions: {
           /** 
-           * Predictions keyed by target_end_date
-           * Each prediction includes median and prediction intervals
+           * Predictions keyed by target_end_date, then by targetId
+           * This allows multiple targets for the same date
            */
-          [targetDate: string]: PredictionPointInterval;
+          [targetDate: string]: {
+            [targetId: string]: PredictionPointInterval;
+          };
         };
       };
     };
