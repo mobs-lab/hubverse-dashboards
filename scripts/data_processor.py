@@ -985,12 +985,36 @@ class DataProcessor:
         # Ensure location is string type for consistency and parquet compatibility
         df = ensure_string_column(df, "location")
 
+        # Normalize output_type_id to consistent string type
+        # This prevents issues with mixed types (float 0.5 vs string "0.5") from different CSV files
+        if "output_type_id" in df.columns:
+            # Detect if there are mixed types
+            original_types = df["output_type_id"].dropna().apply(type).unique()
+            if len(original_types) > 1:
+                logger.warning(f"  ⚠️  Mixed types detected in output_type_id: {[t.__name__ for t in original_types]}. Normalizing to string.")
+            
+            # Convert all output_type_id values to string for consistency
+            # This ensures "0.5" (string) and 0.5 (float) are treated identically
+            df["output_type_id"] = df["output_type_id"].astype(str)
+            logger.info("  [OK] Normalized output_type_id to string type for consistency")
+
+        # Enforce standard column order for consistency and easier debugging
+        expected_cols = ["model", "reference_date", "target_end_date", "location", "target", 
+                        "horizon", "output_type", "output_type_id", "value"]
+        existing_cols = [c for c in expected_cols if c in df.columns]
+        other_cols = [c for c in df.columns if c not in expected_cols]
+        df = df[existing_cols + other_cols]
+        logger.info(f"  [OK] Enforced standard column order")
+
         time_unit = self.config.time_unit
         if "horizon" not in df.columns:
             logger.info("Calculating 'horizon' column from date differences.")
             df["horizon"] = ((df["target_end_date"] - df["reference_date"]).dt.days / time_unit).astype(int)
         else:
             logger.info("'horizon' column already exists, using it.")
+
+        # Validate schema before storing
+        self._validate_model_output_schema(df)
 
         # Store unpivoted data for evaluations
         # Pivoting will happen later in the main run() procedure after filtering
@@ -1032,6 +1056,9 @@ class DataProcessor:
         # Pivot the table
         pivoted = quantile_rows.pivot_table(index=index_cols, columns="output_type_id", values="value").reset_index()
 
+        # Validate pivot results for duplicate quantile columns (indicates mixed types in source)
+        self._validate_pivot_quantiles(pivoted)
+
         # Merge back with non-quantile rows if any
         if not other_rows.empty:
             final_df = pd.concat([pivoted, other_rows], ignore_index=True)
@@ -1039,6 +1066,79 @@ class DataProcessor:
             final_df = pivoted
 
         return final_df
+
+    def _validate_model_output_schema(self, df: pd.DataFrame) -> None:
+        """
+        Validate model output data schema and detect potential issues.
+        
+        This checks for:
+        - Required columns presence
+        - Mixed data types in critical columns
+        - Column order consistency
+        
+        Args:
+            df (pd.DataFrame): Model output DataFrame to validate
+            
+        Raises:
+            ValueError: If critical validation failures are detected
+        """
+        required_cols = ["reference_date", "target_end_date", "location", "target", 
+                        "output_type", "output_type_id", "value", "model"]
+        
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            raise ValueError(f"Missing required columns in model output: {missing}")
+        
+        # Check data types
+        expected_types = {
+            "reference_date": "datetime64[ns]",
+            "target_end_date": "datetime64[ns]",
+            "location": "object",
+            "output_type_id": "object",  # Should be string after normalization
+            "value": "float64"
+        }
+        
+        for col, expected_dtype in expected_types.items():
+            if col in df.columns:
+                actual_dtype = str(df[col].dtype)
+                if not actual_dtype.startswith(expected_dtype.split('[')[0]):
+                    logger.warning(f"  ⚠️  Column '{col}' has type '{actual_dtype}', expected '{expected_dtype}'")
+        
+        logger.info("  [OK] Model output schema validation passed")
+
+    def _validate_pivot_quantiles(self, pivoted_df: pd.DataFrame) -> None:
+        """
+        Validate pivoted quantile data for issues like duplicate columns.
+        
+        This detects cases where mixed types in source data (e.g., both 0.5 and "0.5")
+        create duplicate quantile columns after pivoting.
+        
+        Args:
+            pivoted_df (pd.DataFrame): Pivoted DataFrame with quantiles as columns
+        """
+        # Get quantile columns (numeric-looking column names)
+        q_cols = [c for c in pivoted_df.columns 
+                 if isinstance(c, (float, int, str)) and 
+                 str(c).replace(".", "", 1).replace("-", "").replace("e", "").isdigit()]
+        
+        if not q_cols:
+            return
+        
+        # Convert to strings and check for duplicates
+        q_strings = [str(c) for c in q_cols]
+        unique_q_strings = set(q_strings)
+        
+        if len(q_strings) != len(unique_q_strings):
+            # Find which quantiles are duplicated
+            duplicates = [q for q in unique_q_strings if q_strings.count(q) > 1]
+            logger.warning(
+                f"  ⚠️  Duplicate quantile columns detected: {duplicates}. "
+                f"This indicates mixed data types (float vs string) in source data. "
+                f"Data normalization should have prevented this."
+            )
+            # Log the actual column types for debugging
+            dup_cols = [c for c in q_cols if str(c) in duplicates]
+            logger.warning(f"      Duplicate column details: {[(c, type(c).__name__) for c in dup_cols]}")
 
     def _process_target_data(self, target_data_df: pd.DataFrame) -> dict:
         """
@@ -1151,7 +1251,7 @@ class DataProcessor:
                         dvp_config = self.target_id_to_dvp_config.get(target_id)
                         scaling_factor = dvp_config.scaling_factor.model_output if dvp_config else 1.0
 
-                        quantile_cols = [col for col in row.index if isinstance(col, float)]
+                        quantile_cols = [col for col in row.index if isinstance(col, (float, str))]
 
                         for qc in quantile_cols:
                             if str(qc) == "0.5" and pd.notna(row[qc]):
@@ -1314,6 +1414,14 @@ class DataProcessor:
         if "target" in model_output_df.columns and valid_target_keys:
             model_output_df = model_output_df[model_output_df["target"].isin(valid_target_keys)].copy()
             logger.info(f"  → Model output after target filter: {len(model_output_df)} rows (removed {model_output_initial_rows - len(model_output_df)})")
+
+        # Filter by output_type - only keep quantile predictions
+        # This removes sample, pmf, and any other output types that are not supported
+        if "output_type" in model_output_df.columns:
+            pre_output_type_filter = len(model_output_df)
+            model_output_df = model_output_df[model_output_df["output_type"] == "quantile"].copy()
+            removed = pre_output_type_filter - len(model_output_df)
+            logger.info(f"  → Model output after output_type filter (quantile only): {len(model_output_df)} rows (removed {removed})")
 
         # Ensure we still have data after filtering
         if target_data_df.empty:
