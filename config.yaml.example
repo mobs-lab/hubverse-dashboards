@@ -17,7 +17,7 @@
 #==============================================================================
 # DATA SOURCE CONFIGURATION
 #==============================================================================
-# [CONDITIONAL] You must provide EITHER a local path OR a remote link.
+# [CONDITIONAL] You must provide EITHER local data OR a remote link.
 #
 # Option 1: Local Data (recommended for development)
 #   - Place your data in directories named `target-data/`, `model-output/`, and `auxiliary-data/`

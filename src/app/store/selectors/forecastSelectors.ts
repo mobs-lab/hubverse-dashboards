@@ -6,7 +6,6 @@ import { RootState } from '../index';
 import { 
   selectLocationMapping, 
   selectTargets, 
-  selectDateConstraintsForTarget,
   selectModelNames,
 } from './sharedSelectors';
 import { parseUTCDate, toUTCDateKey } from '@/utils/date';
@@ -47,10 +46,37 @@ export const selectCurrentTargetDataProcessing = createSelector([selectCurrentTa
 /**
  * Get date constraints for the currently selected target in forecast page
  */
-export const selectForecastDateConstraints = (state: RootState) => {
-  const selectedTargetId = state.forecastSettings.selectedTargetId;
-  return selectDateConstraintsForTarget(selectedTargetId)(state);
-};
+export const selectForecastDateConstraints = createSelector(
+  [selectTargets, (state: RootState) => state.configStore.config, (state: RootState) => state.forecastSettings.selectedTargetId],
+  (targets, config, selectedTargetId) => {
+    // Find the target configuration
+    const target = targets.find((t) => t.targetId === selectedTargetId);
+
+    // Use target-specific dates if available, otherwise fall back to global dates
+    const earliestDate = target?.earliestDate
+      ? new Date(target.earliestDate)
+      : config?.earliestDateAcrossTargets
+        ? new Date(config.earliestDateAcrossTargets)
+        : new Date();
+
+    const latestDate = target?.latestDate
+      ? new Date(target.latestDate)
+      : config?.latestDateAcrossTargets
+        ? new Date(config.latestDateAcrossTargets)
+        : new Date();
+
+    const defaultSelectedDate = config?.defaultSelectedDate
+      ? new Date(config.defaultSelectedDate)
+      : new Date();
+
+    return {
+      earliestDate,
+      latestDate,
+      defaultSelectedDate,
+      hasTargetSpecificDates: !!(target?.earliestDate && target?.latestDate),
+    };
+  }
+);
 
 // ============================================
 // Target Data Selectors

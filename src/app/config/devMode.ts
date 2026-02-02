@@ -2,13 +2,11 @@
  * Development Mode Configuration
  *
  * This utility manages development mode settings for the application.
- * Development mode can be enabled in two ways:
- * 1. NODE_ENV === 'development' (npm run dev)
- * 2. User sets developmentMode: true in their config YAML (persists in production build)
+ * Development mode is determined by the metadata.json flag set during 
+ * the Python data processing step, allowing users to test production builds 
+ * locally with `npm run dev` before deploying.
  */
 
-// Check if running in Next.js development mode
-const isNextDevMode = process.env.NODE_ENV === 'development';
 
 // State for user-configured dev mode (will be set from metadata)
 let userDevModeEnabled = false;
@@ -23,10 +21,10 @@ export const initializeDevMode = (metadata: any) => {
 
 /**
  * Check if development mode is enabled
- * Returns true if either Next.js dev mode OR user-configured dev mode is active
+ * Returns the development mode flag from metadata
  */
 export const isDevMode = (): boolean => {
-  return isNextDevMode || userDevModeEnabled;
+  return userDevModeEnabled;
 };
 
 /**

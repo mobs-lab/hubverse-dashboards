@@ -8,7 +8,6 @@ import { BoxplotStats } from "@/types/domains/evaluations";
 // Import shared selectors that are also used by evaluations
 import { 
   selectTargets, 
-  selectDateConstraintsForTarget,
   selectModelAvailabilityPerPeriod,
   selectModelNames,
 } from "./sharedSelectors";
@@ -313,18 +312,72 @@ export const selectAvailableTargets = createSelector(
 /**
  * Get date constraints for the currently selected target in Season Overview
  */
-export const selectSeasonOverviewDateConstraints = (state: RootState) => {
-  const selectedTargetId = selectEvaluationSelectedTargetId(state);
-  return selectDateConstraintsForTarget(selectedTargetId)(state);
-};
+export const selectSeasonOverviewDateConstraints = createSelector(
+  [selectTargets, (state: RootState) => state.configStore.config, selectEvaluationSelectedTargetId],
+  (targets, config, selectedTargetId) => {
+    // Find the target configuration
+    const target = targets.find((t) => t.targetId === selectedTargetId);
+
+    // Use target-specific dates if available, otherwise fall back to global dates
+    const earliestDate = target?.earliestDate
+      ? new Date(target.earliestDate)
+      : config?.earliestDateAcrossTargets
+        ? new Date(config.earliestDateAcrossTargets)
+        : new Date();
+
+    const latestDate = target?.latestDate
+      ? new Date(target.latestDate)
+      : config?.latestDateAcrossTargets
+        ? new Date(config.latestDateAcrossTargets)
+        : new Date();
+
+    const defaultSelectedDate = config?.defaultSelectedDate
+      ? new Date(config.defaultSelectedDate)
+      : new Date();
+
+    return {
+      earliestDate,
+      latestDate,
+      defaultSelectedDate,
+      hasTargetSpecificDates: !!(target?.earliestDate && target?.latestDate),
+    };
+  }
+);
 
 /**
  * Get date constraints for the currently selected target in Single Model view
  */
-export const selectSingleModelDateConstraints = (state: RootState) => {
-  const selectedTargetId = selectSingleModelSelectedTargetId(state);
-  return selectDateConstraintsForTarget(selectedTargetId)(state);
-};
+export const selectSingleModelDateConstraints = createSelector(
+  [selectTargets, (state: RootState) => state.configStore.config, selectSingleModelSelectedTargetId],
+  (targets, config, selectedTargetId) => {
+    // Find the target configuration
+    const target = targets.find((t) => t.targetId === selectedTargetId);
+
+    // Use target-specific dates if available, otherwise fall back to global dates
+    const earliestDate = target?.earliestDate
+      ? new Date(target.earliestDate)
+      : config?.earliestDateAcrossTargets
+        ? new Date(config.earliestDateAcrossTargets)
+        : new Date();
+
+    const latestDate = target?.latestDate
+      ? new Date(target.latestDate)
+      : config?.latestDateAcrossTargets
+        ? new Date(config.latestDateAcrossTargets)
+        : new Date();
+
+    const defaultSelectedDate = config?.defaultSelectedDate
+      ? new Date(config.defaultSelectedDate)
+      : new Date();
+
+    return {
+      earliestDate,
+      latestDate,
+      defaultSelectedDate,
+      hasTargetSpecificDates: !!(target?.earliestDate && target?.latestDate),
+    };
+  }
+);
 
 // ============================================
 // Model Availability for Evaluation Pages

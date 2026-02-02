@@ -434,7 +434,7 @@ class EvaluationProcessor:
             # Find which quantiles are duplicated
             duplicates = [q for q in unique_q_strings if q_strings.count(q) > 1]
             logger.warning(
-                f"  ⚠️  [{metric_name}] Duplicate quantile columns detected: {duplicates}. "
+                f"[{metric_name}] Duplicate quantile columns detected: {duplicates}. "
                 f"This indicates mixed data types (float vs string) in source data. "
                 f"Data normalization should have prevented this."
             )

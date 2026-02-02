@@ -111,10 +111,61 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * Load and parse dashboard metadata from Python processor
+   * Tries both development and production paths and uses the newest one based on timestamp
    */
   const loadMetadata = async (): Promise<any> => {
-    const dataPath = getDataPath();
-    return safeFetch(`${dataPath}/metadata.json`, 'Failed to load metadata');
+    const paths = ['/test-data-output/metadata.json', '/data/metadata.json'];
+    
+    const metadataResults: Array<{ path: string; data: any; timestamp: Date }> = [];
+    
+    // Try to load from both locations
+    for (const path of paths) {
+      try {
+        const response = await fetch(path);
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Extract timestamp from _meta.generatedAt, fallback to epoch if missing/invalid
+          let timestamp = new Date(0); // Default to epoch (will be deprioritized)
+          if (data._meta?.generatedAt) {
+            const parsedTimestamp = new Date(data._meta.generatedAt);
+            if (!isNaN(parsedTimestamp.getTime())) {
+              timestamp = parsedTimestamp;
+            } else {
+              logger.warn(`Invalid timestamp in ${path}, will be deprioritized`);
+            }
+          } else {
+            logger.warn(`Missing _meta.generatedAt in ${path}, will be deprioritized`);
+          }
+          
+          metadataResults.push({ path, data, timestamp });
+          logger.info(`Found metadata at: ${path}, generated at: ${timestamp.toISOString()}`);
+        }
+      } catch (error) {
+        // Continue to next path
+        logger.debug(`Could not load metadata from ${path}`);
+      }
+    }
+    
+    if (metadataResults.length === 0) {
+      throw new Error('Failed to load metadata from both /test-data-output and /data directories');
+    }
+    
+    // Sort by timestamp descending (newest first)
+    metadataResults.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    
+    const newest = metadataResults[0];
+    logger.info(`Using metadata from: ${newest.path} (generated at: ${newest.timestamp.toISOString()})`);
+    
+    if (metadataResults.length > 1) {
+      const older = metadataResults.slice(1);
+      logger.warn(
+        `Found metadata in ${metadataResults.length} locations. Using newest from: ${newest.path}. ` +
+        `Older metadata found at: ${older.map(m => `${m.path} (${m.timestamp.toISOString()})`).join(', ')}`
+      );
+    }
+    
+    return newest.data;
   };
 
   /**
