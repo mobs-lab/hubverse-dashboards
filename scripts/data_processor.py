@@ -10,13 +10,16 @@ import pandas as pd
 from pathlib import Path
 import logging
 import json
-import numpy as np
 import sys
 
 from evaluation_processor import EvaluationProcessor
 from manifest_manager import ManifestManager
-from data_utils import to_utc_iso_string, NpEncoder, ensure_string_column
-from forecast_period_utils import compute_ongoing_period_metadata, compute_special_period_date_range
+from utils_data import to_utc_iso_string, NpEncoder, ensure_string_column
+from utils_forecast_period import compute_ongoing_period_metadata, compute_special_period_date_range
+from utils_change_detection import identify_target_data_changes, extract_prediction_keys
+from utils_model_output_validation import validate_model_output_schema, pivot_quantiles
+from utils_evaluation_aggregation import process_iqr_stats, process_location_map_aggregates, process_coverage_aggregates
+from utils_data_structuring import process_target_data, process_model_output_data, process_historical_target_data, organize_metric_all_data
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -273,7 +276,7 @@ class DataProcessor:
             if self.current_target_data is not None and not self.current_target_data.empty:
                 logger.info("")
                 logger.info("Identifying target data changes (new/revised observations)...")
-                affected_target_keys = self._identify_target_data_changes(self.current_target_data, current_target_df)
+                affected_target_keys = identify_target_data_changes(self.current_target_data, current_target_df)
                 if affected_target_keys:
                     logger.info(f"  [!] Found {len(affected_target_keys)} changed target data points")
                     logger.info("      (new observations or revisions to existing dates)")
@@ -336,7 +339,7 @@ class DataProcessor:
 
                     if not delta_model_df.empty:
                         # Track new predictions for evaluation
-                        new_model_predictions = self._extract_prediction_keys(delta_model_df)
+                        new_model_predictions = extract_prediction_keys(delta_model_df)
 
                         # Update unpivoted store
                         if self.model_output_unpivoted is None or self.model_output_unpivoted.empty:
@@ -380,7 +383,7 @@ class DataProcessor:
             and "output_type" in self.model_output_unpivoted.columns
             and "quantile" in self.model_output_unpivoted["output_type"].unique()
         ):
-            model_output_pivoted = self._pivot_quantiles(self.model_output_unpivoted)
+            model_output_pivoted = pivot_quantiles(self.model_output_unpivoted)
         else:
             model_output_pivoted = self.model_output_unpivoted
 
@@ -398,11 +401,13 @@ class DataProcessor:
 
         # 5: Process all target data (for frontend JSON)
         logger.info("Processing target data for frontend...")
-        processed_target_data = self._process_target_data(fixed_target_data_df)
+        processed_target_data = process_target_data(fixed_target_data_df, self.target_key_to_id_map, self.target_id_to_dvp_config, self.config.targets or [])
 
         # 6: Process all model output data (for frontend JSON)
         logger.info("Processing model output data for frontend...")
-        processed_model_output = self._process_model_output_data(model_output_pivoted)
+        processed_model_output = process_model_output_data(
+            model_output_pivoted, self.config.available_models or [], self.target_key_to_id_map, self.target_id_to_dvp_config, self.config.prediction_intervals
+        )
 
         # 6b: Track model availability per period
         self._track_model_availability_per_period(model_output_pivoted)
@@ -561,6 +566,19 @@ class DataProcessor:
 
         # 10: Save Intermediates & Manifest
         self._save_intermediates()
+        
+        # For from-scratch runs, populate manifest state from current directories
+        # (In data-update runs, state was already populated during check_changes())
+        if not is_data_update_run:
+            auxiliary_data_path = self.project_root / ("development-mode-root" if self.dev_mode else "") / "auxiliary-data"
+            configured_models = self._get_models_to_load()
+            self.manifest_manager.update_state_from_directories(
+                self.target_data_path,
+                self.model_output_path,
+                auxiliary_data_path if auxiliary_data_path.exists() else None,
+                configured_models=configured_models
+            )
+        
         self.manifest_manager.save()
 
         logger.info("Data processing completed successfully.")
@@ -621,7 +639,7 @@ class DataProcessor:
                 try:
                     with open(agg_path, "r") as f:
                         self.aggregated_evaluations = json.load(f)
-                    logger.info(f"  Loaded aggregated evaluations cache")
+                    logger.info("  Loaded aggregated evaluations cache")
                 except Exception as e:
                     logger.warning(f"  Failed to load aggregated evaluations: {e}")
                     self.aggregated_evaluations = {}
@@ -788,7 +806,7 @@ class DataProcessor:
             else:
                 # Process historical snapshots: Map<as_of_date, Map<date, Map<location, data>>>
                 logger.info("Processing historical target data snapshots from filtered data...")
-                self.historical_target_data = self._process_historical_target_data(df)
+                self.historical_target_data = process_historical_target_data(df, self.target_key_to_id_map, self.target_id_to_dvp_config)
                 logger.info(f"Processed {len(self.historical_target_data)} historical snapshots.")
 
             return current_df
@@ -992,19 +1010,18 @@ class DataProcessor:
             original_types = df["output_type_id"].dropna().apply(type).unique()
             if len(original_types) > 1:
                 logger.warning(f"  ⚠️  Mixed types detected in output_type_id: {[t.__name__ for t in original_types]}. Normalizing to string.")
-            
+
             # Convert all output_type_id values to string for consistency
             # This ensures "0.5" (string) and 0.5 (float) are treated identically
             df["output_type_id"] = df["output_type_id"].astype(str)
             logger.info("  [OK] Normalized output_type_id to string type for consistency")
 
         # Enforce standard column order for consistency and easier debugging
-        expected_cols = ["model", "reference_date", "target_end_date", "location", "target", 
-                        "horizon", "output_type", "output_type_id", "value"]
+        expected_cols = ["model", "reference_date", "target_end_date", "location", "target", "horizon", "output_type", "output_type_id", "value"]
         existing_cols = [c for c in expected_cols if c in df.columns]
         other_cols = [c for c in df.columns if c not in expected_cols]
         df = df[existing_cols + other_cols]
-        logger.info(f"  [OK] Enforced standard column order")
+        logger.info("  [OK] Enforced standard column order")
 
         time_unit = self.config.time_unit
         if "horizon" not in df.columns:
@@ -1014,347 +1031,12 @@ class DataProcessor:
             logger.info("'horizon' column already exists, using it.")
 
         # Validate schema before storing
-        self._validate_model_output_schema(df)
+        validate_model_output_schema(df)
 
         # Store unpivoted data for evaluations
         # Pivoting will happen later in the main run() procedure after filtering
         self.model_output_unpivoted = df
         logger.info("Stored unpivoted model output data (will be pivoted after filtering)")
-
-    def _pivot_quantiles(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Pivots the long-format quantile data into a wide format where each quantile level
-        becomes its own column.
-
-        This is necessary for the frontend to easily map prediction intervals.
-
-        Args:
-            df (pd.DataFrame): The raw long-format model output DataFrame.
-
-        Returns:
-            pd.DataFrame: Wide-format DataFrame.
-        """
-
-        quantile_rows = df[df["output_type"] == "quantile"].copy()
-        other_rows = df[df["output_type"] != "quantile"]
-
-        if quantile_rows.empty:
-            return df
-
-        # Define index for pivoting
-        index_cols = [
-            "reference_date",
-            "target_end_date",
-            "location",
-            "target",
-            "horizon",
-            "model",
-        ]
-        # Ensure all index columns exist in the dataframe
-        index_cols = [col for col in index_cols if col in quantile_rows.columns]
-
-        # Pivot the table
-        pivoted = quantile_rows.pivot_table(index=index_cols, columns="output_type_id", values="value").reset_index()
-
-        # Validate pivot results for duplicate quantile columns (indicates mixed types in source)
-        self._validate_pivot_quantiles(pivoted)
-
-        # Merge back with non-quantile rows if any
-        if not other_rows.empty:
-            final_df = pd.concat([pivoted, other_rows], ignore_index=True)
-        else:
-            final_df = pivoted
-
-        return final_df
-
-    def _validate_model_output_schema(self, df: pd.DataFrame) -> None:
-        """
-        Validate model output data schema and detect potential issues.
-        
-        This checks for:
-        - Required columns presence
-        - Mixed data types in critical columns
-        - Column order consistency
-        
-        Args:
-            df (pd.DataFrame): Model output DataFrame to validate
-            
-        Raises:
-            ValueError: If critical validation failures are detected
-        """
-        required_cols = ["reference_date", "target_end_date", "location", "target", 
-                        "output_type", "output_type_id", "value", "model"]
-        
-        missing = [c for c in required_cols if c not in df.columns]
-        if missing:
-            raise ValueError(f"Missing required columns in model output: {missing}")
-        
-        # Check data types
-        expected_types = {
-            "reference_date": "datetime64[ns]",
-            "target_end_date": "datetime64[ns]",
-            "location": "object",
-            "output_type_id": "object",  # Should be string after normalization
-            "value": "float64"
-        }
-        
-        for col, expected_dtype in expected_types.items():
-            if col in df.columns:
-                actual_dtype = str(df[col].dtype)
-                if not actual_dtype.startswith(expected_dtype.split('[')[0]):
-                    logger.warning(f"  ⚠️  Column '{col}' has type '{actual_dtype}', expected '{expected_dtype}'")
-        
-        logger.info("  [OK] Model output schema validation passed")
-
-    def _validate_pivot_quantiles(self, pivoted_df: pd.DataFrame) -> None:
-        """
-        Validate pivoted quantile data for issues like duplicate columns.
-        
-        This detects cases where mixed types in source data (e.g., both 0.5 and "0.5")
-        create duplicate quantile columns after pivoting.
-        
-        Args:
-            pivoted_df (pd.DataFrame): Pivoted DataFrame with quantiles as columns
-        """
-        # Get quantile columns (numeric-looking column names)
-        q_cols = [c for c in pivoted_df.columns 
-                 if isinstance(c, (float, int, str)) and 
-                 str(c).replace(".", "", 1).replace("-", "").replace("e", "").isdigit()]
-        
-        if not q_cols:
-            return
-        
-        # Convert to strings and check for duplicates
-        q_strings = [str(c) for c in q_cols]
-        unique_q_strings = set(q_strings)
-        
-        if len(q_strings) != len(unique_q_strings):
-            # Find which quantiles are duplicated
-            duplicates = [q for q in unique_q_strings if q_strings.count(q) > 1]
-            logger.warning(
-                f"  ⚠️  Duplicate quantile columns detected: {duplicates}. "
-                f"This indicates mixed data types (float vs string) in source data. "
-                f"Data normalization should have prevented this."
-            )
-            # Log the actual column types for debugging
-            dup_cols = [c for c in q_cols if str(c) in duplicates]
-            logger.warning(f"      Duplicate column details: {[(c, type(c).__name__) for c in dup_cols]}")
-
-    def _process_target_data(self, target_data_df: pd.DataFrame) -> dict:
-        """
-        Transforms ground truth data into a nested dictionary structure optimized for frontend lookup.
-
-        Structure: ``Map<location, Map<date, Map<target, data>>>``
-
-        Applies configured scaling factors to the values.
-
-        Args:
-            target_data_df (pd.DataFrame): The standardized target data DataFrame.
-
-        Returns:
-            dict: The processed nested dictionary.
-        """
-        processed_data = {}
-        targets = self.config.targets or []
-
-        for _, row in target_data_df.iterrows():
-            location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
-            date_iso = to_utc_iso_string(row["date"])
-
-            data_entry = {
-                "observation": float(row["observation"]) if pd.notna(row["observation"]) and row["observation"] >= -1 else None,
-            }
-
-            if "location_name" in row and pd.notna(row["location_name"]):
-                data_entry["location_name"] = str(row["location_name"])
-
-            raw_target_key = str(row.get("target", targets[0].target_key_in_data if targets else "default"))
-            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
-
-            # Apply scaling
-            dvp_config = self.target_id_to_dvp_config.get(target_id)
-            if dvp_config and data_entry["observation"] is not None and data_entry["observation"] != -1:
-                scaling_factor = dvp_config.scaling_factor.target_data
-                data_entry["observation"] *= scaling_factor
-
-            # Create nested dictionaries
-            if location_key not in processed_data:
-                processed_data[location_key] = {}
-            if date_iso not in processed_data[location_key]:
-                processed_data[location_key][date_iso] = {}
-
-            processed_data[location_key][date_iso][target_id] = data_entry
-
-        logger.info(f"Processed {len(target_data_df)} rows of target data.")
-        return processed_data
-
-    def _process_model_output_data(self, model_output_df: pd.DataFrame) -> dict:
-        """
-        Transforms model predictions into a highly nested dictionary structure for the frontend.
-
-        Structure: ``Map<model, Map<location, Map<reference_date, Map<target_date, Map<targetId, predictions>>>>>``
-
-        Each prediction entry includes:
-        -   ``horizon``
-        -   ``targetId``
-        -   ``value_median``
-        -   ``prediction_intervals`` (nested by level)
-
-        Note: Only processes models in available_models for frontend display.
-        Baseline model is excluded if not in available_models (but still used for evaluations).
-
-        Args:
-            model_output_df (pd.DataFrame): The standardized model output DataFrame (long or wide).
-
-        Returns:
-            dict: The nested dictionary structure.
-        """
-        processed_data = {}
-
-        # Get list of models to include in frontend output
-        available_model_names = [m.model_name for m in self.config.available_models] if self.config.available_models else []
-
-        for model_name in model_output_df["model"].unique():
-            # Skip baseline if not in available_models (it's only for evaluation)
-            if model_name not in available_model_names:
-                logger.debug(f"Skipping model '{model_name}' from frontend output (not in available_models)")
-                continue
-            model_data = model_output_df[model_output_df["model"] == model_name]
-            model_dict = {}
-
-            for location in model_data["location"].unique():
-                location_key = str(location).zfill(2)
-                location_data = model_data[model_data["location"] == location]
-                location_dict = {}
-
-                for ref_date in location_data["reference_date"].unique():
-                    ref_date_iso = to_utc_iso_string(ref_date)
-                    ref_date_data = location_data[location_data["reference_date"] == ref_date]
-                    predictions_dict = {}
-
-                    for _, row in ref_date_data.iterrows():
-                        target_date_iso = to_utc_iso_string(row["target_end_date"])
-
-                        # Get target ID
-                        if "target" in row and pd.notna(row["target"]):
-                            raw_target_key = str(row["target"])
-                            target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
-                        else:
-                            # Fallback if target missing
-                            target_id = "unknown"
-
-                        pred_entry = {
-                            "horizon": int(row["horizon"]) if pd.notna(row["horizon"]) else None,
-                            "targetId": target_id,
-                        }
-
-                        dvp_config = self.target_id_to_dvp_config.get(target_id)
-                        scaling_factor = dvp_config.scaling_factor.model_output if dvp_config else 1.0
-
-                        quantile_cols = [col for col in row.index if isinstance(col, (float, str))]
-
-                        for qc in quantile_cols:
-                            if str(qc) == "0.5" and pd.notna(row[qc]):
-                                pred_entry["value_median"] = row[qc] * scaling_factor
-
-                        pred_intervals = {}
-                        for desired_PI in self.config.prediction_intervals:
-                            single_interval_info = {}
-                            for target_quantile in desired_PI.uses_output_type_ids:
-                                for qc in quantile_cols:
-                                    if str(qc) == target_quantile and pd.notna(row[qc]):
-                                        value = row[qc] * scaling_factor
-                                        if target_quantile == desired_PI.uses_output_type_ids[0]:
-                                            single_interval_info["pi_value_low"] = value
-                                        else:
-                                            single_interval_info["pi_value_high"] = value
-                            pred_intervals[str(desired_PI.level)] = single_interval_info
-
-                        pred_entry["prediction_intervals"] = pred_intervals
-
-                        # Nest by target_date THEN targetId to support multiple targets per date
-                        if target_date_iso not in predictions_dict:
-                            predictions_dict[target_date_iso] = {}
-                        predictions_dict[target_date_iso][target_id] = pred_entry
-
-                    location_dict[ref_date_iso] = {"predictions": predictions_dict}
-
-                model_dict[location_key] = location_dict
-
-            processed_data[model_name] = model_dict
-
-        logger.info(f"Processed predictions for {len(processed_data)} models.")
-        return processed_data
-
-    def _process_historical_target_data(self, df: pd.DataFrame) -> dict:
-        """
-        Process historical target data into a nested dictionary structure.
-
-        Structure: ``Map<as_of_date, Map<date, Map<location, data>>>``
-
-        This allows the frontend to quickly look up "what we knew" at any given point in time.
-
-        Args:
-            df (pd.DataFrame): The raw DataFrame with 'as_of' column.
-
-        Returns:
-            dict: The nested dictionary structure.
-        """
-        historical_data = {}
-
-        # Get all unique as_of dates
-        unique_as_of_dates = df["as_of"].unique()
-
-        for as_of_date in unique_as_of_dates:
-            as_of_iso = to_utc_iso_string(as_of_date)
-            snapshot_df = df[df["as_of"] == as_of_date]
-
-            # Group all date values
-            date_map = {}
-            for date in snapshot_df["date"].unique():
-                date_iso = to_utc_iso_string(date)
-                date_records = snapshot_df[snapshot_df["date"] == date]
-
-                # Group by location
-                location_map = {}
-                for _, row in date_records.iterrows():
-                    location_key = str(row.get("location", "US")).zfill(2) if "location" in row else "US"
-
-                    # Build data record
-                    data_entry = {
-                        "observation": float(row["observation"]) if pd.notna(row["observation"]) else None,
-                    }
-
-                    # Add location_name if available
-                    if "location_name" in row and pd.notna(row["location_name"]):
-                        data_entry["location_name"] = str(row["location_name"])
-
-                    # IMPORTANT: Add target field - required for multi-target scenarios
-                    # Map raw target key to target_id for consistency with config
-                    target_id = "default"
-                    if "target" in row and pd.notna(row["target"]):
-                        raw_target_key = str(row["target"])
-                        target_id = self.target_key_to_id_map.get(raw_target_key, raw_target_key)
-
-                        # Apply scaling for target data
-                        dvp_config = self.target_id_to_dvp_config.get(target_id)
-                        if dvp_config and "observation" in data_entry and data_entry["observation"] is not None and data_entry["observation"] != -1:
-                            scaling_factor = dvp_config.scaling_factor.target_data
-                            data_entry["observation"] *= scaling_factor
-
-                        data_entry["target"] = target_id
-
-                    # Use nested structure: location -> target -> data
-                    if location_key not in location_map:
-                        location_map[location_key] = {}
-
-                    location_map[location_key][target_id] = data_entry
-
-                date_map[date_iso] = location_map
-
-            historical_data[as_of_iso] = date_map
-
-        return historical_data
 
     def _filter_data_by_config_specs(
         self,
@@ -2258,205 +1940,16 @@ class DataProcessor:
             precalculated["detailedCoverage_aggregates"][period_id] = {}
 
             # Process location map aggregates FIRST (IQR depends on this)
-            self._process_location_map_aggregates(raw_evaluations, period_id, start, end, precalculated)
+            process_location_map_aggregates(raw_evaluations, period_id, start, end, precalculated, self.target_key_to_id_map)
 
             # Process IQR statistics for boxplots (uses state_map_aggregates)
-            self._process_iqr_stats(period_id, precalculated)
+            process_iqr_stats(period_id, precalculated)
 
             # Process coverage aggregates
-            self._process_coverage_aggregates(raw_evaluations, period_id, start, end, precalculated, cov_levels)
+            process_coverage_aggregates(raw_evaluations, period_id, start, end, precalculated, cov_levels, self.target_key_to_id_map)
 
         logger.info("Aggregated evaluation collection complete.")
         return precalculated
-
-    def _process_iqr_stats(self, period_id: str, precalculated: dict):
-        """
-        Calculate IQR statistics for Season Overview boxplot charts.
-
-        MUST be called AFTER _process_state_map_aggregates as it uses the
-        locationMap_aggregates data to compute per-location averages.
-
-        Logic:
-        1. For each metric (WIS/Baseline, MAPE), target, model, and horizon
-        2. Compute average score for each location: sum/count
-        3. Collect all location averages into a list
-        4. Calculate percentiles (q05, q25, median, q75, q95) from that list
-
-        Only pre-calculates single-horizon IQR. Frontend computes multi-horizon
-        combinations using locationMap_aggregates data.
-        """
-        state_map_data = precalculated.get("locationMap_aggregates", {}).get(period_id, {})
-
-        if not state_map_data:
-            return
-
-        # Iterate through the state_map_aggregates structure
-        for target_id, target_data in state_map_data.items():
-            if target_id not in precalculated["iqr"][period_id]:
-                precalculated["iqr"][period_id][target_id] = {}
-
-            for metric_name, metric_data in target_data.items():
-                # Skip Coverage metric - IQR is only for WIS/Baseline and MAPE
-                if metric_name == "Coverage":
-                    continue
-
-                if metric_name not in precalculated["iqr"][period_id][target_id]:
-                    precalculated["iqr"][period_id][target_id][metric_name] = {}
-
-                for model_name, model_data in metric_data.items():
-                    if model_name not in precalculated["iqr"][period_id][target_id][metric_name]:
-                        precalculated["iqr"][period_id][target_id][metric_name][model_name] = {}
-
-                    # Get all available horizons for this model
-                    available_horizons = set()
-                    for loc_data in model_data.values():
-                        available_horizons.update(loc_data.keys())
-
-                    # Calculate IQR for each individual horizon only
-                    # Frontend will compute multi-horizon combinations using locationMap_aggregates
-                    for horizon in available_horizons:
-                        horizon_str = str(horizon)
-
-                        # Compute location averages for this horizon
-                        location_averages = []
-                        for loc, loc_data in model_data.items():
-                            if horizon_str in loc_data:
-                                agg = loc_data[horizon_str]
-                                if agg["count"] > 0:
-                                    avg = agg["sum"] / agg["count"]
-                                    location_averages.append(avg)
-
-                        # Calculate IQR stats from location averages
-                        if len(location_averages) >= 1:
-                            stats = self._calculate_boxplot_stats(location_averages)
-                            if stats:
-                                precalculated["iqr"][period_id][target_id][metric_name][model_name][horizon_str] = stats
-
-    def _process_location_map_aggregates(self, raw_evaluations: dict, period_id: str, start, end, precalculated: dict):
-        """
-        Process location map aggregates for geographic visualization and IQR calculation.
-
-        Aggregates sum/count per location per horizon for WIS over Baseline, MAPE, and Coverage metrics.
-        These aggregates are used by:
-        1. Location map visualization (computing location averages for map coloring)
-        2. IQR calculation (computing percentiles across location averages)
-
-        Note: WIS/Baseline and MAPE each have a single score per forecast instance.
-        Coverage uses the 95% prediction interval level by default.
-        """
-        # Define metrics to process: (metric_name, df, value_column)
-        # WIS/Baseline: wis_ratio column (single value per forecast)
-        # MAPE: mape column (single value per forecast)
-        # Coverage: use 95_coverage column specifically (binary 0/1 per forecast, averaged to percentage)
-        metrics_to_process = []
-        if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
-            metrics_to_process.append(("WIS/Baseline", raw_evaluations["wis_ratio"], "wis_ratio"))
-        if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
-            metrics_to_process.append(("MAPE", raw_evaluations["mape"], "mape"))
-        if "coverage" in raw_evaluations and not raw_evaluations["coverage"].empty:
-            # Use 95% coverage level for location map aggregates
-            cov_df = raw_evaluations["coverage"]
-            if "95_coverage" in cov_df.columns:
-                metrics_to_process.append(("Coverage", cov_df, "95_coverage"))
-            else:
-                logger.warning("95_coverage column not found in coverage data, skipping Coverage metric for location map")
-
-        for metric_name, df, val_col in metrics_to_process:
-            # Filter by date range
-            if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
-                df = df.copy()
-                df["target_end_date"] = pd.to_datetime(df["target_end_date"])
-
-            period_df = df[(df["target_end_date"] >= start) & (df["target_end_date"] <= end)]
-
-            if period_df.empty:
-                continue
-
-            unique_targets = period_df["target"].unique() if "target" in period_df.columns else ["default"]
-
-            for target in unique_targets:
-                target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
-                target_df = period_df if target == "default" else period_df[period_df["target"] == target]
-
-                if target_id not in precalculated["locationMap_aggregates"][period_id]:
-                    precalculated["locationMap_aggregates"][period_id][target_id] = {}
-
-                if metric_name not in precalculated["locationMap_aggregates"][period_id][target_id]:
-                    precalculated["locationMap_aggregates"][period_id][target_id][metric_name] = {}
-
-                for model_name in target_df["model"].unique():
-                    model_df = target_df[target_df["model"] == model_name].copy()
-                    precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name] = {}
-
-                    if "location" in model_df.columns and "horizon" in model_df.columns:
-                        # Filter out NaN and Infinity values before aggregation
-                        model_df = model_df[np.isfinite(model_df[val_col])]
-
-                        if model_df.empty:
-                            continue
-
-                        grouped = model_df.groupby(["location", "horizon"])[val_col].agg(["sum", "count"]).reset_index()
-
-                        for _, row in grouped.iterrows():
-                            # Skip if sum is not finite (shouldn't happen after filtering, but extra safety)
-                            if not np.isfinite(row["sum"]):
-                                continue
-
-                            loc = str(row["location"]).zfill(2)
-                            horizon = str(int(row["horizon"]))
-
-                            if loc not in precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name]:
-                                precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name][loc] = {}
-
-                            precalculated["locationMap_aggregates"][period_id][target_id][metric_name][model_name][loc][horizon] = {
-                                "sum": float(row["sum"]),
-                                "count": int(row["count"]),
-                            }
-
-    def _process_coverage_aggregates(self, raw_evaluations: dict, period_id: str, start, end, precalculated: dict, cov_levels: list):
-        """Process coverage aggregates for Season Overview coverage chart."""
-        if "coverage" not in raw_evaluations or raw_evaluations["coverage"].empty:
-            return
-
-        df = raw_evaluations["coverage"]
-        if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
-            df["target_end_date"] = pd.to_datetime(df["target_end_date"])
-        period_df = df[(df["target_end_date"] >= start) & (df["target_end_date"] <= end)]
-
-        if period_df.empty:
-            return
-
-        unique_targets = period_df["target"].unique() if "target" in period_df.columns else ["default"]
-
-        for target in unique_targets:
-            target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
-            target_df = period_df if target == "default" else period_df[period_df["target"] == target]
-
-            if target_id not in precalculated["detailedCoverage_aggregates"][period_id]:
-                precalculated["detailedCoverage_aggregates"][period_id][target_id] = {}
-
-            for model_name in target_df["model"].unique():
-                model_df = target_df[target_df["model"] == model_name]
-                precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name] = {}
-
-                for level in cov_levels:
-                    col_name = f"{level}_coverage"
-                    if col_name not in model_df.columns:
-                        continue
-
-                    if "horizon" in model_df.columns:
-                        grouped = model_df.groupby("horizon")[col_name].agg(["sum", "count"]).reset_index()
-
-                        for _, row in grouped.iterrows():
-                            horizon = int(row["horizon"])
-                            if horizon not in precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name]:
-                                precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon] = {}
-
-                            precalculated["detailedCoverage_aggregates"][period_id][target_id][model_name][horizon][str(level)] = {
-                                # Coverage values are already in percentage format (0-100) from evaluation_processor
-                                "sum": float(row["sum"]),
-                                "count": int(row["count"]),
-                            }
 
     def _generate_raw_scores_by_period(self, raw_evaluations: dict) -> dict:
         """
@@ -2480,90 +1973,15 @@ class DataProcessor:
         # Process WIS Ratio
         if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
             logger.info("Organizing WIS/Baseline raw scores...")
-            self._organize_metric_all_data(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", raw_scores_data)
+            organize_metric_all_data(raw_evaluations["wis_ratio"], "WIS/Baseline", "wis_ratio", raw_scores_data, self.target_key_to_id_map)
 
         # Process MAPE
         if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
             logger.info("Organizing MAPE raw scores...")
-            self._organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data)
+            organize_metric_all_data(raw_evaluations["mape"], "MAPE", "mape", raw_scores_data, self.target_key_to_id_map)
 
         logger.info("Raw scores organization complete.")
         return raw_scores_data
-
-    def _organize_metric_all_data(self, df: pd.DataFrame, metric_name: str, val_col: str, raw_scores_dict: dict):
-        """
-        Helper to organize a specific metric's raw scores for ALL data (no period filtering).
-
-        Structure: target → metric → model → location → horizon → [scores]
-        """
-        if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
-            df["target_end_date"] = pd.to_datetime(df["target_end_date"])
-
-        # Group by target
-        unique_targets = df["target"].unique() if "target" in df.columns else ["default"]
-
-        for target in unique_targets:
-            target_id = self.target_key_to_id_map.get(target, target) if target != "default" else "default"
-            target_df = df if target == "default" else df[df["target"] == target]
-
-            if target_id not in raw_scores_dict:
-                raw_scores_dict[target_id] = {}
-
-            raw_scores_dict[target_id][metric_name] = self._structure_raw_scores(target_df, val_col)
-
-    def _calculate_boxplot_stats(self, location_averages: list) -> dict:
-        """
-        Calculate boxplot statistics from a list of per-location score averages.
-
-        These statistics represent the distribution of model performance across locations.
-        The percentiles (q05, q25, median, q75, q95) are computed from the list of
-        location averages.
-
-        Args:
-            location_averages: List of average scores, one per location
-
-        Returns:
-            dict: BoxplotStats with q05, q25, median, q75, q95, min, max, mean, count
-            Returns None if no valid data is available.
-        """
-        if not location_averages or len(location_averages) == 0:
-            return None
-
-        scores = np.array(location_averages, dtype=float)
-
-        # Filter out NaN and Infinity values
-        valid_mask = np.isfinite(scores)
-        scores = scores[valid_mask]
-
-        if len(scores) == 0:
-            return None
-
-        # Calculate percentiles from the distribution of location averages
-        percentiles = np.percentile(scores, [5, 25, 50, 75, 95])
-
-        # Verify all results are finite before returning
-        min_val = float(np.min(scores))
-        max_val = float(np.max(scores))
-        mean_val = float(np.mean(scores))
-
-        # Double-check that our computed values are valid
-        if not all(np.isfinite([min_val, max_val, mean_val, *percentiles])):
-            logger.warning("Boxplot stats computation produced non-finite values, skipping")
-            return None
-
-        stats = {
-            "q05": float(percentiles[0]),
-            "q25": float(percentiles[1]),
-            "median": float(percentiles[2]),
-            "q75": float(percentiles[3]),
-            "q95": float(percentiles[4]),
-            "min": min_val,
-            "max": max_val,
-            "mean": mean_val,
-            "count": int(len(scores)),
-        }
-
-        return stats
 
     def _write_output_files(
         self,
@@ -2669,42 +2087,6 @@ class DataProcessor:
 
         logger.info("All output files written successfully!")
 
-    def _structure_raw_scores(self, df: pd.DataFrame, val_col: str) -> dict:
-        """Helper to structure raw scores for JSON export.
-
-        Filters out records with NaN or Infinity scores to ensure valid JSON output.
-        """
-        structured = {}
-        for model_name in df["model"].unique():
-            model_df = df[df["model"] == model_name]
-            structured[model_name] = {}
-
-            for location in model_df["location"].unique():
-                loc_key = str(location).zfill(2)
-                loc_df = model_df[model_df["location"] == location]
-                structured[model_name][loc_key] = {}
-
-                if "horizon" in loc_df.columns:
-                    for horizon in loc_df["horizon"].unique():
-                        h_df = loc_df[loc_df["horizon"] == horizon]
-                        records = []
-                        for _, row in h_df.iterrows():
-                            score_val = row[val_col]
-                            # Skip records with NaN or Infinity scores
-                            if pd.isna(score_val) or not np.isfinite(score_val):
-                                continue
-                            records.append(
-                                {
-                                    "referenceDate": to_utc_iso_string(row["reference_date"]),
-                                    "targetEndDate": to_utc_iso_string(row["target_end_date"]),
-                                    "score": float(score_val),
-                                }
-                            )
-                        # Only add horizon key if there are valid records
-                        if records:
-                            structured[model_name][loc_key][int(horizon)] = records
-        return structured
-
     def _track_file_written(self, file_path: Path):
         """Track files written for summary reporting."""
         self.processing_stats["files_written"] += 1
@@ -2807,6 +2189,11 @@ class DataProcessor:
                 # Ensure location is string type
                 df = ensure_string_column(df, "location")
 
+                # Normalize output_type_id to consistent string type
+                # This prevents issues with mixed types (float 0.5 vs string "0.5") from different CSV files
+                if "output_type_id" in df.columns:
+                    df["output_type_id"] = df["output_type_id"].astype(str)
+
                 # Calculate horizon if missing
                 time_unit = self.config.time_unit
                 if "horizon" not in df.columns and "target_end_date" in df.columns and "reference_date" in df.columns:
@@ -2894,114 +2281,6 @@ class DataProcessor:
             return start_date, end_date
         else:
             return period.start_date, period.end_date
-
-    def _identify_target_data_changes(self, old_df: pd.DataFrame, new_df: pd.DataFrame) -> set:
-        """
-        Identify which keys (location, date, target) have changed between old and new target data.
-
-        Tracks both new observations and revisions to existing observations.
-
-        NOTE ON DATA COMPARISON STRATEGY:
-        - Manifest Manager: Compares RAW file checksums to detect IF source files changed
-        - This method: Compares PROCESSED data (after column renaming, as_of shifting, etc.)
-        - old_df: Previously processed data (loaded from intermediates/target_data.parquet)
-        - new_df: Newly processed data (loaded from raw files and transformed)
-        - Both are in same format (standard column names, shifted as_of dates, etc.)
-        - This ensures comparison of both processed target-data while detecting byte-level source changes
-
-        Args:
-            old_df: Previous target data (PROCESSED)
-            new_df: New target data (PROCESSED)
-
-        Returns:
-            set of tuples: {(location, date, target), ...}
-        """
-        if old_df is None or old_df.empty:
-            return set()  # Empty set means all data is new (handled differently)
-
-        # Ensure consistency in comparison columns
-        old_comp = old_df.copy()
-        new_comp = new_df.copy()
-
-        keys = ["location", "date"]
-
-        # Convert date to datetime if not already
-        old_comp["date"] = pd.to_datetime(old_comp["date"])
-        new_comp["date"] = pd.to_datetime(new_comp["date"])
-
-        # Convert observation to float for comparison stability
-        old_comp["observation"] = old_comp["observation"].astype(float)
-        new_comp["observation"] = new_comp["observation"].astype(float)
-
-        # Merge on keys to compare observations
-        merged = pd.merge(new_comp, old_comp, on=keys, suffixes=("_new", "_old"), how="outer", indicator=True)
-
-        # 1. New rows (left_only) - new observations
-        new_rows = merged[merged["_merge"] == "left_only"]
-
-        # 2. Changed rows (both, but observation differs) - revisions
-        changed_mask = (merged["_merge"] == "both") & (
-            (merged["observation_new"] != merged["observation_old"]) & ~(merged["observation_new"].isna() & merged["observation_old"].isna())
-        )
-        changed_rows = merged[changed_mask]
-
-        affected_keys = set()
-
-        for df in [new_rows, changed_rows]:
-            if not df.empty:
-                for _, row in df.iterrows():
-                    affected_keys.add((str(row["location"]), row["date"], str(row["target"])))
-
-        return affected_keys
-
-    def _extract_prediction_keys(self, model_df: pd.DataFrame) -> set:
-        """
-        Extract unique prediction keys from model output dataframe.
-
-        Used to track which predictions are new and need evaluation.
-
-        Args:
-            model_df: Model output dataframe
-
-        Returns:
-            set of tuples: {(location, reference_date, target_end_date, target), ...}
-        """
-        if model_df is None or model_df.empty:
-            return set()
-
-        keys = set()
-        required_cols = ["location", "reference_date", "target_end_date", "target", "horizon", "output_type", "output_type_id"]
-
-        # Check if all required columns exist
-        if not all(col in model_df.columns for col in required_cols):
-            logger.warning("Missing required columns for prediction key extraction")
-            return keys
-
-        # Add target column if it exists
-        has_target = "target" in model_df.columns
-
-        # Extract unique combinations
-        if has_target:
-            for _, row in model_df[required_cols + ["target"]].drop_duplicates().iterrows():
-                keys.add(
-                    (
-                        str(row["location"]),
-                        pd.to_datetime(row["reference_date"]),
-                        pd.to_datetime(row["target_end_date"]),
-                        str(row["target"]),
-                    )
-                )
-        else:
-            for _, row in model_df[required_cols].drop_duplicates().iterrows():
-                keys.add(
-                    (
-                        str(row["location"]),
-                        pd.to_datetime(row["reference_date"]),
-                        pd.to_datetime(row["target_end_date"]),
-                    )
-                )
-
-        return keys
 
 
 def process_data(config: DashboardConfig, dev_mode: bool = False, skip_evaluations: bool = False, is_data_update_run: bool = False):

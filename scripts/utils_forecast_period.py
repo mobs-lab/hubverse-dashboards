@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 
 from yaml_config_processor_pydantic import ForecastPeriodConfig, SpecialForecastPeriodConfig
-from data_utils import to_utc_iso_string
+from utils_data import to_utc_iso_string
 
 logger = logging.getLogger(__name__)
 

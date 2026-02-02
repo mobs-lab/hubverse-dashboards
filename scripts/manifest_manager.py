@@ -9,7 +9,7 @@ import json
 import hashlib
 import logging
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -393,6 +393,43 @@ class ManifestManager:
             },
             "summary": ", ".join(summary) if summary else "no changes"
         }
+    
+    def update_state_from_directories(
+        self,
+        target_data_path: Path,
+        model_output_path: Path,
+        auxiliary_data_path: Path = None,
+        configured_models: list = None
+    ):
+        """
+        Scan and update current state from directories without comparing to previous state.
+        
+        Use this method after a from-scratch build to populate the manifest with current file state.
+        
+        Args:
+            target_data_path: Path to target-data directory
+            model_output_path: Path to model-output directory
+            auxiliary_data_path: Optional path to auxiliary-data directory
+            configured_models: List of model names from config to scan
+        """
+        logger.info("Updating manifest state from current directories...")
+        
+        # Scan target data
+        if target_data_path.exists():
+            self.current_state["target_data"] = self.scan_directory(target_data_path)
+        
+        # Scan model output
+        if model_output_path.exists():
+            by_model = self.scan_model_output_by_model(model_output_path, configured_models)
+            self.current_state["model_output"] = {
+                "by_model": by_model
+            }
+        
+        # Scan auxiliary data
+        if auxiliary_data_path and auxiliary_data_path.exists():
+            self.current_state["auxiliary_data"] = self.scan_directory(auxiliary_data_path)
+        
+        logger.info("  [OK] Manifest state updated")
 
     def save(self):
         """Save current state to manifest using new structure."""
