@@ -18,15 +18,21 @@ export const selectConfigLoaded = (state: RootState) => state.configStore.isLoad
 
 /**
  * Get list of model names from config
+ * Memoized to prevent unnecessary rerenders from new array references
  */
-export const selectModelNames = (state: RootState) =>
-  Object.keys(state.configStore.config?.modelColorMap ?? {});
+export const selectModelNames = createSelector(
+  [(state: RootState) => state.configStore.config?.modelColorMap],
+  (modelColorMap) => Object.keys(modelColorMap ?? {})
+);
 
 /**
  * Get model color mapping
+ * Memoized to prevent unnecessary rerenders from new object references
  */
-export const selectModelColorMap = (state: RootState) =>
-  state.configStore.config?.modelColorMap ?? {};
+export const selectModelColorMap = createSelector(
+  [(state: RootState) => state.configStore.config?.modelColorMap],
+  (modelColorMap) => modelColorMap ?? {}
+);
 
 // ============================================
 // Location Selectors (Shared)
@@ -34,9 +40,12 @@ export const selectModelColorMap = (state: RootState) =>
 
 /**
  * Get location mapping from config
+ * Memoized to prevent unnecessary rerenders from new object references
  */
-export const selectLocationMapping = (state: RootState) =>
-  state.configStore.config?.locationMapping ?? {};
+export const selectLocationMapping = createSelector(
+  [(state: RootState) => state.configStore.config?.locationMapping],
+  (locationMapping) => locationMapping ?? {}
+);
 
 /**
  * Get list of location objects for dropdowns/maps
@@ -84,8 +93,12 @@ export const selectLocationName = (locationCode: string) =>
 
 /**
  * Get all targets from config
+ * Memoized to prevent unnecessary rerenders from new array references
  */
-export const selectTargets = (state: RootState) => state.configStore.config?.targets ?? [];
+export const selectTargets = createSelector(
+  [(state: RootState) => state.configStore.config?.targets],
+  (targets) => targets ?? []
+);
 
 /**
  * Get default target ID
@@ -104,59 +117,13 @@ export const selectTimeUnit = (state: RootState) => state.configStore.config?.ti
 
 /**
  * Get available horizons from config
+ * Memoized to prevent unnecessary rerenders from new array references
  */
-export const selectHorizons = (state: RootState) => state.configStore.config?.horizons ?? [];
+export const selectHorizons = createSelector(
+  [(state: RootState) => state.configStore.config?.horizons],
+  (horizons) => horizons ?? []
+);
 
-/**
- * Get date constraints from config (global, for backward compatibility)
- */
-export const selectDateConstraints = createSelector([selectConfig], (config) => {
-  return {
-    earliestDate: config?.earliestDateAcrossTargets
-      ? new Date(config.earliestDateAcrossTargets)
-      : new Date(),
-    latestDate: config?.latestDateAcrossTargets
-      ? new Date(config.latestDateAcrossTargets)
-      : new Date(),
-    defaultSelectedDate: config?.defaultSelectedDate
-      ? new Date(config.defaultSelectedDate)
-      : new Date(),
-  };
-});
-
-/**
- * Get date constraints for a specific target
- * Falls back to global date constraints if target-specific dates are not available
- */
-export const selectDateConstraintsForTarget = (targetId: string) =>
-  createSelector([selectConfig, selectTargets], (config, targets) => {
-    // Find the target configuration
-    const target = targets.find((t) => t.targetId === targetId);
-
-    // Use target-specific dates if available, otherwise fall back to global dates
-    const earliestDate = target?.earliestDate
-      ? new Date(target.earliestDate)
-      : config?.earliestDateAcrossTargets
-        ? new Date(config.earliestDateAcrossTargets)
-        : new Date();
-
-    const latestDate = target?.latestDate
-      ? new Date(target.latestDate)
-      : config?.latestDateAcrossTargets
-        ? new Date(config.latestDateAcrossTargets)
-        : new Date();
-
-    const defaultSelectedDate = config?.defaultSelectedDate
-      ? new Date(config.defaultSelectedDate)
-      : new Date();
-
-    return {
-      earliestDate,
-      latestDate,
-      defaultSelectedDate,
-      hasTargetSpecificDates: !!(target?.earliestDate && target?.latestDate),
-    };
-  });
 
 // ============================================
 // Prediction Interval Selectors (Shared)
@@ -164,15 +131,21 @@ export const selectDateConstraintsForTarget = (targetId: string) =>
 
 /**
  * Get available prediction intervals from config
+ * Memoized to prevent unnecessary rerenders from new array references
  */
-export const selectPredictionIntervalOptions = (state: RootState) =>
-  state.configStore.config?.predictionIntervals ?? [];
+export const selectPredictionIntervalOptions = createSelector(
+  [(state: RootState) => state.configStore.config?.predictionIntervals],
+  (predictionIntervals) => predictionIntervals ?? []
+);
 
 /**
  * Get default prediction intervals
+ * Memoized to prevent unnecessary rerenders from new array references
  */
-export const selectDefaultPredictionIntervals = (state: RootState) =>
-  state.configStore.config?.defaultPredictionIntervals ?? [];
+export const selectDefaultPredictionIntervals = createSelector(
+  [(state: RootState) => state.configStore.config?.defaultPredictionIntervals],
+  (defaultPredictionIntervals) => defaultPredictionIntervals ?? []
+);
 
 // ============================================
 // Feature Flag Selectors (Shared)
@@ -217,9 +190,12 @@ export const selectMapData = (state: RootState) => state.auxiliaryDataStore.mapD
 
 /**
  * Get forecast period options from config
+ * Memoized to prevent unnecessary rerenders from new object references
  */
-export const selectForecastPeriodOptions = (state: RootState) =>
-  state.configStore.config?.forecastPeriodOptions ?? {};
+export const selectForecastPeriodOptions = createSelector(
+  [(state: RootState) => state.configStore.config?.forecastPeriodOptions],
+  (forecastPeriodOptions) => forecastPeriodOptions ?? {}
+);
 
 // ============================================
 // Model Availability Selectors
@@ -227,6 +203,9 @@ export const selectForecastPeriodOptions = (state: RootState) =>
 
 /**
  * Get model availability data per period
+ * Memoized to prevent unnecessary rerenders from new object references
  */
-export const selectModelAvailabilityPerPeriod = (state: RootState) =>
-  state.configStore.config?.modelAvailabilityPerPeriod ?? {};
+export const selectModelAvailabilityPerPeriod = createSelector(
+  [(state: RootState) => state.configStore.config?.modelAvailabilityPerPeriod],
+  (modelAvailabilityPerPeriod) => modelAvailabilityPerPeriod ?? {}
+);

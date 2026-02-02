@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Development Helper: Data Inspector
 ===================================
@@ -89,7 +88,6 @@ def analyze_dataframe(df, file_name, exclude_cols=None):
             continue
         
         unique_count = df[col].nunique()
-        total_count = len(df)
         
         if unique_count <= 50:  # Show unique values if reasonable
             unique_vals = df[col].unique()
@@ -114,7 +112,7 @@ def analyze_dataframe(df, file_name, exclude_cols=None):
             print(f"  {col:25} → {unique_count:>6} unique values (too many to display)")
             # Show a sample
             sample = df[col].value_counts().head(10)
-            print(f"    Top 10 most frequent:")
+            print("    Top 10 most frequent:")
             for val, count in sample.items():
                 print(f"      {val}: {count}")
     print()
