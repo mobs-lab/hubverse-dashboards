@@ -305,7 +305,7 @@ class ManifestManager:
         
         self.current_state["model_output"] = {
             "by_model": current_by_model
-        }
+        } 
         
         # Detect changes by model
         changes_by_model = {}
@@ -317,7 +317,10 @@ class ManifestManager:
         
         for model in current_models:
             current_model_files = current_by_model[model]
-            previous_model_files = previous_by_model.get(model, {})
+            # Extract checksums dict from nested structure
+            # Manifest file structure: {model: {"files": [...], "checksums": {...}, "last_modified": ...}}
+            previous_model_data = previous_by_model.get(model, {})
+            previous_model_files = previous_model_data.get("checksums", {}) if isinstance(previous_model_data, dict) else {}
             
             current_set = set(current_model_files.keys())
             previous_set = set(previous_model_files.keys())
