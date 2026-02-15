@@ -1699,6 +1699,7 @@ class DataProcessor:
             # === EVALUATION SETTINGS ===
             "evaluations": {
                 "coverageLevels": self.config.evaluation_coverage_levels if hasattr(self.config, "evaluation_coverage_levels") else [50, 95],
+                "locationMapCoverageLevel": self.config.evaluation_coverage_level_for_location_map if hasattr(self.config, "evaluation_coverage_level_for_location_map") else 95,
                 # List of period IDs that have evaluation data available (for lazy loading)
                 "availablePeriodIds": self._get_evaluation_period_ids() if not self.skip_evaluations else [],
             },
@@ -1907,6 +1908,7 @@ class DataProcessor:
 
         # Get configuration values
         cov_levels = sorted([int(x) for x in (self.config.evaluation_coverage_levels or [50, 95])])
+        location_map_cov_level = self.config.evaluation_coverage_level_for_location_map if hasattr(self.config, 'evaluation_coverage_level_for_location_map') else 95
 
         # Define all periods to aggregate over
         special_periods = self.config.special_forecast_periods or []
@@ -1940,7 +1942,7 @@ class DataProcessor:
             precalculated["detailedCoverage_aggregates"][period_id] = {}
 
             # Process location map aggregates FIRST (IQR depends on this)
-            process_location_map_aggregates(raw_evaluations, period_id, start, end, precalculated, self.target_key_to_id_map)
+            process_location_map_aggregates(raw_evaluations, period_id, start, end, precalculated, self.target_key_to_id_map, location_map_cov_level)
 
             # Process IQR statistics for boxplots (uses state_map_aggregates)
             process_iqr_stats(period_id, precalculated)

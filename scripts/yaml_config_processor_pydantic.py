@@ -376,6 +376,13 @@ class DashboardConfig(BaseModel):
         ..., description="The model ID to use as a baseline for calculating Relative WIS. This model acts as a benchmark for performance comparison."
     )
     evaluation_coverage_levels: List[int] = Field(default=[50, 95], description="List of integer percentages (0-100) for evaluation coverage calculation.")
+    evaluation_coverage_level_for_location_map: int = Field(
+        default=95,
+        ge=1,
+        le=99,
+        description="Single coverage level percentage (1-99) used for location map aggregates. "
+        "This can overlap with evaluation_coverage_levels or be separate. Defaults to 95."
+    )
 
     # Default Selections
     default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(
@@ -556,6 +563,16 @@ class DashboardConfig(BaseModel):
                 # Hubverse data typically uses 0.025, 0.975, etc.
                 quantiles.add(f"{lower:.3g}")
                 quantiles.add(f"{upper:.3g}")
+
+        # Add quantiles needed for location map coverage level
+        # This ensures the location map level is available even if not in the main list
+        if hasattr(self, 'evaluation_coverage_level_for_location_map') and self.evaluation_coverage_level_for_location_map:
+            level = self.evaluation_coverage_level_for_location_map
+            alpha = 1.0 - (level / 100.0)
+            lower = alpha / 2.0
+            upper = 1.0 - (alpha / 2.0)
+            quantiles.add(f"{lower:.3g}")
+            quantiles.add(f"{upper:.3g}")
 
         return sorted(list(quantiles), key=lambda x: float(x))
 

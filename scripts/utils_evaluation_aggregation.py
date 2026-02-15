@@ -141,7 +141,8 @@ def process_location_map_aggregates(
     start,
     end,
     precalculated: dict,
-    target_key_to_id_map: dict
+    target_key_to_id_map: dict,
+    location_map_coverage_level: int = 95
 ):
     """
     Process location map aggregates for geographic visualization and IQR calculation.
@@ -152,7 +153,7 @@ def process_location_map_aggregates(
     2. IQR calculation (computing percentiles across location averages)
 
     Note: WIS/Baseline and MAPE each have a single score per forecast instance.
-    Coverage uses the 95% prediction interval level by default.
+    Coverage uses a configurable prediction interval level (default 95%).
     
     Args:
         raw_evaluations: Dictionary of raw evaluation DataFrames
@@ -161,22 +162,25 @@ def process_location_map_aggregates(
         end: End date for filtering
         precalculated: Dictionary to store aggregated results
         target_key_to_id_map: Mapping from target keys to target IDs
+        location_map_coverage_level: Coverage level percentage for location map (default 95)
     """
     # WIS/Baseline: wis_ratio column (single value per forecast)
     # MAPE: mape column (single value per forecast)
-    # Coverage: use 95_coverage column specifically (binary 0/1 per forecast, averaged to percentage)
+    # Coverage: use configured coverage level column (binary 0/1 per forecast, averaged to percentage)
     metrics_to_process = []
     if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
         metrics_to_process.append(("WIS/Baseline", raw_evaluations["wis_ratio"], "wis_ratio"))
     if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
         metrics_to_process.append(("MAPE", raw_evaluations["mape"], "mape"))
     if "coverage" in raw_evaluations and not raw_evaluations["coverage"].empty:
-        # Use 95% coverage level for location map aggregates
+        # Use configured coverage level for location map aggregates
         cov_df = raw_evaluations["coverage"]
-        if "95_coverage" in cov_df.columns:
-            metrics_to_process.append(("Coverage", cov_df, "95_coverage"))
+        coverage_col_name = f"{location_map_coverage_level}_coverage"
+        if coverage_col_name in cov_df.columns:
+            metrics_to_process.append(("Coverage", cov_df, coverage_col_name))
         else:
-            logger.warning("95_coverage column not found in coverage data, skipping Coverage metric for location map")
+            logger.warning(f"{coverage_col_name} column not found in coverage data, skipping Coverage metric for location map. "
+                         f"Available coverage columns: {[col for col in cov_df.columns if col.endswith('_coverage')]}")
 
     for metric_name, df, val_col in metrics_to_process:
         # Filter by date range

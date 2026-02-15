@@ -331,6 +331,18 @@ class EvaluationProcessor:
 
         # Get coverage levels from config
         levels = self.config.evaluation_coverage_levels or [50, 95]
+        
+        # Ensure location map coverage level is included (even if not in main list)
+        # Convert to list of integers for processing
+        levels_to_calculate = set([int(x) for x in levels])
+        if hasattr(self.config, 'evaluation_coverage_level_for_location_map'):
+            location_map_level = self.config.evaluation_coverage_level_for_location_map
+            if location_map_level not in levels_to_calculate:
+                logger.info(f"Adding location map coverage level {location_map_level}% to calculation (not in main coverage levels)")
+            levels_to_calculate.add(location_map_level)
+        
+        # Sort for consistent processing
+        levels = sorted(list(levels_to_calculate))
 
         # Filter for quantile predictions
         quantile_df = merged_df[merged_df["output_type"] == "quantile"].copy()
