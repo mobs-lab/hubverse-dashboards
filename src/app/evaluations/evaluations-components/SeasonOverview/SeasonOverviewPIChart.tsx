@@ -26,7 +26,9 @@ const SeasonOverviewPIChart: React.FC = () => {
   const seasonOverviewData = useAppSelector(selectSeasonOverviewData);
   const modelColorMap = useAppSelector(selectModelColorMap);
   const modelNames = useAppSelector(selectModelNames);
-  const { evaluationCoverageLevels } = useAppSelector((state) => state.configStore.config?.evaluationCoverageLevels || []);
+  const evaluationCoverageLevels = useAppSelector(
+    (state) => state.configStore.config?.evaluationCoverageLevels || []
+  );
 
   // Process the detailed coverage data from JSON
   const processedData = useMemo(() => {
