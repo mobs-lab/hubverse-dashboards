@@ -52,11 +52,13 @@ For more details, see [Python's official venv documentation](https://docs.python
 
 ### 4. Configure Your Data
 
-Copy the example configuration and customize it for your data:
+Copy the example configuration from `config-file-examples/` and customize it for your data:
 
 ```bash
-cp config.yaml.example config.yaml
+cp config-file-examples/config.yaml.example config.yaml
 ```
+
+The `config-file-examples/` directory also contains pre-made configurations for specific data hubs (COVID-19, FluSight, RSV) that you can use as starting points.
 
 Then ensure your data directories are set up:
 

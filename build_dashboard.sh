@@ -63,8 +63,8 @@ check_config() {
         print_error "config.yaml not found in project root"
         echo ""
         echo "Please create a config.yaml file before proceeding."
-        echo "You can copy config.yaml.example and customize it:"
-        echo "  cp config.yaml.example config.yaml"
+        echo "You can copy an example configuration and customize it:"
+        echo "  cp config-file-examples/config.yaml.example config.yaml"
         echo ""
         exit 1
     fi

@@ -257,9 +257,8 @@ package-lock.json
 config.yaml
 config.yaml.*
 
-# Example configuration file is kept for users.
-!config.yaml.example
-!config.yaml.*.bak
+# Example configuration files are kept for users (inside config-file-examples/).
+!config-file-examples/
 
 # Ignored folders for development
 /development-mode-root
