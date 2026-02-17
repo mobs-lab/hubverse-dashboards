@@ -16,12 +16,35 @@ import numpy as np
 
 
 def get_project_root():
-    """Get the project root directory (where this script's parent is)."""
+    """
+    Determine the project root directory.
+
+    Assumes this script lives in ``PROJECTROOT/dev-tools/``.
+
+    Returns:
+        Path: Absolute path to the project root directory.
+    """
     return Path(__file__).parent.parent
 
 
 def load_file(file_path):
-    """Load a CSV or Parquet file into a pandas DataFrame."""
+    """
+    Load a CSV or Parquet file into a :class:`~pandas.DataFrame`.
+
+    Determines the file format from the extension and dispatches to the
+    appropriate pandas reader.
+
+    Args:
+        file_path: Path (string or :class:`~pathlib.Path`) to the data file.
+            Supported extensions: ``.csv``, ``.parquet``, ``.pq``.
+
+    Returns:
+        pd.DataFrame: Loaded data.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the file extension is not supported.
+    """
     file_path = Path(file_path)
     
     if not file_path.exists():
@@ -36,7 +59,19 @@ def load_file(file_path):
 
 
 def analyze_dataframe(df, file_name, exclude_cols=None):
-    """Comprehensive analysis of a DataFrame."""
+    """
+    Print a comprehensive quality-analysis report for a DataFrame.
+
+    Covers basic shape and memory info, data types, head/tail preview,
+    unique-value counts, duplicate detection, and data-quality checks
+    (mixed types, infinities, negatives, and string/numeric confusion).
+
+    Args:
+        df: :class:`~pandas.DataFrame` to analyze.
+        file_name: Display name of the source file (used in report headers).
+        exclude_cols: Optional list of column names to skip during the
+            unique-value analysis section.
+    """
     exclude_cols = exclude_cols or []
     
     print("=" * 80)
@@ -176,7 +211,18 @@ def analyze_dataframe(df, file_name, exclude_cols=None):
 
 
 def compare_files(df1, file1_name, df2, file2_name):
-    """Compare two DataFrames and highlight differences."""
+    """
+    Compare two DataFrames and print a diff report.
+
+    Highlights differences in column sets, column order, data types for
+    common columns, and row/column counts.
+
+    Args:
+        df1: First :class:`~pandas.DataFrame` to compare.
+        file1_name: Display name for the first file.
+        df2: Second :class:`~pandas.DataFrame` to compare.
+        file2_name: Display name for the second file.
+    """
     print()
     print("=" * 80)
     print("COMPARISON BETWEEN FILES")
@@ -236,6 +282,16 @@ def compare_files(df1, file1_name, df2, file2_name):
 
 
 def main():
+    """
+    CLI entry point for the data inspector.
+
+    Parses command-line arguments, loads each specified file via
+    :func:`load_file`, runs :func:`analyze_dataframe` on each, and
+    optionally runs :func:`compare_files` when exactly two files are
+    provided.
+
+    Exits with code 1 if any file fails to load.
+    """
     parser = argparse.ArgumentParser(
         description="Inspect CSV/Parquet files for data quality issues",
         formatter_class=argparse.RawDescriptionHelpFormatter,

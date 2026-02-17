@@ -1,3 +1,13 @@
-sphinx
-pydantic-sphinx
-autodoc
+# Development dependencies for Hubverse Dashboard
+# Includes everything in requirements.txt plus documentation and dev tools.
+
+# Core dependencies (also in requirements.txt)
+-r requirements.txt
+
+# Sphinx documentation
+sphinx>=7.0
+sphinx-rtd-theme>=2.0
+myst-parser>=3.0
+sphinxcontrib-mermaid>=0.9
+autodoc-pydantic>=2.0
+

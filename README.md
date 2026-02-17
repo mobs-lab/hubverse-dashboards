@@ -1,76 +1,281 @@
 # Hubverse Dashboard
 
-## About This Project
+Template for quickly spinning up a Hubverse-standard-compatible dashboard, visualizing forecast and evaluation data.
 
-Template for quickly spinning up Hubverse-standard-compatible dashboard, visualizating forecast and evaluations data.
+Built with **Next.js** (React) for the frontend and **Python** for data processing, configuration validation, and evaluation metrics.
 
-## Technology Requirements:
+---
 
-- Git
-- Node.js (npm)
-- (Windows Users) Bash Environment, e.g. Git Bash
+## Technology Requirements
 
-## How To Use This Dashboard:
+- **Git** ([Download](https://git-scm.com/))
+- **Node.js** (v20+) and **npm** ([Download](https://nodejs.org/))
+- **Python** (v3.9+) ([Download](https://www.python.org/downloads/))
+- **(Windows Users)** A Bash-compatible environment, e.g., [Git Bash](https://gitforwindows.org/)
 
-1. Install [Node.js (and npm)](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) Version 20+
+---
 
-2. Clone the repository to your local machine:
-   `git clone https://github.com/mobs-lab/hubverse-dashboards.git`
+## How To Use This Dashboard
 
-3. Go to project root directory and install the dependencies:
+1. **Clone the repository:**
 
-`cd hubverse-dashboards`
+   ```bash
+   git clone https://github.com/mobs-lab/hubverse-dashboards.git
+   cd hubverse-dashboards
+   ```
 
-`npm install`
+2. **Install npm dependencies:**
 
-4. (For Local-Only Setup) Put target data inside `target-data/` and model output data in `model-output/`. Inside `model-output/`, each modelling team should have their own separate subdirectory, e.g. `model-output/MOBS-GLEAM_FLUH/`.
+   ```bash
+   npm install
+   ```
+
+3. **Set up Python and install dependencies** (see [Python Environment Setup](#python-environment-setup) below for detailed instructions):
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+4. **(For Local Data)** Place your data in the project root:
+   - `target-data/` -- Ground truth / observed data
+   - `model-output/` -- Forecast submissions, one subdirectory per model (e.g., `model-output/MOBS-GLEAM_FLUH/`)
+   - `auxiliary-data/` -- Location mapping CSVs, custom shapefiles, etc.
+
    [See Hubverse.io's documentation on compatible format & standards](https://hubverse.io/tools/data.html)
 
-5. _**WIP**_ (For Using Hubverse Data Repo Setup) Remember to structure your repo exactly like described above, and specify link to repo in the configuration file (See below).
+5. **(For Remote Data)** Specify the link to your Hubverse-compatible GitHub repository in `config.yaml` under `link_to_hubverse_compatible_data`. The build script will clone/update the repo automatically.
 
-6. Copy `config.yaml.example` to `config.yaml` and customize the configurations.
+6. **Configure the dashboard** by copying the example configuration and customizing it:
 
-7. (Optional) Make sure `build_dashboard.sh` is executable
+   ```bash
+   cp config.yaml.example config.yaml
+   ```
 
-`chmod +x build_dashboard.sh`
+   See [Configuration Reference](docs/source/configuration.md) for full details on each option.
 
-8. Run the `build_dashboard.sh`:
+7. **(Optional)** Make the build script executable:
 
-`bash ./build_dashboard.sh`
+   ```bash
+   chmod +x build_dashboard.sh
+   ```
 
-9. Start the development server (`npm run dev`) and go to `http://localhost:3000` in your browser.
+8. **Run the build script:**
 
-_Or, Start the server, in production mode, after building the project:_
+   ```bash
+   bash ./build_dashboard.sh
+   ```
 
-`npm run build && npm run start`
+   The interactive menu offers the following options:
 
-<!--TODO: Add a demo site after finishing the configuration reading and changing the frontend code to work accordingly-->
+   | Option | Description |
+   |--------|-------------|
+   | **0** | Build and view the full documentation |
+   | **1** | Full build with evaluations (WIS, MAPE, Coverage) |
+   | **2** | Build without evaluations (disables Evaluations page) |
+   | **3** | Development mode build with evaluations |
+   | **4** | Development mode build without evaluations |
+   | **5** | Data update -- production mode (incremental) |
+   | **6** | Data update -- development mode (incremental) |
+
+9. **Start the dashboard.** After processing completes, the script prompts you to launch a server:
+
+   - **Development server:** `npm run dev` -- hot reload, `http://localhost:3000`
+   - **Production build:** `npm run build && npm run start`
+
+---
+
+## Python Environment Setup
+
+The data processing pipeline (`scripts/`) requires Python 3.9+ with several packages. If you already have Python installed and know how to manage environments, a quick `pip install -r requirements.txt` inside a virtual environment is all you need. Otherwise, read on.
+
+### Installing Python
+
+- **macOS / Linux**: Python 3 is often pre-installed. Verify with `python3 --version`. If not present, install via [python.org](https://www.python.org/downloads/) or your package manager (`brew install python3`, `sudo apt install python3`).
+- **Windows**: Download the installer from [python.org](https://www.python.org/downloads/). Make sure to check **"Add Python to PATH"** during installation.
+
+### Setting Up a Virtual Environment (Recommended)
+
+Using a virtual environment keeps this project's dependencies isolated from your system Python.
+
+```bash
+# Create a virtual environment in the project root
+python3 -m venv .venv
+
+# Activate it
+# macOS / Linux:
+source .venv/bin/activate
+# Windows (Git Bash):
+source .venv/Scripts/activate
+# Windows (cmd.exe):
+.venv\Scripts\activate.bat
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+For more details on virtual environments, see [Python's official venv documentation](https://docs.python.org/3/library/venv.html).
+
+> **Note:** Always activate your virtual environment before running `build_dashboard.sh` or any scripts in `scripts/`.
+
+---
 
 ## How to Use Development Mode
 
-First follow the "How To Use This Dashboard" above but follow the below for your data:
+Development mode lets you work with test data in an isolated directory structure so your production data is not affected.
 
-Maintain the supposed structure of data (`/target-data`, `/model-output`, etc.), and put
-**input data in: `/test-data-input`**.
+### Setup
 
-And make sure to use the development mode when running dashboard builder script (Option 3 or 4).
+1. Create the `development-mode-root/` directory in the project root (if it does not already exist).
+2. Inside `development-mode-root/`, replicate the standard data directory structure:
 
-Then, the output data will appear in `/public/test-data-output`, from where the dashboard will load them automatically.
+   ```
+   development-mode-root/
+   ├── target-data/
+   │   └── (your test ground truth files)
+   ├── model-output/
+   │   ├── ModelA/
+   │   └── ModelB/
+   └── auxiliary-data/
+       └── locations.csv
+   ```
 
-Finally, go to `http://localhost:3000` as usual to test.
+3. Run the build script and choose **Option 3** or **Option 4** (dev mode builds).
+
+### How It Works
+
+- **Input data** is read from `development-mode-root/` instead of the project root.
+- **Processed output** is written to `public/test-data-output/` (instead of `public/data/`).
+- **Intermediates** (manifest, cached parquet files) are stored in `development-mode-root/intermediates/`.
+- When you run `npm run dev`, the frontend automatically loads data from `/test-data-output`.
+
+### Data Update Runs (Incremental Processing)
+
+After an initial build, you can use **Option 5** (production) or **Option 6** (dev mode) to run incremental data updates. The system uses a file manifest with MD5 checksums to detect changes in `target-data/`, `model-output/`, and `auxiliary-data/`, and only re-processes what has changed. This is significantly faster than a full rebuild.
+
+> **Prerequisite:** A full build (Options 1--4) must have completed successfully before running a data update. The update mode requires existing intermediates and a `manifest.json`.
+
+---
+
+## Common Errors and Solutions
+
+Below are common issues you may encounter when running `build_dashboard.sh` and how to resolve them.
+
+### `python3: command not found`
+
+**Cause:** Python 3 is not installed or not on your system PATH.
+
+**Solution:** Install Python 3 (see [Python Environment Setup](#python-environment-setup)). On some systems, the command may be `python` instead of `python3` -- you can create an alias or modify `build_dashboard.sh` accordingly.
+
+### `ModuleNotFoundError: No module named 'yaml'` (or `pandas`, `pydantic`, etc.)
+
+**Cause:** Python dependencies are not installed, or your virtual environment is not activated.
+
+**Solution:**
+```bash
+source .venv/bin/activate   # Activate your virtual environment first
+pip install -r requirements.txt
+```
+
+### `config.yaml not found in project root`
+
+**Cause:** You have not created a `config.yaml` file yet.
+
+**Solution:**
+```bash
+cp config.yaml.example config.yaml
+# Then edit config.yaml with your settings
+```
+
+### `Configuration validation failed` / Pydantic `ValidationError`
+
+**Cause:** Your `config.yaml` has invalid or missing fields. The Pydantic validator provides detailed error messages indicating which field failed and why.
+
+**Solution:** Read the error messages carefully. They indicate the field path (e.g., `forecast_periods -> 0 -> end_date`) and the specific issue. Cross-reference with the comments in `config.yaml.example` or the [Configuration Reference](docs/source/configuration.md).
+
+### `ERROR: Data update run requires existing artifacts`
+
+**Cause:** You selected a Data Update option (5 or 6) without having completed a full initial build first.
+
+**Solution:** Run a full build first (Options 1--4) to generate the required intermediates (`manifest.json`, cached parquet files). Then use the update options for subsequent runs.
+
+### `Target data file not found: <filename> in target-data/`
+
+**Cause:** The file specified by `single_target_data_file_name` in your `config.yaml` does not exist in the `target-data/` directory (or `development-mode-root/target-data/` in dev mode).
+
+**Solution:** Verify the filename matches exactly (without extension). The system appends `.csv` or `.parquet` based on `target_data_file_format`.
+
+### `npm ERR!` or `next: command not found`
+
+**Cause:** Node.js dependencies are not installed.
+
+**Solution:**
+```bash
+npm install
+```
+
+### `Port 3000 is already in use`
+
+**Cause:** Another process (possibly a previous dashboard instance) is using port 3000.
+
+**Solution:** Kill the existing process or use a different port:
+```bash
+# Find and kill the process
+lsof -i :3000
+kill -9 <PID>
+
+# Or use a different port
+PORT=3001 npm run dev
+```
+
+*(This section will be expanded over time.)*
 
 ---
 
 ## Tips
 
-### If you want to version control (using Git) your dashboard after setting it up:
+### Version Controlling Your Dashboard
 
-Remove the `.git` folder at root of this project folder.
+If you want to put your configured dashboard under its own Git repository:
 
-For example: `cd hubverse-dashboard && rm -r ./.git`.
+1. Remove the existing `.git` folder: `rm -rf .git`
+2. Create a new repository on your Git hosting service (e.g., GitHub).
+3. Initialize and push:
 
-Then create a new repository on your Git Hosting Service, for example GitHub.
+   ```bash
+   git init .
+   git add .
+   git commit -m "Initial dashboard setup"
+   git remote add origin <your-repo-url>
+   git push -u origin main
+   ```
 
-Then come back here and `git init .`
+### Generating Test Data
 
-Then follow your Git Hosting Service's guide to push your new local repo to the online repo, after linking them.
+The `dev-tools/generate_test_target_data.py` script can generate synthetic Hubverse-compatible target data for testing. This is useful for verifying your configuration or testing data-update runs without needing real data.
+
+```bash
+python dev-tools/generate_test_target_data.py --help
+```
+
+### Inspecting Data Files
+
+The `dev-tools/data_inspector.py` script provides detailed analysis of CSV and Parquet files, including data types, unique values, and quality checks. Useful for debugging data issues.
+
+```bash
+python dev-tools/data_inspector.py target-data/your-file.csv
+```
+
+### Building HTML Documentation
+
+Developer documentation is built with Sphinx. To build and serve locally:
+
+```bash
+pip install -r requirements-dev.txt
+cd docs
+make html
+# Open docs/build/html/index.html in your browser
+```
+
+Or use **Option 0** in `build_dashboard.sh` to install doc dependencies and launch a local server automatically.

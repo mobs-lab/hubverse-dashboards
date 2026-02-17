@@ -34,6 +34,27 @@ class NpEncoder(json.JSONEncoder):
     """
 
     def default(self, obj):
+        """
+        Encode non-standard Python objects for JSON serialization.
+
+        Handles NumPy integers, floats (including ``NaN`` / ``Inf``),
+        arrays, and :class:`pandas.Timestamp` instances. Non-finite float
+        values are converted to ``None`` so the resulting JSON contains
+        ``null`` instead of invalid literals.
+
+        Args:
+            obj: The object to encode. Passed automatically by
+                :meth:`json.JSONEncoder.encode` for any type the base
+                encoder cannot handle.
+
+        Returns:
+            A JSON-serializable Python object (int, float, list, str, or
+            ``None``).
+
+        Raises:
+            TypeError: If *obj* is not a recognised type (delegated to
+                the base :class:`json.JSONEncoder`).
+        """
         if isinstance(obj, np.integer):
             return int(obj)
         if isinstance(obj, np.floating):

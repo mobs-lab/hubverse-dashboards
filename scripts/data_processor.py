@@ -1654,7 +1654,6 @@ class DataProcessor:
                 "targetId": target.target_id,
                 "targetKeyInData": target.target_key_in_data,
                 "displayString": target.task_display_string,
-                "forecastPeriods": target.for_forecast_periods or [],
                 "isDefaultSelected": target.is_default_selected,
                 "dataValueProcessing": target.data_value_processing.model_dump() if target.data_value_processing else None,
             }
@@ -2143,7 +2142,15 @@ class DataProcessor:
         logger.info("All output files written successfully!")
 
     def _track_file_written(self, file_path: Path):
-        """Track files written for summary reporting."""
+        """
+        Track an output file written during the current processing run.
+
+        Updates :attr:`processing_stats` to increment the file counter and
+        record the relative path of the written file.
+
+        Args:
+            file_path: Absolute path to the file that was written.
+        """
         self.processing_stats["files_written"] += 1
         self.processing_stats["output_files"].append(str(file_path.relative_to(self.project_root)))
 
@@ -2206,7 +2213,20 @@ class DataProcessor:
 
     def _load_specific_model_files(self, file_rel_paths: list) -> pd.DataFrame:
         """
-        Load specific model output files (for incremental updates).
+        Load specific model output files by their relative paths for incremental updates.
+
+        Used during data-update runs to load only new or modified model output files
+        detected by :class:`~manifest_manager.ManifestManager`. Each file is read,
+        column-renamed according to :class:`~yaml_config_processor_pydantic.ModelOutputHeaderMapping`,
+        and the model name is inferred from the parent directory.
+
+        Args:
+            file_rel_paths: List of relative file paths (from project root) to load.
+                Each path should point to a CSV or Parquet model output file.
+
+        Returns:
+            pd.DataFrame: Combined DataFrame of all loaded files with standardized
+            column names, or an empty DataFrame if no files were successfully loaded.
         """
         all_dfs = []
         mapping = self.config.model_output_data_header_mapping
@@ -2274,7 +2294,27 @@ class DataProcessor:
         target_data_df: pd.DataFrame,
         model_output_df: pd.DataFrame,
     ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-        """Determines the start and end date for a given forecast period."""
+        """
+        Determine the effective start and end dates for a given forecast period.
+
+        For standard :class:`~yaml_config_processor_pydantic.ForecastPeriodConfig` periods,
+        returns the configured start and end dates directly.
+
+        For special :class:`~yaml_config_processor_pydantic.SpecialForecastPeriodConfig` periods
+        (e.g., "Last 2 Weeks"), dynamically calculates the date range by anchoring to the latest
+        valid ground truth date within the referenced parent period. Placeholder observations
+        (value ``-1``) are excluded from anchor date calculations.
+
+        Args:
+            period: A :class:`~yaml_config_processor_pydantic.ForecastPeriodConfig` or
+                :class:`~yaml_config_processor_pydantic.SpecialForecastPeriodConfig` instance.
+            target_data_df: Current target data DataFrame (used for anchor date calculation).
+            model_output_df: Current model output DataFrame.
+
+        Returns:
+            tuple[pd.Timestamp, pd.Timestamp] | None: A ``(start_date, end_date)`` tuple,
+            or ``None`` if the period cannot be resolved (e.g., missing anchor data).
+        """
         # Check if this is a special period (has special_period_id attribute)
         is_special = hasattr(period, "special_period_id")
         period_id = period.special_period_id if is_special else period.forecast_period_id

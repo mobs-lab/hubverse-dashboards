@@ -69,7 +69,7 @@ def generate_fake_target_data(
         seed: Random seed for reproducibility.
         output_format: ``"parquet"`` or ``"csv"``.
         output_dir: Directory to write into.  Resolved relative to the
-            project root (parent of ``scripts/``).
+            project root (parent of ``dev-tools/``).
         file_name: Stem of the output file (without extension).
 
     Returns:
@@ -186,6 +186,16 @@ def generate_fake_target_data(
 
 
 def main():
+    """
+    CLI entry point for generating fake hubverse target-data.
+
+    Parses command-line arguments and delegates to
+    :func:`generate_fake_target_data`. Supports customizing the date range,
+    locations, output format (CSV or Parquet), and whether the ``as_of``
+    column is included.
+
+    See module-level docstring for usage examples.
+    """
     parser = argparse.ArgumentParser(
         description="Generate fake hubverse target-data for testing data-update runs",
         formatter_class=argparse.RawDescriptionHelpFormatter,

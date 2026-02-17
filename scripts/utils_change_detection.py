@@ -17,20 +17,27 @@ def identify_target_data_changes(old_df: pd.DataFrame, new_df: pd.DataFrame) -> 
 
     Tracks both new observations and revisions to existing observations.
 
-    NOTE ON DATA COMPARISON STRATEGY:
-    - Manifest Manager: Compares RAW file checksums to detect IF source files changed
-    - This method: Compares PROCESSED data (after column renaming, as_of shifting, etc.)
-    - old_df: Previously processed data (loaded from intermediates/target_data.parquet)
-    - new_df: Newly processed data (loaded from raw files and transformed)
-    - Both are in same format (standard column names, shifted as_of dates, etc.)
-    - This ensures comparison of both processed target-data while detecting byte-level source changes
+    **Data comparison strategy:**
+
+    - :class:`~manifest_manager.ManifestManager` compares *raw* file
+      checksums to detect whether source files changed.
+    - This function compares *processed* data (after column renaming,
+      ``as_of`` shifting, etc.) so both sides are in the same format.
+    - *old_df* comes from ``intermediates/target_data.parquet``.
+    - *new_df* is freshly processed from the raw source files.
 
     Args:
-        old_df: Previous target data (PROCESSED)
-        new_df: New target data (PROCESSED)
+        old_df: Previously processed target data
+            :class:`~pandas.DataFrame` with ``location``, ``date``,
+            ``observation``, and optionally ``target`` columns.
+        new_df: Newly processed target data :class:`~pandas.DataFrame`
+            with the same schema as *old_df*.
 
     Returns:
-        set of tuples: {(location, date, target), ...}
+        set: Set of ``(location, date, target)`` tuples identifying rows
+        that are new or revised. An empty set is returned when *old_df*
+        is ``None`` or empty (indicating all data is new, handled
+        separately by the caller).
     """
     if old_df is None or old_df.empty:
         return set()  # Empty set means all data is new (handled differently)
@@ -86,16 +93,22 @@ def identify_target_data_changes(old_df: pd.DataFrame, new_df: pd.DataFrame) -> 
 
 def extract_prediction_keys(model_df: pd.DataFrame) -> set:
     """
-    Extract unique prediction keys from model output dataframe.
+    Extract unique prediction keys from a model output dataframe.
 
-    Used to track which predictions are new and need evaluation.
-    Each key includes the model name to track predictions separately per model.
+    Used to track which predictions are new and need evaluation. Each key
+    includes the model name so that predictions are tracked separately
+    per model.
 
     Args:
-        model_df: Model output dataframe (must include 'model' column)
+        model_df: Model output :class:`~pandas.DataFrame`. Must contain
+            columns ``model``, ``location``, ``reference_date``,
+            ``target_end_date``, ``target``, ``horizon``, ``output_type``,
+            and ``output_type_id``.
 
     Returns:
-        set of tuples: {(location, reference_date, target_end_date, target, model), ...}
+        set: Set of ``(location, reference_date, target_end_date, target,
+        model)`` tuples. Returns an empty set if *model_df* is ``None``,
+        empty, or missing required columns.
     """
     if model_df is None or model_df.empty:
         return set()
