@@ -1,22 +1,5 @@
 # dashboard_builder_workflow.py
-# This script controls the main workflow of:
-# 1. Read in `config.yaml`'s various settings
-#   a. Check whether any required settings are missing, and return error for main Shell Script to return
-#   b. Check for special processing mode (single-location or single-target)
-#   c. Check for user-chosen standard (such as the model-output data naming standard)
-# 2. Structure above settings
-#   a. Reconstruct a sample target-data and model-output csv header + some row value, for user to confirm before proceeding
-#   b. Exit and let user adjust settings if user wishes
-# 3. Process target-data data
-#   a. First check for initial processing vs. data-update
-#   b. Use targets, forecast_periods, locations, target-data column naming and time_unit to process target-data
-# 4. Process model-output data
-#   a. First check for initial processing vs. data-update
-#   b. use targets, forecast_periods, locations, model-output column naming, time_unit, PI intervals, horizons, etc. to process model-output data
-# 5. Evaluations processing on target-data & model-output.
-#   a. Check whether user is processing for the first time, or updating
-#   b. Use target-data and model-output to process evaluations accordingly
-# 6. Return and prompt user to check
+
 """
 Dashboard Builder Workflow
 Main orchestrator for the Hubverse Dashboard data processing pipeline.
@@ -42,9 +25,41 @@ logger = logging.getLogger(__name__)
 
 
 class DashboardBuilder:
-    """Main dashboard builder orchestrator"""
+    """
+    Main orchestrator for the Hubverse Dashboard build pipeline.
+
+    Coordinates the end-to-end workflow of loading/validating configuration,
+    fetching remote data, obtaining user confirmation, and running the
+    data-processing pipeline that produces frontend-ready JSON files.
+
+    The typical procedure is:
+        1. :meth:`run_config_validation` — load config, fetch data, prompt user
+        2. :meth:`run_data_processing` — process target-data, model-output, and evaluations
+
+    Attributes:
+        config_path: Resolved path to the YAML configuration file.
+        config: Validated :class:`DashboardConfig` instance (set after loading).
+        project_root: Resolved project root directory.
+        dev_mode: Whether development mode is active.
+        skip_evaluations: Whether to skip evaluation metric calculation.
+        is_data_update: Whether this is an incremental data-update run.
+        data_fetcher: :class:`DataFetcher` instance for remote data retrieval.
+    """
 
     def __init__(self, config_path: str = "config.yaml", dev_mode: bool = False, skip_evaluations: bool = False, is_data_update: bool = False):
+        """
+        Initialize the DashboardBuilder.
+
+        Args:
+            config_path: Path to the YAML configuration file.
+                Defaults to ``"config.yaml"`` in the current working directory.
+            dev_mode: If True, look for data under ``development-mode-root/``
+                instead of the project root.
+            skip_evaluations: If True, skip evaluation metrics calculation
+                (WIS, Coverage, MAPE). The Evaluations page will be disabled.
+            is_data_update: If True, perform an incremental data-update run
+                that requires existing intermediates from a prior full build.
+        """
         self.config_path = Path(config_path)
         self.config: Optional[DashboardConfig] = None
         self.project_root = self._get_project_root()
@@ -54,7 +69,14 @@ class DashboardBuilder:
         self.data_fetcher = DataFetcher(self.project_root, dev_mode=dev_mode)
 
     def _get_project_root(self) -> Path:
-        """Get the project root directory"""
+        """
+        Determine the project root directory.
+
+        Assumes this script lives in ``PROJECTROOT/scripts/``.
+
+        Returns:
+            Path: Absolute path to the project root directory.
+        """
         # Assume script is in `PROJECTROOT/scripts`
         return Path(__file__).parent.parent
 
@@ -86,9 +108,15 @@ class DashboardBuilder:
 
     def _fetch_remote_data(self) -> bool:
         """
-        Checks config for remote data URL and fetches it if present.
+        Fetch remote data from a Hubverse-compatible GitHub repository.
+
+        Checks :attr:`config.link_to_hubverse_compatible_data` for a remote URL.
+        If present, downloads data via :class:`DataFetcher` and syncs it to the
+        appropriate local input directories, filtering to only configured models.
+
         Returns:
-            bool: True if successful or no remote data needed. False if fetch failed.
+            bool: True if data was fetched successfully or no remote data was
+                configured. False if the fetch was attempted but failed.
         """
         repo_url = self.config.link_to_hubverse_compatible_data
 
@@ -128,7 +156,18 @@ class DashboardBuilder:
             return False
 
     def _load_configuration(self) -> bool:
-        """Load and validate the configuration file"""
+        """
+        Load and validate the YAML configuration file.
+
+        Delegates to :func:`load_and_validate_config` from the Pydantic config
+        processor. On success, stores the validated :class:`DashboardConfig`
+        in :attr:`self.config`.
+
+        Returns:
+            bool: True if the configuration was loaded and validated
+                successfully. False on any error (file not found, validation
+                failure, or unexpected exception).
+        """
         print("\n[Step 1/2] Loading configuration file...")
         print(f"Config path: {self.config_path}")
         if self.dev_mode:
@@ -156,11 +195,26 @@ class DashboardBuilder:
             return False
 
     def _prompt_to_continue(self, message: str = "Press Enter to continue..."):
-        """Pauses execution and waits for user to press Enter."""
+        """
+        Pause execution and wait for the user to press Enter.
+
+        Args:
+            message: Prompt text displayed to the user.
+                Defaults to ``"Press Enter to continue..."``.
+        """
         input(f"\n{message}")
 
     def _get_user_confirmation(self) -> bool:
-        """Ask user to confirm before proceeding"""
+        """
+        Prompt the user to confirm before proceeding to data processing.
+
+        Displays a summary of completed steps and asks for a yes/no response.
+        Re-prompts on invalid input until a valid answer is provided.
+
+        Returns:
+            bool: True if the user confirmed (``yes`` / ``y``), False if the
+                user cancelled (``no`` / ``n``).
+        """
         print("\n[Step 2/2] User Confirmation Required")
         print("=" * 80)
         print("\nConfiguration loaded successfully. Data fetching complete.")
@@ -181,8 +235,15 @@ class DashboardBuilder:
 
     def _copy_auxiliary_files(self):
         """
-        Copy auxiliary files (like custom shapefiles) from data input to public directory.
-        This ensures custom map files are available for the frontend.
+        Copy auxiliary files from the data input directory to ``public/``.
+
+        Looks for custom shapefiles specified in
+        :attr:`config.spatial_config.custom_shape_file_name` and copies them
+        so the frontend can access them at runtime. Falls back gracefully
+        with a warning if the source directory or file is missing.
+
+        Raises:
+            Exception: Re-raised if the file copy operation itself fails.
         """
         logger.info("Checking for auxiliary files to copy...")
 
@@ -261,7 +322,25 @@ class DashboardBuilder:
 
 
 def main():
-    """Main entry point"""
+    """
+    CLI entry point for the Hubverse Dashboard Builder.
+
+    Parses command-line arguments and drives the two-phase build:
+
+    1. **Configuration validation** — loads ``config.yaml``, fetches remote
+       data if configured, and asks the user to confirm before proceeding.
+    2. **Data processing** — runs the full pipeline (target-data, model-output,
+       evaluations) via :meth:`DashboardBuilder.run_data_processing`.
+
+    Supported CLI arguments:
+        --config          Path to configuration file (default: ``config.yaml``).
+        --dev             Run in local development mode using
+                          ``development-mode-root/`` for data.
+        --skip-evaluations  Skip evaluation metrics calculation.
+        --update          Perform an incremental data-update run.
+
+    Exits with code 0 on success, 1 on configuration validation failure.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(description="Hubverse Dashboard Builder")

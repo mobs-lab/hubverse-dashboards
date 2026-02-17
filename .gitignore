@@ -259,6 +259,7 @@ config.yaml.*
 
 # Example configuration file is kept for users.
 !config.yaml.example
+!config.yaml.*.bak
 
 # Ignored folders for development
 /development-mode-root

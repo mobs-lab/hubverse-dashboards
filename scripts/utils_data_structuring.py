@@ -15,16 +15,24 @@ logger = logging.getLogger(__name__)
 
 def structure_raw_scores(df: pd.DataFrame, val_col: str) -> dict:
     """
-    Helper to structure raw scores for JSON export.
+    Structure raw evaluation scores into a nested dictionary for JSON export.
 
-    Filters out records with NaN or Infinity scores to ensure valid JSON output.
-    
+    Filters out records with ``NaN`` or ``Infinity`` scores to ensure the
+    resulting dictionary is JSON-serializable. Date fields are converted to
+    UTC ISO-8601 strings via :func:`~utils_data.to_utc_iso_string`.
+
     Args:
-        df: DataFrame containing raw scores
-        val_col: Name of the column containing score values
-        
+        df: :class:`~pandas.DataFrame` containing raw scores. Must include
+            columns ``model``, ``location``, ``horizon``, ``reference_date``,
+            ``target_end_date``, and the column named by *val_col*.
+        val_col: Name of the column containing the numeric score values
+            (e.g., ``"wis"``, ``"mape"``, ``"wis_ratio"``).
+
     Returns:
-        dict: Structured scores by model → location → horizon → [score records]
+        dict: Nested dictionary structured as
+            ``model -> location -> horizon -> [score records]``, where each
+            score record contains ``referenceDate``, ``targetEndDate``, and
+            ``score``.
     """
     structured = {}
     for model_name in df["model"].unique():
@@ -65,20 +73,28 @@ def process_target_data(
     config_targets: list
 ) -> dict:
     """
-    Transforms ground truth data into a nested dictionary structure optimized for frontend lookup.
+    Transform ground-truth data into a nested dictionary for frontend lookup.
 
-    Structure: Map<location, Map<date, Map<target, data>>>
-
-    Applies configured scaling factors to the values.
+    Produces the structure ``Map<location, Map<date, Map<target, data>>>``
+    where dates are UTC ISO-8601 strings and location codes are zero-padded
+    to two digits. Configured scaling factors from
+    :class:`DataValueProcessingConfig` are applied to observation values.
 
     Args:
-        target_data_df: The standardized target data DataFrame
-        target_key_to_id_map: Mapping from target keys to target IDs
-        target_id_to_dvp_config: Mapping from target IDs to data value processing config
-        config_targets: List of target configurations
+        target_data_df: Standardized target-data :class:`~pandas.DataFrame`
+            with columns ``date``, ``location``, ``observation``, and
+            optionally ``target`` and ``location_name``.
+        target_key_to_id_map: Mapping from raw target keys (as they appear
+            in the data) to canonical target IDs defined in
+            :class:`TargetConfig`.
+        target_id_to_dvp_config: Mapping from target IDs to their
+            :class:`DataValueProcessingConfig` (scaling and rounding).
+        config_targets: List of :class:`TargetConfig` instances from the
+            dashboard configuration.
 
     Returns:
-        dict: The processed nested dictionary
+        dict: Nested dictionary
+            ``{location: {date_iso: {target_id: {observation, ...}}}}``.
     """
     processed_data = {}
 
@@ -122,28 +138,41 @@ def process_model_output_data(
     prediction_intervals: list
 ) -> dict:
     """
-    Transforms model predictions into a highly nested dictionary structure for the frontend.
+    Transform model predictions into a nested dictionary for the frontend.
 
-    Structure: Map<model, Map<location, Map<reference_date, Map<target_date, Map<targetId, predictions>>>>>
+    Produces the structure::
 
-    Each prediction entry includes:
-    -   horizon
-    -   targetId
-    -   value_median
-    -   prediction_intervals (nested by level)
+        model -> location -> reference_date -> target_date -> target_id -> prediction
 
-    Note: Only processes models in available_models for frontend display.
-    Baseline model is excluded if not in available_models (but still used for evaluations).
+    Each prediction entry contains ``horizon``, ``targetId``,
+    ``value_median``, and nested ``prediction_intervals`` keyed by level.
+
+    **Baseline model exclusion:** Only models listed in *available_models*
+    are included in the output. The baseline model (used solely for
+    evaluation WIS ratio calculations) is silently skipped if it does not
+    appear in *available_models*, ensuring it never reaches the frontend
+    display while still being available for :class:`EvaluationProcessor`.
+
+    Configured scaling factors from :class:`DataValueProcessingConfig` are
+    applied to both median and prediction interval values.
 
     Args:
-        model_output_df: The standardized model output DataFrame (long or wide)
-        available_models: List of available model configurations
-        target_key_to_id_map: Mapping from target keys to target IDs
-        target_id_to_dvp_config: Mapping from target IDs to data value processing config
-        prediction_intervals: List of prediction interval configurations
+        model_output_df: Standardized model-output :class:`~pandas.DataFrame`
+            with columns ``model``, ``location``, ``reference_date``,
+            ``target_end_date``, ``horizon``, ``target``, and quantile
+            columns.
+        available_models: List of :class:`ModelConfig` instances representing
+            models to include in the frontend output.
+        target_key_to_id_map: Mapping from raw target keys (as they appear
+            in the data) to canonical target IDs.
+        target_id_to_dvp_config: Mapping from target IDs to their
+            :class:`DataValueProcessingConfig` (scaling and rounding).
+        prediction_intervals: List of :class:`PredictionIntervalConfig`
+            instances defining which quantile pairs to extract.
 
     Returns:
-        dict: The nested dictionary structure
+        dict: Nested dictionary
+            ``{model: {location: {ref_date: {predictions: {target_date: {target_id: entry}}}}}}``.
     """
     processed_data = {}
 
@@ -229,19 +258,28 @@ def process_historical_target_data(
     target_id_to_dvp_config: dict
 ) -> dict:
     """
-    Process historical target data into a nested dictionary structure.
+    Process historical target data into a nested dictionary of snapshots.
 
-    Structure: Map<as_of_date, Map<date, Map<location, data>>>
+    Produces the structure ``Map<as_of_date, Map<date, Map<location, data>>>``
+    so the frontend can look up "what we knew" at any given point in time.
+    Each snapshot represents the ground-truth data that was available as of
+    a specific reporting date.
 
-    This allows the frontend to quickly look up "what we knew" at any given point in time.
+    Configured scaling factors from :class:`DataValueProcessingConfig` are
+    applied to observation values within each snapshot.
 
     Args:
-        df: The raw DataFrame with 'as_of' column
-        target_key_to_id_map: Mapping from target keys to target IDs
-        target_id_to_dvp_config: Mapping from target IDs to data value processing config
+        df: Raw :class:`~pandas.DataFrame` containing an ``as_of`` column
+            alongside ``date``, ``location``, ``observation``, and
+            optionally ``target`` and ``location_name``.
+        target_key_to_id_map: Mapping from raw target keys to canonical
+            target IDs defined in :class:`TargetConfig`.
+        target_id_to_dvp_config: Mapping from target IDs to their
+            :class:`DataValueProcessingConfig` (scaling and rounding).
 
     Returns:
-        dict: The nested dictionary structure
+        dict: Nested dictionary
+            ``{as_of_iso: {date_iso: {location: {target_id: data_entry}}}}``.
     """
     historical_data = {}
 
@@ -308,16 +346,27 @@ def organize_metric_all_data(
     target_key_to_id_map: dict
 ):
     """
-    Helper to organize a specific metric's raw scores for ALL data (no period filtering).
+    Organize a metric's raw scores for ALL data (no period filtering).
 
-    Structure: target → metric → model → location → horizon → [scores]
-    
+    Groups scores by target, then delegates to :func:`structure_raw_scores`
+    to build the nested structure
+    ``target -> metric -> model -> location -> horizon -> [scores]``.
+
+    This function mutates *raw_scores_dict* in place.
+
     Args:
-        df: DataFrame containing metric scores
-        metric_name: Name of the metric (e.g., "WIS/Baseline", "MAPE")
-        val_col: Name of the column containing score values
-        raw_scores_dict: Dictionary to populate with organized scores
-        target_key_to_id_map: Mapping from target keys to target IDs
+        df: :class:`~pandas.DataFrame` containing metric scores. Must include
+            ``target_end_date`` and optionally ``target`` columns.
+        metric_name: Display name of the metric (e.g., ``"WIS/Baseline"``,
+            ``"MAPE"``), used as a key in *raw_scores_dict*.
+        val_col: Name of the column containing the numeric score values.
+        raw_scores_dict: Dictionary to populate with organized scores.
+            Modified in place; keyed by target ID at the top level.
+        target_key_to_id_map: Mapping from raw target keys to canonical
+            target IDs defined in :class:`TargetConfig`.
+
+    Returns:
+        None. The *raw_scores_dict* argument is mutated in place.
     """
     if not pd.api.types.is_datetime64_any_dtype(df["target_end_date"]):
         df["target_end_date"] = pd.to_datetime(df["target_end_date"])

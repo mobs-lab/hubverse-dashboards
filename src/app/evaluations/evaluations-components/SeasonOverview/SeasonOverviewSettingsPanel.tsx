@@ -21,7 +21,6 @@ import {
   ListItem,
   ListItemPrefix,
 } from '@/styles/material-tailwind-wrapper';
-import Image from 'next/image';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 
 import { horizonSelectorsInfo } from 'types/infobutton-content';
@@ -382,17 +381,6 @@ export const SeasonOverviewSettings = () => {
             ))}
           </List>
         </div>
-      </div>
-
-      <div className="mt-auto p-2 border-t border-gray-700">
-        <Image
-          src="/epistorm-logo.png"
-          width={300}
-          height={120}
-          alt="Epistorm Logo"
-          className="mx-auto"
-          priority
-        />
       </div>
     </div>
   );

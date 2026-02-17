@@ -22,23 +22,30 @@ def compute_ongoing_period_metadata(
 ) -> dict:
     """
     Compute metadata for an ongoing forecast period.
-    
-    An ongoing period has an end_date in the future. We need to:
-    1. Determine if the period is ongoing (end date > today)
-    2. Find the actual latest date in data (both target and model output)
-    3. Find the anchor date (latest date with actual target-data)
-    
+
+    An ongoing period has an ``end_date`` in the future. This function:
+
+    1. Determines whether the period is ongoing (end date > today).
+    2. Finds the actual latest date present in data (both target and
+       model output).
+    3. Finds the anchor date (latest date with real target-data, excluding
+       placeholder observations of ``-1``).
+
     Args:
-        period: Forecast period configuration
-        target_data_df: Target data
-        model_output_df: Model output data
-    
+        period: A :class:`ForecastPeriodConfig` instance describing the
+            period's start and end dates.
+        target_data_df: Target data :class:`~pandas.DataFrame` with at
+            least ``date`` and ``observation`` columns.
+        model_output_df: Model output :class:`~pandas.DataFrame` with a
+            ``target_end_date`` column.
+
     Returns:
-        dict with keys:
-            - isOngoing (bool)
-            - configuredEndDate (str): User-defined end date
-            - actualEndDate (str): Latest date in data so far
-            - anchorDate (str): Latest date with target-data
+        dict: Metadata with keys:
+
+        - **isOngoing** (*bool*) -- Whether the period end date is in the future.
+        - **configuredEndDate** (*str*) -- User-defined end date as UTC ISO string.
+        - **actualEndDate** (*str*) -- Latest date found in data so far.
+        - **anchorDate** (*str*) -- Latest date with actual target-data.
     """
     result = {
         "isOngoing": False,
@@ -122,17 +129,24 @@ def compute_special_period_date_range(
 ) -> dict:
     """
     Compute date range for a special forecast period anchored to an ongoing period.
-    
-    Special periods are defined relative to the anchor date of their parent ongoing period.
-    For example: "Last 4 Weeks" = anchor_date + (range_calculation * time_unit * -1 days)
-    
+
+    Special periods are defined relative to the anchor date of their parent
+    ongoing period. For example, *"Last 4 Weeks"* uses
+    ``anchor_date - abs(range_calculation) * time_unit`` days.
+
     Args:
-        special_period: Special period configuration
-        ongoing_period_metadata: Metadata for the ongoing period it anchors to
-        time_unit: Time unit in days from config
-    
+        special_period: A :class:`SpecialForecastPeriodConfig` describing
+            the special period's ID and time-anchor settings.
+        ongoing_period_metadata: Metadata dictionary produced by
+            :func:`compute_ongoing_period_metadata` for the parent ongoing
+            period. Must contain an ``"anchorDate"`` key.
+        time_unit: Time unit in days from the dashboard configuration
+            (e.g., ``7`` for weekly forecasts).
+
     Returns:
-        dict with startDate, endDate, anchorDate, isDynamic
+        dict: Date range metadata with keys ``startDate``, ``endDate``,
+        ``anchorDate``, ``isDynamic``, and ``anchoredTo``. Dates are
+        UTC ISO strings produced by :func:`~utils_data.to_utc_iso_string`.
     """
     result = {
         "startDate": None,

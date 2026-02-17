@@ -14,13 +14,24 @@ logger = logging.getLogger(__name__)
 
 class EvaluationProcessor:
     """
-    Handles calculation of evaluation metrics for forecasting models.
+    Calculate evaluation metrics for forecasting models.
 
-    Produced Metrics:
-    - WIS (Weighted Interval Score)
-    - MAPE (Mean Absolute Percentage Error)
-    - Coverage
-    - WIS Ratio: Model WIS / Baseline WIS
+    Compares model predictions against ground-truth target data to produce
+    the following metrics:
+
+    - **WIS** (Weighted Interval Score) — measures the quality of
+      probabilistic (quantile) forecasts.
+    - **MAPE** (Mean Absolute Percentage Error) — measures the accuracy of
+      median point forecasts as a percentage of the observed value.
+    - **Coverage** — fraction of observations that fall within each
+      configured prediction interval level.
+    - **WIS Ratio** — ratio of a model's WIS to the baseline model's WIS,
+      providing a relative performance measure.
+
+    Attributes:
+        config: Validated :class:`DashboardConfig` instance.
+        baseline_model: Name of the model used as the baseline for
+            WIS ratio calculations.
     """
 
     def __init__(self, config, baseline_model: str):
@@ -28,23 +39,37 @@ class EvaluationProcessor:
         Initialize the evaluation processor.
 
         Args:
-            config: Dashboard configuration object
-            baseline_model: Model name to use as baseline for WIS ratios
+            config: Validated :class:`DashboardConfig` instance containing
+                evaluation settings such as coverage levels and prediction
+                intervals.
+            baseline_model: Model name to use as the baseline for WIS ratio
+                calculations. Must be present in the model-output data.
         """
         self.config = config
         self.baseline_model = baseline_model
 
     def evaluate_predictions(self, target_data_df: pd.DataFrame, model_output_df: pd.DataFrame) -> dict:
         """
-        Calculate evaluation scores for all provided predictions against target data.
+        Calculate evaluation scores for all predictions against target data.
+
+        Merges predictions with ground truth on ``target_end_date``,
+        ``location``, and (optionally) ``target``, then delegates to
+        :meth:`_calculate_wis`, :meth:`_calculate_mape`, and
+        :meth:`_calculate_coverage`.
+
+        Placeholder observations (value ``-1``) are excluded before scoring.
 
         Args:
-            target_data_df: DataFrame with columns ['date', 'location', 'target', 'observation']
-            model_output_df: DataFrame with columns ['reference_date', 'target_end_date', 'location',
-                           'target', 'horizon', 'model', 'output_type', 'output_type_id', 'value']
+            target_data_df: Ground-truth DataFrame with columns
+                ``['date', 'location', 'target', 'observation']``.
+            model_output_df: Model predictions DataFrame with columns
+                ``['reference_date', 'target_end_date', 'location', 'target',
+                'horizon', 'model', 'output_type', 'output_type_id', 'value']``.
 
         Returns:
-            dict: Dictionary containing DataFrames for 'wis', 'mape', and 'coverage'
+            dict: Dictionary with keys ``'wis'``, ``'mape'``, and ``'coverage'``,
+                each mapping to a :class:`~pandas.DataFrame` of per-instance
+                scores. DataFrames may be empty if no overlapping data exists.
         """
         logger.info("Evaluating predictions...")
 
@@ -94,11 +119,19 @@ class EvaluationProcessor:
         """
         Calculate WIS Ratio (Model WIS / Baseline WIS).
 
+        Separates baseline model scores, merges them with each non-baseline
+        model on matching dimensions (location, horizon, date, target), and
+        computes the ratio. The baseline model itself is excluded from the
+        returned output.
+
         Args:
-            wis_df: DataFrame with WIS scores for all models
+            wis_df: DataFrame containing per-instance WIS scores for all
+                models, including the baseline specified in :attr:`baseline_model`.
 
         Returns:
-            DataFrame with wis_ratio column added, baseline model excluded from final output
+            pd.DataFrame: DataFrame with a ``wis_ratio`` column added for each
+                non-baseline model. Returns an empty DataFrame if the baseline
+                model is missing or there are no non-baseline models.
         """
         if wis_df.empty:
             return pd.DataFrame()
@@ -151,16 +184,26 @@ class EvaluationProcessor:
 
     def _calculate_wis(self, merged_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculate Weighted Interval Score (WIS) for each prediction instance.
+        Calculate the Weighted Interval Score (WIS) for each prediction instance.
 
-        WIS = 1/(K+0.5) * (0.5*|y - median| + sum_k [alpha_k/2 * IS_k])
-        where IS_k is the interval score for interval k
+        Uses the formula::
+
+            WIS = 1/(K+0.5) * (0.5*|y - median| + sum_k [alpha_k/2 * IS_k])
+
+        where *K* is the number of symmetric prediction intervals and *IS_k*
+        is the interval score for interval *k*.
+
+        Only ``quantile`` output-type rows are used. The method pivots
+        quantiles into columns and performs a fully vectorized computation.
 
         Args:
-            merged_df: DataFrame with merged predictions and truth values
+            merged_df: DataFrame with merged predictions and ground-truth
+                values (must contain a ``truth_value`` column from the merge).
 
         Returns:
-            DataFrame with WIS scores
+            pd.DataFrame: DataFrame with group columns plus a ``wis`` column.
+                Returns an empty DataFrame if no quantile predictions or no
+                median (0.5) quantile is found.
         """
         logger.info("Calculating WIS scores...")
 
@@ -272,14 +315,23 @@ class EvaluationProcessor:
         """
         Calculate MAPE (Mean Absolute Percentage Error) using median predictions.
 
-        MAPE = |truth - median| / |truth|
-        Excludes cases where truth = 0 (undefined)
+        Uses the formula::
+
+            MAPE = |truth - median| / |truth| * 100
+
+        Rows where the truth value is zero are excluded because MAPE is
+        undefined in that case. The result is stored as a percentage
+        (e.g., ``3.0`` means 3%).
 
         Args:
-            merged_df: DataFrame with merged predictions and truth values
+            merged_df: DataFrame with merged predictions and ground-truth
+                values (must contain ``truth_value`` and ``output_type_id``
+                columns).
 
         Returns:
-            DataFrame with MAPE scores
+            pd.DataFrame: DataFrame with group columns plus a ``mape`` column.
+                Returns an empty DataFrame if no median (0.5) predictions or
+                no non-zero truth values are found.
         """
         logger.info("Calculating MAPE scores...")
 
@@ -317,20 +369,45 @@ class EvaluationProcessor:
 
     def _calculate_coverage(self, merged_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculate Coverage for configured prediction interval levels.
+        Calculate coverage for configured prediction interval levels.
 
-        Coverage = 1 if truth_value is within [q_lower, q_upper], 0 otherwise
+        For each configured level (e.g., 50%, 95%), determines whether the
+        truth value falls within the corresponding quantile bounds::
+
+            coverage = 100.0  if  q_lower <= truth <= q_upper
+                       0.0    otherwise
+
+        The coverage level specified in
+        :attr:`config.evaluation_coverage_level_for_location_map` is
+        automatically included even if not listed in
+        :attr:`config.evaluation_coverage_levels`.
 
         Args:
-            merged_df: DataFrame with merged predictions and truth values
+            merged_df: DataFrame with merged predictions and ground-truth
+                values (must contain ``truth_value`` and quantile columns).
 
         Returns:
-            DataFrame with coverage columns for each configured level
+            pd.DataFrame: DataFrame with group columns plus one
+                ``<level>_coverage`` column per configured level, where values
+                are 0.0 or 100.0. Returns an empty DataFrame if no quantile
+                predictions are found.
         """
         logger.info("Calculating Coverage scores...")
 
         # Get coverage levels from config
         levels = self.config.evaluation_coverage_levels or [50, 95]
+        
+        # Ensure location map coverage level is included (even if not in main list)
+        # Convert to list of integers for processing
+        levels_to_calculate = set([int(x) for x in levels])
+        if hasattr(self.config, 'evaluation_coverage_level_for_location_map'):
+            location_map_level = self.config.evaluation_coverage_level_for_location_map
+            if location_map_level not in levels_to_calculate:
+                logger.info(f"Adding location map coverage level {location_map_level}% to calculation (not in main coverage levels)")
+            levels_to_calculate.add(location_map_level)
+        
+        # Sort for consistent processing
+        levels = sorted(list(levels_to_calculate))
 
         # Filter for quantile predictions
         quantile_df = merged_df[merged_df["output_type"] == "quantile"].copy()
@@ -383,17 +460,20 @@ class EvaluationProcessor:
 
     def _get_quantile_column(self, df: pd.DataFrame, quantile_value: float) -> pd.Series:
         """
-        Robustly retrieve a quantile column from a DataFrame.
-        
-        Tries both numeric and string column names to handle cases where
-        column names might be stored as either type.
-        
+        Robustly retrieve a quantile column from a pivoted DataFrame.
+
+        After pivoting, column names may be stored as either numeric floats
+        or strings depending on the source data types. This helper tries both
+        representations to ensure a match.
+
         Args:
-            df (pd.DataFrame): DataFrame with quantile columns
-            quantile_value (float): The quantile value to retrieve (e.g., 0.5)
-            
+            df: Pivoted DataFrame whose columns include quantile identifiers.
+            quantile_value: The quantile level to retrieve (e.g., ``0.5``
+                for the median, ``0.025`` for the lower 95% bound).
+
         Returns:
-            pd.Series: The column data, or None if not found
+            pd.Series: The column data if found, or ``None`` if the quantile
+                is not present under either numeric or string column names.
         """
         # Try numeric column name first
         if quantile_value in df.columns:
@@ -409,14 +489,19 @@ class EvaluationProcessor:
 
     def _validate_pivot_quantiles(self, pivoted_df: pd.DataFrame, metric_name: str = "metric") -> None:
         """
-        Validate pivoted quantile data for issues like duplicate columns.
-        
-        This detects cases where mixed types in source data (e.g., both 0.5 and "0.5")
-        create duplicate quantile columns after pivoting.
-        
+        Validate pivoted quantile data for duplicate-column issues.
+
+        Detects cases where mixed types in the source data (e.g., both
+        ``0.5`` as a float and ``"0.5"`` as a string) produce duplicate
+        quantile columns after pivoting. Logs a warning when duplicates are
+        found but does not raise an exception.
+
         Args:
-            pivoted_df (pd.DataFrame): Pivoted DataFrame with quantiles as columns
-            metric_name (str): Name of the metric being calculated (for logging)
+            pivoted_df: Pivoted DataFrame whose columns include quantile
+                identifiers (numeric or string).
+            metric_name: Human-readable name of the metric being calculated,
+                used in log messages for context (e.g., ``"WIS"``,
+                ``"Coverage"``).
         """
         # Get quantile columns (numeric-looking column names)
         q_cols = [c for c in pivoted_df.columns 

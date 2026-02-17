@@ -17,7 +17,7 @@
 #==============================================================================
 # DATA SOURCE CONFIGURATION
 #==============================================================================
-# [CONDITIONAL] You must provide EITHER local data OR a remote link.
+# [CONDITIONAL] You must provide EITHER a local path OR a remote link.
 #
 # Option 1: Local Data (recommended for development)
 #   - Place your data in directories named `target-data/`, `model-output/`, and `auxiliary-data/`
@@ -28,10 +28,10 @@
 #   - Provide a URL to a valid Hubverse-compatible GitHub repository containing your data.
 #------------------------------------------------------------------------------
 
-link_to_hubverse_compatible_data: https://github.com/CDCgov/covid19-forecast-hub.git
+# link_to_hubverse_compatible_data: null
 
 # Example remote configuration:
-# link_to_hubverse_compatible_data: "https://github.com/hubverse-org/covid-19-forecast-hub-data/"
+link_to_hubverse_compatible_data: "git@github.com:cdcepi/FluSight-forecast-hub.git"
 
 #==============================================================================
 # FORECAST PERIODS DEFINITIONS
@@ -45,38 +45,38 @@ forecast_periods:
   # Only ongoing
   # This is useful for ongoing forecasting efforts.
   - forecast_period_id: "season-2025-2026"
-    start_date: "2025-08-01T00:00:00"
-    end_date: "2026-07-31T00:00:00"
-    display_string: "Season 2025-2026"
+    start_date: "2025-10-01T00:00:00"
+    end_date: "2026-05-31T00:00:00"
+    display_string: "2025-2026"
     is_default_selected: true # [OPTIONAL] Only one period can be true. If none are, the latest one is chosen.
 
   # Examples of static forecast period where the entire range is in the past.
   - forecast_period_id: "season_2024_Oct_to_2025_Feb"
     start_date: "2024-10-01T00:00:00"
-    end_date: "2025-02-01T00:00:00"
-    display_string: "2024 October to 2025 February"
+    end_date: "2025-05-31T00:00:00"
+    display_string: "2024-2025"
     is_default_selected: false
 
-  - forecast_period_id: "latest_couple_of_horizons_2025"
-    start_date: "2025-08-23T00:00:00"
-    end_date: "2025-09-27T00:00:00"
-    display_string: "2025 Tail"
-    is_default_selected: false
+  # - forecast_period_id: "latest_couple_of_horizons_2025"
+  #   start_date: "2025-08-23T00:00:00"
+  #   end_date: "2025-09-27T00:00:00"
+  #   display_string: "2025 Tail"
+  #   is_default_selected: false
 
-  - forecast_period_id: "test-season-2022-2023"
-    start_date: "2022-08-01T00:00:00"
-    end_date: "2023-07-31T00:00:00"
-    display_string: "Test: out of range time period option"
-    is_default_selected: false
+  # - forecast_period_id: "test-season-2022-2023"
+  #   start_date: "2022-08-01T00:00:00"
+  #   end_date: "2023-07-31T00:00:00"
+  #   display_string: "Test: out of range time period option"
+  #   is_default_selected: false
 
 #==============================================================================
 # SPECIAL FORECAST PERIODS (Dynamic Time Windows)
 #==============================================================================
-# [OPTIONAL] Create relative time windows like "Last 2/3/4 Weeks".
+# [OPTIONAL] Create relative time windows like "Last 4 Weeks".
 # These are calculated dynamically based on the latest available data.
 #
-# This requires an ongoing forecast_period (one with an end_date in the future)
-# to achieve dynamic update when data updates
+# This requires a "dynamic" forecast_period (one with an end_date in the future)
+# to serve as a reference point.
 #------------------------------------------------------------------------------
 
 special_forecast_periods:
@@ -144,9 +144,9 @@ time_unit: 7
 
 # [REQUIRED] List of forecasting targets. You must define at least one.
 targets:
-  - target_id: "covid19-admission" # [REQUIRED] A unique machine-readable ID.
-    task_display_string: "COVID19 Admissions" # [REQUIRED] Human-readable name for the UI.
-    target_key_in_data: "wk inc covid hosp" # [REQUIRED] The exact string that appears in the 'target' column of your data files.
+  - target_id: "flu-hosp" # [REQUIRED] A unique machine-readable ID.
+    task_display_string: "Flu Hospitalizations" # [REQUIRED] Human-readable name for the UI.
+    target_key_in_data: "wk inc flu hosp" # [REQUIRED] The exact string that appears in the 'target' column of your data files.
     is_default_selected: true # [OPTIONAL, unique] This target will be selected by default.
 
     # [OPTIONAL] Apply scaling or rounding to data values for this target.
@@ -159,9 +159,9 @@ targets:
         target_data: 2 # Round ground truth values to this many decimal places.
         model_output: 2 # Round model output values to this many decimal places.
 
-  - target_id: "covid19-test-target"
-    task_display_string: "COVID19 Admissions Test"
-    target_key_in_data: "wk inc covid prop ed visits"
+  - target_id: "flu-ed"
+    task_display_string: "Flu Emergency Department Visits"
+    target_key_in_data: "wk inc flu prop ed visits"
     data_value_processing:
       scaling_factor:
         target_data: 100 # Example: Convert a 0-1 proportion to a 0-100 percentage
@@ -178,7 +178,7 @@ targets:
 #------------------------------------------------------------------------------
 
 # [OPTIONAL] File format of your ground truth data. Default: "csv"
-target_data_file_format: "parquet"
+target_data_file_format: "csv"
 
 # [CONDITIONAL] Required if format is "parquet".
 # Set to true if your parquet data is partitioned into subdirectories by date
@@ -196,7 +196,7 @@ single_target_data_file_name: "time-series"
 #   - Disable the historical data toggle in the frontend UI
 #   - Not generate the historical-target-data.json file
 # Useful when you don't need historical versioning features or want faster processing.
-disable_historical_target_data: false
+disable_historical_target_data: true
 
 # [Optional] Number of days to shift all "as_of" column date values. Default is 0.
 # Useful when 'as_of' dates are on a different date grid than reference dates
@@ -204,15 +204,15 @@ disable_historical_target_data: false
 # Use negative values to shift backwards, positive to shift forwards.
 # The absolute value must not exceed `time_unit` to avoid forecast cycle misalignment.
 # Applies to both single-file target data and partitioned parquet files.
-# NOTE: Please make sure your data's "as_of" column dates are consistent in terms of Day of Week
-as_of_column_date_shift: -4
+# NOTE: Please make sure your data's "as_of" column dates are consistent in terms of Day of Week ()
+# as_of_column_date_shift: -4
 
 #------------------------------------------------------------------------------
 # Target Data Column Mapping
 #------------------------------------------------------------------------------
 # [REQUIRED] Map your data file's column names to the dashboard's expected names.
 target_data_header_mapping:
-  date_col_name: "date" # [REQUIRED]
+  date_col_name: "target_end_date" # [REQUIRED]
   observation_col_name: "observation" # [REQUIRED] The observed value. Missing data is filled with -1.
   location_col_name: "location" # [REQUIRED for multi-location]
   location_name_col_name: "location_name" # [OPTIONAL]
@@ -229,24 +229,18 @@ target_data_header_mapping:
 # Each model name here MUST match a subdirectory name in `/model-output/`.
 # If this section is omitted, the dashboard will try to use all subdirectories.
 available_models:
-  "MOBS-GLEAM_COVID":
+  "MOBS-EpyStrain_Flu":
     color_hex: "#9ceb94" # [OPTIONAL] Hex color for charts. Auto-assigned if null.
-  "CEPH-Rtrend_covid":
+  "MIGHTE-Nsemble":
     color_hex: null
-  "CovidHub-baseline":
-    color_hex: null
-  "CovidHub-ensemble":
-    color_hex: null
-  "NEU_ISI-AdaptiveEnsemble":
-    color_hex: null
-  "TEST1":
-    color_hex: "#abcabc"
-  "TEST2":
-    color_hex: "#888888"
-  "TEST3":
-    color_hex: "#329abc"
-  "NON-EXISTENT-MODEL": # Will show warning if directory not found
-    color_hex: "#000000"
+  # "TEST1":
+  #   color_hex: "#abcabc"
+  # "TEST2":
+  #   color_hex: "#888888"
+  # "TEST3":
+  #   color_hex: "#329abc"
+  # "NON-EXISTENT-MODEL": # Will show warning if directory not found
+  #   color_hex: "#000000"
 
 #------------------------------------------------------------------------------
 # Model Output File Structure
@@ -318,7 +312,7 @@ default_selected_horizon: 3 # Single Choice Selection.
 # [REQUIRED] The model to use as a benchmark for Relative WIS calculations.
 # Relative WIS = (WIS of a model) / (WIS of this baseline model).
 # This model's data must exist in /model-output/, even if it's not in `available_models`.
-baseline_model_for_relative_WIS: "CovidHub-baseline"
+baseline_model_for_relative_WIS: "FluSight-baseline"
 
 # [OPTIONAL] Define the coverage levels (in percentage) to be used for:
 # 1. Calculating coverage metrics. These values populate the "Coverage" chart in the evaluations section.
@@ -340,7 +334,7 @@ ui_customization:
   # ------------------------------------
   # Note: this component will be changed for both Forecast and Evaluation page.
   # Special Note: If your header title naming follows the convention "AbcdeForecast", the dashboard supports selectively bolding the "Abcde" part for you. Any other kind of naming will just be all bold.
-  ui_header_title_name: "COVID-19Forecast"
+  ui_header_title_name: "FluForecast"
 
   # Declare and change navigation buttons UI and behaviour
   # [Recommended] to have one button each for Forecast and Evaluation page.
@@ -351,22 +345,22 @@ ui_customization:
     - button_text: "About Epistorm" # This will become the display text
       nav_to_external: true
       nav_to_link: "https://www.epistorm.org/flu-forecast-about"
-    - button_text: "COVID Forecast"
+    - button_text: "FluForecast"
       nav_to_page: "Forecast" # Can only be "Forecast" or "Evaluation"
     - button_text: "Evaluation"
       nav_to_page: "Evaluation" # Note this will still be hidden if no-evalution mode is used
-    - button_text: "TestExternal-Hubverse"
-      nav_to_external: true
-      nav_to_link: "https://hubverse.io"
+    # - button_text: "TestExternal-Hubverse"
+    #   nav_to_external: true
+    #   nav_to_link: "https://hubverse.io"
 
   # Forecast Page Visualization Components Customizations
   # -----------------------------------------------------
   # [OPTIONAL] Changes chart header title for the main line chart visualization.
-  ui_forecast_header_chart_name: "Weekly Hospital COVID-19 Admissions Forecast"
+  ui_forecast_header_chart_name: "Weekly Hospital Flu Admissions Forecast"
 
   # [OPTIONAL] Change chart header historical target data toggle text display.
   # Note this will still be hidden when no-historical-target-data mode is turned on.
-  ui_forecast_header_hist_td_toggle_text: "Show COVID-19 Admissions at Time of Forecast"
+  ui_forecast_header_hist_td_toggle_text: "Show Flu Admissions at Time of Forecast"
 
   # [OPTIONAL] Disables the location name display on top of chart header.
   disable_location_info_display: false

@@ -22,6 +22,15 @@ class DataFetcher:
     """
 
     def __init__(self, project_root: Path, dev_mode: bool = False):
+        """
+        Initialize the DataFetcher.
+
+        Args:
+            project_root: Root directory of the project, used as the base
+                for resolving cache paths.
+            dev_mode: If ``True``, cache data under ``development-mode-root/.data_cache``
+                instead of the production ``.data_cache`` directory.
+        """
         self.project_root = project_root
         self.dev_mode = dev_mode
 
@@ -129,7 +138,21 @@ class DataFetcher:
                 logger.info(f"    [OK] Synced {folder}")
 
     def _update_or_clone_repo(self, repo_url: str, target_dir: Path) -> bool:
-        """Helper to clone or update a repository"""
+        """
+        Clone a repository or update it if it already exists locally.
+
+        If the target directory contains a git repo whose remote URL matches
+        ``repo_url``, a ``git pull`` is performed. When the URL has changed the
+        existing clone is removed and a fresh shallow clone is created via
+        :meth:`_clone_repo`.
+
+        Args:
+            repo_url: URL of the remote git repository.
+            target_dir: Local directory to clone into or update.
+
+        Returns:
+            bool: ``True`` if the operation succeeded, ``False`` otherwise.
+        """
         try:
             if target_dir.exists() and (target_dir / ".git").exists():
                 logger.info(f"Updating data from {repo_url}...")
@@ -160,6 +183,19 @@ class DataFetcher:
             return False
 
     def _clone_repo(self, repo_url: str, target_dir: Path) -> bool:
+        """
+        Perform a shallow clone of a remote repository.
+
+        Creates a depth-1 clone to minimise download size since only the
+        latest snapshot of the data files is needed.
+
+        Args:
+            repo_url: URL of the remote git repository to clone.
+            target_dir: Local directory path for the clone destination.
+
+        Returns:
+            bool: ``True`` if the clone succeeded, ``False`` otherwise.
+        """
         logger.info(f"Cloning data from {repo_url}...")
         try:
             subprocess.run(

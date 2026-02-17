@@ -11,6 +11,7 @@ from pathlib import Path
 import logging
 import json
 import sys
+import time
 
 from evaluation_processor import EvaluationProcessor
 from manifest_manager import ManifestManager
@@ -431,8 +432,16 @@ class DataProcessor:
             logger.info("EVALUATION PROCESSING")
             logger.info("=" * 60)
 
+            eval_timer_start = time.perf_counter()
+            total_prediction_rows = len(self.model_output_unpivoted) if self.model_output_unpivoted is not None else 0
+            rows_evaluated_count = 0
+            rows_from_trigger_a = 0
+            rows_from_trigger_b = 0
+            is_full_eval = False
+
             # Scenario 1: Full evaluation (initial run or no previous evaluations)
             if full_model_load or not self.raw_evaluations:
+                is_full_eval = True
                 logger.info("Running FULL evaluation calculation...")
                 logger.info("  This will calculate WIS, MAPE, and Coverage for all predictions")
 
@@ -441,7 +450,8 @@ class DataProcessor:
 
                 # All periods need aggregation
                 affected_date_range = None
-                logger.info(f"  [OK] Calculated evaluations for {len(self.model_output_unpivoted)} prediction rows")
+                rows_evaluated_count = total_prediction_rows
+                logger.info(f"  [OK] Calculated evaluations for {total_prediction_rows} prediction rows")
 
             else:
                 # Scenario 2: Incremental evaluation update
@@ -456,42 +466,45 @@ class DataProcessor:
                     evaluation_reasons.append(f"{len(new_model_predictions)} new predictions")
 
                     # Extract rows matching new prediction keys
-                    # Convert set to dataframe for efficient merging
                     pred_keys_list = list(new_model_predictions)
                     if pred_keys_list:
                         pred_keys_df = pd.DataFrame(pred_keys_list, columns=["location", "reference_date", "target_end_date", "target", "model"])
 
-                        # Merge to get full rows
                         new_pred_rows = pd.merge(
                             self.model_output_unpivoted, pred_keys_df, on=["location", "reference_date", "target_end_date", "target", "model"], how="inner"
                         )
 
                         if not new_pred_rows.empty:
+                            rows_from_trigger_a = len(new_pred_rows)
                             rows_to_evaluate = pd.concat([rows_to_evaluate, new_pred_rows])
 
                 # B. Revised target data affecting existing predictions
+                # Note: target data 'date' == model output 'target_end_date' (the forecasted date)
                 if affected_target_keys:
                     logger.info(f"  Trigger B: {len(affected_target_keys)} revised target data points")
                     evaluation_reasons.append(f"{len(affected_target_keys)} revised observations")
 
-                    # Convert affected keys to DataFrame
                     keys_df = pd.DataFrame(list(affected_target_keys), columns=["location", "target_end_date", "target"])
 
-                    # Ensure types match
                     keys_df["target_end_date"] = pd.to_datetime(keys_df["target_end_date"])
                     keys_df["location"] = keys_df["location"].astype(str)
 
-                    # Find all predictions for these target keys
                     affected_pred_rows = pd.merge(self.model_output_unpivoted, keys_df, on=["location", "target_end_date", "target"], how="inner")
 
                     if not affected_pred_rows.empty:
+                        rows_from_trigger_b = len(affected_pred_rows)
                         rows_to_evaluate = pd.concat([rows_to_evaluate, affected_pred_rows])
 
                 # Deduplicate rows to evaluate
                 if not rows_to_evaluate.empty:
+                    pre_dedup_count = len(rows_to_evaluate)
                     rows_to_evaluate.drop_duplicates(inplace=True)
+                    rows_evaluated_count = len(rows_to_evaluate)
 
-                    logger.info(f"  [!] Recalculating evaluations for {len(rows_to_evaluate)} prediction rows")
+                    if pre_dedup_count > rows_evaluated_count:
+                        logger.info(f"  Deduplicated: {pre_dedup_count} -> {rows_evaluated_count} rows (overlap between triggers)")
+
+                    logger.info(f"  [!] Recalculating evaluations for {rows_evaluated_count} prediction rows")
                     logger.info(f"      ({', '.join(evaluation_reasons)})")
 
                     # Calculate new evaluations
@@ -508,11 +521,9 @@ class DataProcessor:
 
                         old_df = self.raw_evaluations[metric]
 
-                        # Define evaluation keys for deduplication
                         eval_keys = ["model", "location", "target_end_date", "target", "horizon", "reference_date"]
                         valid_keys = [k for k in eval_keys if k in old_df.columns and k in new_df.columns]
 
-                        # Concatenate and keep last (newest)
                         combined = pd.concat([old_df, new_df], ignore_index=True)
                         combined.drop_duplicates(subset=valid_keys, keep="last", inplace=True)
                         self.raw_evaluations[metric] = combined
@@ -530,6 +541,8 @@ class DataProcessor:
                     logger.info("  [OK] No evaluation changes needed")
                     affected_date_range = None
 
+            eval_raw_elapsed = time.perf_counter() - eval_timer_start
+
             # Step 7b: Aggregate evaluation metrics (selective aggregation)
             logger.info("")
             logger.info("Aggregating evaluations by forecast period...")
@@ -538,14 +551,44 @@ class DataProcessor:
             else:
                 logger.info("  Full aggregation: all forecast periods")
 
+            agg_timer_start = time.perf_counter()
             aggregated_evaluations = self._generate_aggregated_evaluation_collection(self.raw_evaluations, affected_date_range)
             self.aggregated_evaluations = aggregated_evaluations
+            agg_elapsed = time.perf_counter() - agg_timer_start
 
             # Step 7c: Organize raw scores for Single Model view
             logger.info("Organizing raw scores for Single Model view...")
             raw_scores_by_period = self._generate_raw_scores_by_period(self.raw_evaluations)
 
-            logger.info("  [OK] Evaluation processing complete")
+            eval_total_elapsed = time.perf_counter() - eval_timer_start
+
+            # ====== EVALUATION COMPUTATION SUMMARY ======
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("EVALUATION COMPUTATION SUMMARY")
+            logger.info("=" * 60)
+            logger.info(f"  Mode:                          {'FULL (from-scratch)' if is_full_eval else 'INCREMENTAL (data-update)'}")
+            logger.info(f"  Total prediction rows in store: {total_prediction_rows:,}")
+            logger.info(f"  Rows evaluated this run:        {rows_evaluated_count:,}")
+            if total_prediction_rows > 0:
+                pct = (rows_evaluated_count / total_prediction_rows) * 100
+                logger.info(f"  Evaluation workload:            {pct:.1f}% of total")
+                if not is_full_eval:
+                    skipped = total_prediction_rows - rows_evaluated_count
+                    logger.info(f"  Rows reused from cache:         {skipped:,} ({100 - pct:.1f}%)")
+            if not is_full_eval and (rows_from_trigger_a > 0 or rows_from_trigger_b > 0):
+                logger.info("  Trigger breakdown (pre-deduplication):")
+                if rows_from_trigger_a > 0:
+                    logger.info(f"    A - New model predictions:    {rows_from_trigger_a:,} rows")
+                if rows_from_trigger_b > 0:
+                    logger.info(f"    B - Revised target data:      {rows_from_trigger_b:,} rows")
+            # Aggregation stats are logged by _generate_aggregated_evaluation_collection
+            logger.info("  Timing:")
+            logger.info(f"    Raw evaluation calculation:   {eval_raw_elapsed:.2f}s")
+            logger.info(f"    Aggregation:                  {agg_elapsed:.2f}s")
+            logger.info(f"    Total evaluation pipeline:    {eval_total_elapsed:.2f}s")
+            logger.info("=" * 60)
+
         else:
             logger.info("")
             logger.info("=" * 60)
@@ -1611,7 +1654,6 @@ class DataProcessor:
                 "targetId": target.target_id,
                 "targetKeyInData": target.target_key_in_data,
                 "displayString": target.task_display_string,
-                "forecastPeriods": target.for_forecast_periods or [],
                 "isDefaultSelected": target.is_default_selected,
                 "dataValueProcessing": target.data_value_processing.model_dump() if target.data_value_processing else None,
             }
@@ -1699,6 +1741,7 @@ class DataProcessor:
             # === EVALUATION SETTINGS ===
             "evaluations": {
                 "coverageLevels": self.config.evaluation_coverage_levels if hasattr(self.config, "evaluation_coverage_levels") else [50, 95],
+                "locationMapCoverageLevel": self.config.evaluation_coverage_level_for_location_map if hasattr(self.config, "evaluation_coverage_level_for_location_map") else 95,
                 # List of period IDs that have evaluation data available (for lazy loading)
                 "availablePeriodIds": self._get_evaluation_period_ids() if not self.skip_evaluations else [],
             },
@@ -1907,10 +1950,15 @@ class DataProcessor:
 
         # Get configuration values
         cov_levels = sorted([int(x) for x in (self.config.evaluation_coverage_levels or [50, 95])])
+        location_map_cov_level = self.config.evaluation_coverage_level_for_location_map if hasattr(self.config, 'evaluation_coverage_level_for_location_map') else 95
 
         # Define all periods to aggregate over
         special_periods = self.config.special_forecast_periods or []
         all_periods = list[ForecastPeriodConfig](self.config.forecast_periods) + list[SpecialForecastPeriodConfig](special_periods)
+
+        periods_processed = 0
+        periods_skipped = 0
+        periods_no_range = 0
 
         for period in all_periods:
             period_id = period.forecast_period_id if hasattr(period, "forecast_period_id") else period.special_period_id
@@ -1921,6 +1969,7 @@ class DataProcessor:
             date_range = self._get_period_date_range(period, target_for_anchor, self.model_output_unpivoted)
             if not date_range:
                 logger.warning(f"Could not determine date range for period '{period_id}', skipping")
+                periods_no_range += 1
                 continue
             start, end = date_range
 
@@ -1929,10 +1978,12 @@ class DataProcessor:
                 aff_start, aff_end = affected_date_range
                 # Check for overlap: start <= aff_end and end >= aff_start
                 if not (start <= aff_end and end >= aff_start):
-                    logger.info(f"Skipping static period '{period_id}' (No changes in {start.date()} - {end.date()})")
+                    logger.info(f"Skipping period '{period_id}' (no overlap with affected range {aff_start.date()} - {aff_end.date()})")
+                    periods_skipped += 1
                     continue
 
             logger.info(f"Processing period: '{period_id}' ({start.date()} to {end.date()})")
+            periods_processed += 1
 
             # Initialize/Clear period structure
             precalculated["iqr"][period_id] = {}
@@ -1940,7 +1991,7 @@ class DataProcessor:
             precalculated["detailedCoverage_aggregates"][period_id] = {}
 
             # Process location map aggregates FIRST (IQR depends on this)
-            process_location_map_aggregates(raw_evaluations, period_id, start, end, precalculated, self.target_key_to_id_map)
+            process_location_map_aggregates(raw_evaluations, period_id, start, end, precalculated, self.target_key_to_id_map, location_map_cov_level)
 
             # Process IQR statistics for boxplots (uses state_map_aggregates)
             process_iqr_stats(period_id, precalculated)
@@ -1948,7 +1999,10 @@ class DataProcessor:
             # Process coverage aggregates
             process_coverage_aggregates(raw_evaluations, period_id, start, end, precalculated, cov_levels, self.target_key_to_id_map)
 
-        logger.info("Aggregated evaluation collection complete.")
+        total_periods = len(all_periods)
+        logger.info(f"Aggregation complete: {periods_processed}/{total_periods} periods re-aggregated, {periods_skipped} skipped (unaffected)")
+        if periods_no_range > 0:
+            logger.info(f"  ({periods_no_range} period(s) had no determinable date range)")
         return precalculated
 
     def _generate_raw_scores_by_period(self, raw_evaluations: dict) -> dict:
@@ -2088,7 +2142,15 @@ class DataProcessor:
         logger.info("All output files written successfully!")
 
     def _track_file_written(self, file_path: Path):
-        """Track files written for summary reporting."""
+        """
+        Track an output file written during the current processing run.
+
+        Updates :attr:`processing_stats` to increment the file counter and
+        record the relative path of the written file.
+
+        Args:
+            file_path: Absolute path to the file that was written.
+        """
         self.processing_stats["files_written"] += 1
         self.processing_stats["output_files"].append(str(file_path.relative_to(self.project_root)))
 
@@ -2151,7 +2213,20 @@ class DataProcessor:
 
     def _load_specific_model_files(self, file_rel_paths: list) -> pd.DataFrame:
         """
-        Load specific model output files (for incremental updates).
+        Load specific model output files by their relative paths for incremental updates.
+
+        Used during data-update runs to load only new or modified model output files
+        detected by :class:`~manifest_manager.ManifestManager`. Each file is read,
+        column-renamed according to :class:`~yaml_config_processor_pydantic.ModelOutputHeaderMapping`,
+        and the model name is inferred from the parent directory.
+
+        Args:
+            file_rel_paths: List of relative file paths (from project root) to load.
+                Each path should point to a CSV or Parquet model output file.
+
+        Returns:
+            pd.DataFrame: Combined DataFrame of all loaded files with standardized
+            column names, or an empty DataFrame if no files were successfully loaded.
         """
         all_dfs = []
         mapping = self.config.model_output_data_header_mapping
@@ -2173,9 +2248,13 @@ class DataProcessor:
                 continue
 
             try:
-                df = pd.read_csv(file_path, low_memory=False)
-                # Determine model name from path
-                # Fallback: assume parent of file is model name
+                # Load file based on extension (CSV or Parquet)
+                if file_path.suffix in (".parquet", ".pq"):
+                    df = pd.read_parquet(file_path)
+                else:
+                    df = pd.read_csv(file_path, low_memory=False)
+
+                # Determine model name from path (parent directory)
                 model_name = file_path.parent.name
 
                 df["model"] = model_name
@@ -2215,7 +2294,27 @@ class DataProcessor:
         target_data_df: pd.DataFrame,
         model_output_df: pd.DataFrame,
     ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-        """Determines the start and end date for a given forecast period."""
+        """
+        Determine the effective start and end dates for a given forecast period.
+
+        For standard :class:`~yaml_config_processor_pydantic.ForecastPeriodConfig` periods,
+        returns the configured start and end dates directly.
+
+        For special :class:`~yaml_config_processor_pydantic.SpecialForecastPeriodConfig` periods
+        (e.g., "Last 2 Weeks"), dynamically calculates the date range by anchoring to the latest
+        valid ground truth date within the referenced parent period. Placeholder observations
+        (value ``-1``) are excluded from anchor date calculations.
+
+        Args:
+            period: A :class:`~yaml_config_processor_pydantic.ForecastPeriodConfig` or
+                :class:`~yaml_config_processor_pydantic.SpecialForecastPeriodConfig` instance.
+            target_data_df: Current target data DataFrame (used for anchor date calculation).
+            model_output_df: Current model output DataFrame.
+
+        Returns:
+            tuple[pd.Timestamp, pd.Timestamp] | None: A ``(start_date, end_date)`` tuple,
+            or ``None`` if the period cannot be resolved (e.g., missing anchor data).
+        """
         # Check if this is a special period (has special_period_id attribute)
         is_special = hasattr(period, "special_period_id")
         period_id = period.special_period_id if is_special else period.forecast_period_id

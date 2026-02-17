@@ -26,7 +26,6 @@ import {
 import { Typography } from '@/styles/material-tailwind-wrapper';
 import { ForecastPeriodOption } from '@/types/domains/forecasting';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
-import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { horizonSelectorsInfo } from 'types/infobutton-content';
 
@@ -455,17 +454,6 @@ const SingleModelSettingsPanel: React.FC = () => {
             ))}
           </select>
         </div>
-      </div>
-
-      <div className="mt-auto p-2 border-t border-gray-700">
-        <Image
-          src="/epistorm-logo.png"
-          width={300}
-          height={120}
-          alt="Epistorm Logo"
-          className="mx-auto"
-          priority
-        />
       </div>
     </div>
   );

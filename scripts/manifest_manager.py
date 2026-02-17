@@ -52,6 +52,18 @@ class ManifestManager:
     """
 
     def __init__(self, project_root: Path, manifest_path: Path = None):
+        """
+        Initialize the ManifestManager.
+
+        Loads an existing manifest from disk (if available) and prepares an
+        empty ``current_state`` dictionary to accumulate scan results.
+
+        Args:
+            project_root: Root directory of the project. All relative file
+                paths stored in the manifest are resolved against this root.
+            manifest_path: Explicit path for the manifest JSON file. When
+                ``None``, defaults to ``<project_root>/intermediates/manifest.json``.
+        """
         self.project_root = project_root
         if manifest_path:
             self.manifest_path = manifest_path
@@ -62,7 +74,15 @@ class ManifestManager:
         self.current_state = {"target_data": {}, "model_output": {}, "auxiliary_data": {}}
 
     def _load_manifest(self) -> dict:
-        """Load existing manifest or return empty structure."""
+        """
+        Load an existing manifest from disk or return an empty structure.
+
+        If the manifest file does not exist or cannot be parsed, a fresh
+        manifest is created via :meth:`_create_empty_manifest`.
+
+        Returns:
+            dict: The loaded manifest dictionary, or a new empty manifest.
+        """
         if self.manifest_path.exists():
             try:
                 with open(self.manifest_path, "r") as f:
@@ -75,7 +95,16 @@ class ManifestManager:
         return self._create_empty_manifest()
     
     def _create_empty_manifest(self) -> dict:
-        """Create an empty manifest with the current structure."""
+        """
+        Create an empty manifest with the current version 2.0 structure.
+
+        The returned dictionary contains top-level metadata (``version``,
+        ``last_run``) and a ``domains`` section with placeholders for
+        ``target_data``, ``model_output``, and ``auxiliary_data``.
+
+        Returns:
+            dict: A blank manifest dictionary ready to be populated.
+        """
         return {
             "version": "2.0",
             "last_run": None,
@@ -97,7 +126,19 @@ class ManifestManager:
         }
 
     def _calculate_checksum(self, file_path: Path) -> str:
-        """Calculate MD5 checksum of a file."""
+        """
+        Calculate the MD5 checksum of a file.
+
+        Reads the file in 4 KB chunks to keep memory usage low for large
+        data files.
+
+        Args:
+            file_path: Absolute path to the file to checksum.
+
+        Returns:
+            str: Hex-encoded MD5 digest, or an empty string if the file
+            cannot be read.
+        """
         hash_md5 = hashlib.md5()
         try:
             with open(file_path, "rb") as f:
@@ -257,7 +298,22 @@ class ManifestManager:
         return changes
     
     def _check_target_data_changes(self, target_data_path: Path, previous_domain: dict) -> dict:
-        """Check for changes in target data."""
+        """
+        Check for changes in target data files.
+
+        Compares current file checksums against the previous manifest domain
+        to identify new, modified, and deleted files.
+
+        Args:
+            target_data_path: Path to the ``target-data`` directory.
+            previous_domain: The ``target_data`` domain dict from the last
+                saved manifest, containing a ``files`` mapping.
+
+        Returns:
+            dict: Result with keys ``changed`` (bool), ``details`` (dict of
+            ``new_files``, ``modified_files``, ``deleted_files`` lists), and
+            ``summary`` (human-readable string).
+        """
         current_files = self.scan_directory(target_data_path)
         previous_files = previous_domain.get("files", {})
         
@@ -299,7 +355,25 @@ class ManifestManager:
         previous_domain: dict,
         configured_models: list = None
     ) -> dict:
-        """Check for changes in model output, organized by model."""
+        """
+        Check for changes in model output files, organized by model.
+
+        Scans each configured model's subdirectory and compares current file
+        checksums with the previous manifest to detect new models, deleted
+        models, and per-model file additions or modifications.
+
+        Args:
+            model_output_path: Path to the ``model-output`` directory.
+            previous_domain: The ``model_output`` domain dict from the last
+                saved manifest, containing a ``by_model`` mapping.
+            configured_models: List of model names to scan. If ``None``, all
+                model subdirectories are scanned.
+
+        Returns:
+            dict: Result with keys ``changed`` (bool), ``details`` (dict of
+            ``new_models``, ``deleted_models``, ``changes_by_model``), and
+            ``summary`` (human-readable string).
+        """
         current_by_model = self.scan_model_output_by_model(model_output_path, configured_models)
         previous_by_model = previous_domain.get("by_model", {})
         
@@ -361,7 +435,22 @@ class ManifestManager:
         }
     
     def _check_auxiliary_data_changes(self, auxiliary_data_path: Path, previous_domain: dict) -> dict:
-        """Check for changes in auxiliary data."""
+        """
+        Check for changes in auxiliary data files.
+
+        Compares current file checksums against the previous manifest domain
+        to identify new, modified, and deleted files.
+
+        Args:
+            auxiliary_data_path: Path to the ``auxiliary-data`` directory.
+            previous_domain: The ``auxiliary_data`` domain dict from the last
+                saved manifest, containing a ``files`` mapping.
+
+        Returns:
+            dict: Result with keys ``changed`` (bool), ``details`` (dict of
+            ``new_files``, ``modified_files``, ``deleted_files`` lists), and
+            ``summary`` (human-readable string).
+        """
         current_files = self.scan_directory(auxiliary_data_path)
         previous_files = previous_domain.get("files", {})
         
@@ -435,7 +524,14 @@ class ManifestManager:
         logger.info("  [OK] Manifest state updated")
 
     def save(self):
-        """Save current state to manifest using new structure."""
+        """
+        Persist the current scan state to the manifest JSON file.
+
+        Merges ``current_state`` into the manifest structure, updates
+        ``last_run`` and per-domain ``last_modified`` timestamps, then
+        writes the result to :attr:`manifest_path`. Parent directories
+        are created automatically if they do not exist.
+        """
         now = datetime.now().isoformat()
         
         # Update manifest with current state

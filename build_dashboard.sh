@@ -71,10 +71,56 @@ check_config() {
     print_success "Found config.yaml"
 }
 
+# Function to build and serve Sphinx documentation
+build_and_serve_docs() {
+    echo ""
+    print_info "Building HTML documentation with Sphinx..."
+    echo ""
+
+    # Check if Python is available
+    if ! command -v python3 &> /dev/null; then
+        print_error "python3 is not installed or not in PATH"
+        echo "  Python 3.9+ is required to build the documentation."
+        echo "  Visit https://www.python.org/downloads/"
+        return 1
+    fi
+    print_success "Found python3 ($(python3 --version 2>&1 | awk '{print $2}'))"
+
+    # Install dev dependencies
+    print_info "Installing documentation dependencies from requirements-dev.txt..."
+    if ! pip install -r requirements-dev.txt; then
+        print_error "Failed to install documentation dependencies."
+        echo ""
+        echo "  Make sure you have activated your virtual environment:"
+        echo "    source .venv/bin/activate"
+        echo "  Then try again."
+        return 1
+    fi
+    print_success "Documentation dependencies installed"
+
+    # Build the docs
+    print_info "Running Sphinx build..."
+    if ! sphinx-build -b html docs/source docs/build/html; then
+        print_error "Sphinx build failed. Check the errors above."
+        return 1
+    fi
+    print_success "Documentation built successfully at docs/build/html/"
+
+    # Serve locally
+    echo ""
+    print_info "Starting local documentation server on http://localhost:8080"
+    print_info "Press Ctrl+C to stop the server."
+    echo ""
+    python3 -m http.server 8080 --directory docs/build/html
+}
+
 # Main menu function
 show_menu() {
     print_header
     echo "Please select an option:"
+    echo ""
+    echo "  === Documentation ==="
+    echo "  0) Build & Serve HTML Documentation (Sphinx)"
     echo ""
     echo "  === Initial Dashboard Build ==="
     echo "  1) Build Dashboard - Full (with evaluations)"
@@ -233,9 +279,15 @@ main() {
     while true; do
         show_menu
 
-        read -p "Enter your choice (1-6): " choice
+        read -p "Enter your choice (0-7): " choice
 
         case $choice in
+            0)
+                build_and_serve_docs
+                echo ""
+                read -p "Press Enter to return to menu..."
+                ;;
+
             1)
                 echo ""
                 print_info "Starting Dashboard Build Process (Full - with evaluations)..."
@@ -352,7 +404,7 @@ main() {
 
             *)
                 echo ""
-                print_error "Invalid choice. Please enter a number from 1 to 7."
+                print_error "Invalid choice. Please enter a number from 0 to 7."
                 echo ""
                 read -p "Press Enter to continue..."
                 ;;

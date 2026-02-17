@@ -16,7 +16,6 @@ from pydantic import (
     field_validator,
     model_validator,
     ConfigDict,
-    HttpUrl,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -109,10 +108,6 @@ class TargetConfig(BaseModel):
         ...,
         description="The exact string identifier for this target as it appears in the 'target' column of your data files.",
         examples=["wk inc covid hosp", "wk flu hosp"],
-    )
-    for_forecast_periods: Optional[List[str]] = Field(
-        default=None,
-        description="If specified, this target will only be available for the listed forecast period IDs. If null, it is available for all periods.",
     )
     is_default_selected: bool = Field(default=False, description="If true, this target will be selected by default. Only one target can be the default.")
     data_value_processing: Optional[DataValueProcessingConfig] = Field(default_factory=DataValueProcessingConfig)
@@ -295,10 +290,33 @@ class UICustomizationConfig(BaseModel):
 
 class DashboardConfig(BaseModel):
     """
-    Main configuration for Hubverse Dashboard
+    Root Pydantic model for the Hubverse Dashboard configuration.
 
-    This model validates all dashboard configuration options and provides
-    helpful error messages for common mistakes.
+    Validates all options from ``config.yaml`` and provides clear, actionable
+    error messages for common mistakes. The configuration is organized into
+    the following major sections:
+
+    - **Data source** — remote repository URL or local file paths.
+    - **Forecast periods** — :class:`ForecastPeriodConfig` and optional
+      :class:`SpecialForecastPeriodConfig` entries defining time ranges.
+    - **Location** — single-location mode toggle and
+      :class:`SpatialDataConfig` (custom shapefiles, column mappings).
+    - **Targets** — one or more :class:`TargetConfig` entries describing
+      what is being forecasted, plus ``time_unit``.
+    - **Target data** — file format, header mappings
+      (:class:`TargetDataHeaderMapping`), and historical-data options.
+    - **Model output** — :class:`ModelConfig` entries, file-naming standard,
+      and header mappings (:class:`ModelOutputHeaderMapping`).
+    - **Prediction intervals** — :class:`PredictionIntervalConfig` entries
+      for both forecast display and evaluation.
+    - **Evaluation** — baseline model, coverage levels, and evaluation-
+      specific prediction intervals.
+    - **Default selections** — pre-selected location, horizon, and intervals.
+    - **UI customization** — :class:`UICustomizationConfig` for header,
+      forecast page, and evaluation page appearance.
+
+    Cross-field validators enforce relational constraints (e.g., exactly one
+    default period, baseline model presence, anchor validity).
     """
 
     # Strip whitespace, re-evaluate when data change, and ignore unwarranted configurations
@@ -308,8 +326,6 @@ class DashboardConfig(BaseModel):
     link_to_hubverse_compatible_data: Optional[str] = Field(
         default=None, description="URL to a remote, Hubverse-compatible data repository on GitHub. Set to null for local data."
     )
-    target_data_link: Optional[HttpUrl] = None
-    model_output_link: Optional[HttpUrl] = None
 
     # Forecast Periods
     forecast_periods: List[ForecastPeriodConfig] = Field(..., min_length=1, description="At least one forecast period required")
@@ -341,7 +357,6 @@ class DashboardConfig(BaseModel):
         default=0, description="Shift 'as_of' dates by this many days. Useful if as_of dates are on a different grid than target/reference dates."
     )
     target_data_header_mapping: TargetDataHeaderMapping = Field(default_factory=TargetDataHeaderMapping)
-    target_data_observation_format: Literal["integer", "float"] = Field(default="float")
 
     @model_validator(mode="after")
     def validate_as_of_shift(self):
@@ -376,6 +391,13 @@ class DashboardConfig(BaseModel):
         ..., description="The model ID to use as a baseline for calculating Relative WIS. This model acts as a benchmark for performance comparison."
     )
     evaluation_coverage_levels: List[int] = Field(default=[50, 95], description="List of integer percentages (0-100) for evaluation coverage calculation.")
+    evaluation_coverage_level_for_location_map: int = Field(
+        default=95,
+        ge=1,
+        le=99,
+        description="Single coverage level percentage (1-99) used for location map aggregates. "
+        "This can overlap with evaluation_coverage_levels or be separate. Defaults to 95."
+    )
 
     # Default Selections
     default_selected_location: Optional[Union[str, Dict[str, str]]] = Field(
@@ -393,7 +415,13 @@ class DashboardConfig(BaseModel):
     @field_validator("evaluation_coverage_levels")
     @classmethod
     def validate_coverage_levels(cls, v: List[int]) -> List[str]:
-        """Validate coverage levels and convert to list of strings"""
+        """
+        Validate coverage levels are in (0, 100) and convert to sorted strings.
+
+        Returns:
+            list[str]: Deduplicated, sorted string representations of the
+                integer coverage levels (e.g., ``["50", "95"]``).
+        """
         if not v:
             # Return empty list or defaults depending on logic downstream,
             # but defaults are set in Field().
@@ -533,7 +561,19 @@ class DashboardConfig(BaseModel):
     # ==========================================================================
 
     def get_all_quantiles(self) -> List[str]:
-        """Get all unique quantile values needed"""
+        """
+        Collect all unique quantile values required by the configuration.
+
+        Includes the median (``0.5``), all quantiles from
+        :attr:`prediction_intervals` and
+        :attr:`evaluations_prediction_intervals`, and the quantile bounds
+        implied by :attr:`evaluation_coverage_levels` and
+        :attr:`evaluation_coverage_level_for_location_map`.
+
+        Returns:
+            list[str]: Sorted list of unique quantile value strings
+                (e.g., ``["0.025", "0.25", "0.5", "0.75", "0.975"]``).
+        """
         quantiles = {"0.5"}  # Always include median
 
         for interval in self.prediction_intervals:
@@ -557,10 +597,26 @@ class DashboardConfig(BaseModel):
                 quantiles.add(f"{lower:.3g}")
                 quantiles.add(f"{upper:.3g}")
 
+        # Add quantiles needed for location map coverage level
+        # This ensures the location map level is available even if not in the main list
+        if hasattr(self, 'evaluation_coverage_level_for_location_map') and self.evaluation_coverage_level_for_location_map:
+            level = self.evaluation_coverage_level_for_location_map
+            alpha = 1.0 - (level / 100.0)
+            lower = alpha / 2.0
+            upper = 1.0 - (alpha / 2.0)
+            quantiles.add(f"{lower:.3g}")
+            quantiles.add(f"{upper:.3g}")
+
         return sorted(list(quantiles), key=lambda x: float(x))
 
     def get_all_period_ids(self) -> List[str]:
-        """Get all forecast period IDs"""
+        """
+        Collect all forecast period IDs, including special periods.
+
+        Returns:
+            list[str]: Combined list of :attr:`ForecastPeriodConfig.forecast_period_id`
+                and :attr:`SpecialForecastPeriodConfig.special_period_id` values.
+        """
         period_ids = [p.forecast_period_id for p in self.forecast_periods]
         if self.special_forecast_periods:
             period_ids.extend([p.special_period_id for p in self.special_forecast_periods])
@@ -568,9 +624,14 @@ class DashboardConfig(BaseModel):
 
     def get_default_location(self) -> Optional[str]:
         """
-        Extract default location CODE from config.
-        Handles both dict format {"US": "US"} and string format "US"
-        Returns location code as string or None if not configured
+        Extract the default location code from the configuration.
+
+        Handles both dictionary format (``{"US": "US"}``) and plain string
+        format (``"US"``).
+
+        Returns:
+            str: Location code string (e.g., ``"US"``, ``"06"``), or ``None``
+                if :attr:`default_selected_location` is not configured.
         """
         if not self.default_selected_location:
             return None
@@ -580,7 +641,17 @@ class DashboardConfig(BaseModel):
         return str(self.default_selected_location)
 
     def get_location_mapping(self) -> Dict[str, str]:
-        """Get location mapping (loaded at runtime)"""
+        """
+        Retrieve the location-code-to-name mapping loaded at runtime.
+
+        The mapping is set by :func:`load_and_validate_config` via a private
+        ``_location_mapping`` attribute after validation completes.
+
+        Returns:
+            dict[str, str]: Mapping of location codes to human-readable names
+                (e.g., ``{"06": "California", "25": "Massachusetts"}``).
+                Returns an empty dict if the mapping has not been loaded.
+        """
         return getattr(self, "_location_mapping", {})
 
 
@@ -657,7 +728,18 @@ def load_and_validate_config(config_path: Union[str, Path] = "config.yaml", dev_
 
 
 def _load_us_state_fips_mapping() -> Dict[str, str]:
-    """Load US state FIPS code to name mapping from reference file"""
+    """
+    Load the US state FIPS-code-to-name mapping from the bundled reference file.
+
+    Reads ``us_state_fips_mapping.json`` located alongside this module. This
+    serves as the default location mapping when no custom mapping file is
+    configured in :class:`SpatialDataConfig`.
+
+    Returns:
+        dict[str, str]: Mapping of two-digit FIPS codes to state names
+            (e.g., ``{"06": "California", "36": "New York"}``). Returns an
+            empty dict if the reference file is missing or cannot be parsed.
+    """
     reference_path = Path(__file__).parent / "us_state_fips_mapping.json"
 
     try:
@@ -675,9 +757,27 @@ def _load_us_state_fips_mapping() -> Dict[str, str]:
 
 def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode: bool) -> Dict[str, str]:
     """
-    Load location mapping with the following order:
-    1. Custom location mapping file (highest priority)
-    2. Default US FIPS mapping (fallback)
+    Load the location-code-to-name mapping using a priority chain.
+
+    Resolution order:
+
+    1. **Custom mapping file** — if
+       :attr:`config.spatial_config.custom_location_mapping_file_name` is set,
+       read the CSV from the ``auxiliary-data/`` directory using the column
+       names specified in :class:`SpatialDataConfig`.
+    2. **Default US FIPS mapping** — falls back to
+       :func:`_load_us_state_fips_mapping` if no custom file is configured or
+       if loading the custom file fails.
+
+    Args:
+        config: Validated :class:`DashboardConfig` instance.
+        config_path: Path to the ``config.yaml`` file, used to resolve
+            the project root directory.
+        dev_mode: If True, look for data under ``development-mode-root/``
+            instead of the project root.
+
+    Returns:
+        dict[str, str]: Mapping of location codes to human-readable names.
     """
     # Determine base path
     project_root = config_path.parent
@@ -723,7 +823,16 @@ def _load_location_mapping(config: DashboardConfig, config_path: Path, dev_mode:
 
 
 def export_json_schema(output_path: str = "config_schema.json"):
-    """Export configuration schema as JSON Schema for documentation and tooling"""
+    """
+    Export the :class:`DashboardConfig` schema as a JSON Schema file.
+
+    Useful for editor auto-completion, documentation generation, and
+    external tooling that consumes the ``config.yaml`` structure.
+
+    Args:
+        output_path: File path for the generated JSON Schema.
+            Defaults to ``"config_schema.json"`` in the current directory.
+    """
     schema = DashboardConfig.model_json_schema()
 
     with open(output_path, "w") as f:
@@ -739,7 +848,16 @@ def export_json_schema(output_path: str = "config_schema.json"):
 
 
 def test_pydantic_config():
-    """Test function to validate the Pydantic config processor"""
+    """
+    Smoke-test the Pydantic configuration processor.
+
+    Loads and validates the default ``config.yaml``, prints a configuration
+    summary, and exports the JSON Schema via :func:`export_json_schema`.
+
+    Returns:
+        bool: True if the configuration loaded and validated without errors,
+            False otherwise.
+    """
     try:
         print("\n" + "=" * 80)
         print("Testing Pydantic YAML Config Processor...")

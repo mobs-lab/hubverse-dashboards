@@ -1,8 +1,16 @@
 # Hubverse Dashboard Documentation
 
-Welcome to the **Hubverse Dashboard** documentation. 
+Welcome to the **Hubverse Dashboard** documentation.
 
-This project is a visualization tool designed to work seamlessly with [Hubverse](https://hubverse.io) compatible data standards. By customizing your configurations inside a YAML file, you can quickly set up this dashboard to visualize your data.
+This project is a template for quickly spinning up a [Hubverse](https://hubverse.io)-compatible dashboard that visualizes forecast predictions and evaluation metrics. By customizing a single YAML configuration file, you can set up the dashboard to work with your data without modifying the frontend code.
+
+## Key Features
+
+- **Configurable via YAML** -- All data source, display, and evaluation settings are controlled through `config.yaml`.
+- **Pydantic Validation** -- Configuration is validated at build time with detailed, actionable error messages.
+- **Incremental Updates** -- After an initial build, only changed data is reprocessed via file-level change detection.
+- **Evaluation Metrics** -- Automatic calculation of WIS, WIS Ratio, MAPE, and Coverage with geographic and temporal aggregations.
+- **Customizable UI** -- Dashboard branding, navigation, chart titles, and info buttons are all configurable.
 
 ## Table of Contents
 
@@ -12,6 +20,7 @@ This project is a visualization tool designed to work seamlessly with [Hubverse]
 
 getting_started
 configuration
+config_schema
 data_preparation
 ui_customization
 ```
@@ -26,6 +35,6 @@ api_reference
 
 ## Quick Links
 
-*   {ref}`genindex`
-*   {ref}`modindex`
-*   {ref}`search`
+- {ref}`genindex`
+- {ref}`modindex`
+- {ref}`search`

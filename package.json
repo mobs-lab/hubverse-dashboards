@@ -1,6 +1,6 @@
 {
   "name": "hubverse-dashboard",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Template for quickly spinning up Hubverse-standard-compatible dashboard, visualizating forecast and evaluations data.",
   "scripts": {
     "dev": "next dev",

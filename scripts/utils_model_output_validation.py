@@ -14,17 +14,15 @@ logger = logging.getLogger(__name__)
 def validate_model_output_schema(df: pd.DataFrame) -> None:
     """
     Validate model output data schema and detect potential issues.
-    
-    This checks for:
-    - Required columns presence
-    - Mixed data types in critical columns
-    - Column order consistency
-    
+
+    Checks for required column presence and expected data types. Logs
+    warnings for type mismatches but only raises on missing columns.
+
     Args:
-        df (pd.DataFrame): Model output DataFrame to validate
-        
+        df: Model output :class:`~pandas.DataFrame` to validate.
+
     Raises:
-        ValueError: If critical validation failures are detected
+        ValueError: If one or more required columns are missing from *df*.
     """
     required_cols = ["reference_date", "target_end_date", "location", "target", 
                     "output_type", "output_type_id", "value", "model"]
@@ -53,13 +51,15 @@ def validate_model_output_schema(df: pd.DataFrame) -> None:
 
 def validate_pivot_quantiles(pivoted_df: pd.DataFrame) -> None:
     """
-    Validate pivoted quantile data for issues like duplicate columns.
-    
-    This detects cases where mixed types in source data (e.g., both 0.5 and "0.5")
-    create duplicate quantile columns after pivoting.
-    
+    Validate pivoted quantile data for duplicate columns.
+
+    Detects cases where mixed types in source data (e.g., both ``0.5`` and
+    ``"0.5"``) create duplicate quantile columns after pivoting. Called
+    automatically by :func:`pivot_quantiles`.
+
     Args:
-        pivoted_df (pd.DataFrame): Pivoted DataFrame with quantiles as columns
+        pivoted_df: Pivoted :class:`~pandas.DataFrame` with quantile
+            levels as column names.
     """
     # Get quantile columns (numeric-looking column names)
     q_cols = [c for c in pivoted_df.columns 
@@ -88,16 +88,23 @@ def validate_pivot_quantiles(pivoted_df: pd.DataFrame) -> None:
 
 def pivot_quantiles(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Pivots the long-format quantile data into a wide format where each quantile level
-    becomes its own column.
+    Pivot long-format quantile data into wide format.
 
-    This is necessary for the frontend to easily map prediction intervals.
+    Each unique ``output_type_id`` value becomes its own column, making it
+    straightforward for the frontend to map prediction intervals. Non-quantile
+    rows are preserved and concatenated back after pivoting.
+
+    Validation of the result is performed by
+    :func:`validate_pivot_quantiles`.
 
     Args:
-        df (pd.DataFrame): The raw long-format model output DataFrame.
+        df: Long-format model output :class:`~pandas.DataFrame` containing
+            an ``output_type`` column with ``"quantile"`` rows.
 
     Returns:
-        pd.DataFrame: Wide-format DataFrame.
+        pandas.DataFrame: Wide-format DataFrame with quantile levels as
+        columns. If no quantile rows exist, the original *df* is returned
+        unchanged.
     """
 
     quantile_rows = df[df["output_type"] == "quantile"].copy()

@@ -16,16 +16,19 @@ def calculate_boxplot_stats(location_averages: list) -> dict:
     """
     Calculate boxplot statistics from a list of per-location score averages.
 
-    These statistics represent the distribution of model performance across locations.
-    The percentiles (q05, q25, median, q75, q95) are computed from the list of
-    location averages.
+    These statistics represent the distribution of model performance across
+    locations. The percentiles (q05, q25, median, q75, q95) are computed
+    from the list of location averages. Used by :func:`process_iqr_stats`
+    to produce Season Overview boxplot data.
 
     Args:
-        location_averages: List of average scores, one per location
+        location_averages: List of average scores, one per location.
+            ``NaN`` and ``Inf`` values are filtered out before computation.
 
     Returns:
-        dict: BoxplotStats with q05, q25, median, q75, q95, min, max, mean, count
-        Returns None if no valid data is available.
+        dict or None: BoxplotStats dictionary with keys ``q05``, ``q25``,
+        ``median``, ``q75``, ``q95``, ``min``, ``max``, ``mean``, and
+        ``count``. Returns ``None`` if no valid (finite) data is available.
     """
     if not location_averages or len(location_averages) == 0:
         return None
@@ -71,21 +74,25 @@ def process_iqr_stats(period_id: str, precalculated: dict):
     """
     Calculate IQR statistics for Season Overview boxplot charts.
 
-    MUST be called AFTER process_location_map_aggregates as it uses the
-    locationMap_aggregates data to compute per-location averages.
+    **Must** be called *after* :func:`process_location_map_aggregates` as it
+    reads from ``precalculated["locationMap_aggregates"]`` to compute
+    per-location averages.
 
     Logic:
-    1. For each metric (WIS/Baseline, MAPE), target, model, and horizon
-    2. Compute average score for each location: sum/count
-    3. Collect all location averages into a list
-    4. Calculate percentiles (q05, q25, median, q75, q95) from that list
 
-    Only pre-calculates single-horizon IQR. Frontend computes multi-horizon
-    combinations using locationMap_aggregates data.
-    
+    1. For each metric (WIS/Baseline, MAPE), target, model, and horizon
+    2. Compute the average score for each location: ``sum / count``
+    3. Collect all location averages into a list
+    4. Pass the list to :func:`calculate_boxplot_stats` to obtain percentiles
+
+    Only pre-calculates single-horizon IQR. The frontend computes
+    multi-horizon combinations using ``locationMap_aggregates`` data.
+
     Args:
-        period_id: The forecast period identifier
-        precalculated: Dictionary containing aggregated evaluation data
+        period_id: The forecast period identifier string.
+        precalculated: Mutable dictionary containing aggregated evaluation
+            data. Must already contain ``"locationMap_aggregates"`` and
+            ``"iqr"`` keys with nested dicts for *period_id*.
     """
     state_map_data = precalculated.get("locationMap_aggregates", {}).get(period_id, {})
 
@@ -141,42 +148,53 @@ def process_location_map_aggregates(
     start,
     end,
     precalculated: dict,
-    target_key_to_id_map: dict
+    target_key_to_id_map: dict,
+    location_map_coverage_level: int = 95
 ):
     """
     Process location map aggregates for geographic visualization and IQR calculation.
 
-    Aggregates sum/count per location per horizon for WIS over Baseline, MAPE, and Coverage metrics.
-    These aggregates are used by:
-    1. Location map visualization (computing location averages for map coloring)
-    2. IQR calculation (computing percentiles across location averages)
+    Aggregates ``sum`` / ``count`` per location per horizon for WIS over
+    Baseline, MAPE, and Coverage metrics. These aggregates are consumed by:
+
+    1. Location map visualisation (computing location averages for map colouring)
+    2. :func:`process_iqr_stats` (computing percentiles across location averages)
 
     Note: WIS/Baseline and MAPE each have a single score per forecast instance.
-    Coverage uses the 95% prediction interval level by default.
-    
+    Coverage uses a configurable prediction interval level (default 95 %).
+
     Args:
-        raw_evaluations: Dictionary of raw evaluation DataFrames
-        period_id: The forecast period identifier
-        start: Start date for filtering
-        end: End date for filtering
-        precalculated: Dictionary to store aggregated results
-        target_key_to_id_map: Mapping from target keys to target IDs
+        raw_evaluations: Dictionary of raw evaluation DataFrames keyed by
+            metric name (``"wis_ratio"``, ``"mape"``, ``"coverage"``).
+        period_id: The forecast period identifier string.
+        start: Start date (inclusive) for filtering ``target_end_date``.
+        end: End date (inclusive) for filtering ``target_end_date``.
+        precalculated: Mutable dictionary to store aggregated results.
+            Must already contain a ``"locationMap_aggregates"`` key with
+            a nested dict for *period_id*.
+        target_key_to_id_map: Mapping from target column values to target
+            ID strings used in the output structure.
+        location_map_coverage_level: Coverage level percentage used when
+            aggregating the Coverage metric for the location map
+            (default ``95``).
     """
     # WIS/Baseline: wis_ratio column (single value per forecast)
     # MAPE: mape column (single value per forecast)
-    # Coverage: use 95_coverage column specifically (binary 0/1 per forecast, averaged to percentage)
+    # Coverage: use configured coverage level column (binary 0/1 per forecast, averaged to percentage)
     metrics_to_process = []
     if "wis_ratio" in raw_evaluations and not raw_evaluations["wis_ratio"].empty:
         metrics_to_process.append(("WIS/Baseline", raw_evaluations["wis_ratio"], "wis_ratio"))
     if "mape" in raw_evaluations and not raw_evaluations["mape"].empty:
         metrics_to_process.append(("MAPE", raw_evaluations["mape"], "mape"))
     if "coverage" in raw_evaluations and not raw_evaluations["coverage"].empty:
-        # Use 95% coverage level for location map aggregates
+        # Use configured coverage level for location map aggregates
         cov_df = raw_evaluations["coverage"]
-        if "95_coverage" in cov_df.columns:
-            metrics_to_process.append(("Coverage", cov_df, "95_coverage"))
+        coverage_col_name = f"{location_map_coverage_level}_coverage"
+        if coverage_col_name in cov_df.columns:
+            metrics_to_process.append(("Coverage", cov_df, coverage_col_name))
         else:
-            logger.warning("95_coverage column not found in coverage data, skipping Coverage metric for location map")
+            logger.warning(f"{coverage_col_name} column not found in coverage data, skipping Coverage metric for location map. "
+                         f"Available coverage columns: {[col for col in cov_df.columns if col.endswith('_coverage')]}")
 
     for metric_name, df, val_col in metrics_to_process:
         # Filter by date range
@@ -240,16 +258,28 @@ def process_coverage_aggregates(
     target_key_to_id_map: dict
 ):
     """
-    Process coverage aggregates for Season Overview coverage chart.
-    
+    Process coverage aggregates for the Season Overview coverage chart.
+
+    For each configured coverage level (e.g., 50, 80, 95), computes
+    per-horizon ``sum`` / ``count`` aggregates that the frontend uses to
+    derive average coverage rates. Results are stored in
+    ``precalculated["detailedCoverage_aggregates"]``, keyed by period,
+    target, model, horizon, and coverage level.
+
     Args:
-        raw_evaluations: Dictionary of raw evaluation DataFrames
-        period_id: The forecast period identifier
-        start: Start date for filtering
-        end: End date for filtering
-        precalculated: Dictionary to store aggregated results
-        cov_levels: List of coverage levels to process
-        target_key_to_id_map: Mapping from target keys to target IDs
+        raw_evaluations: Dictionary of raw evaluation DataFrames. Must
+            contain a ``"coverage"`` key whose DataFrame has columns for
+            each requested level (e.g., ``"95_coverage"``).
+        period_id: The forecast period identifier string.
+        start: Start date (inclusive) for filtering ``target_end_date``.
+        end: End date (inclusive) for filtering ``target_end_date``.
+        precalculated: Mutable dictionary to store aggregated results.
+            Must already contain a ``"detailedCoverage_aggregates"`` key
+            with a nested dict for *period_id*.
+        cov_levels: List of integer coverage level percentages to process
+            (e.g., ``[50, 80, 95]``).
+        target_key_to_id_map: Mapping from target column values to target
+            ID strings used in the output structure.
     """
     if "coverage" not in raw_evaluations or raw_evaluations["coverage"].empty:
         return
