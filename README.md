@@ -47,13 +47,13 @@ Built with **Next.js** (React) for the frontend and **Python** for data processi
 
 5. **(For Remote Data)** Specify the link to your Hubverse-compatible GitHub repository in `config.yaml` under `link_to_hubverse_compatible_data`. The build script will clone/update the repo automatically.
 
-6. **Configure the dashboard** by copying the example configuration and customizing it:
+6. **Configure the dashboard** by copying the example configuration from `config-file-examples/` and customizing it:
 
    ```bash
-   cp config.yaml.example config.yaml
+   cp config-file-examples/config.yaml.example config.yaml
    ```
 
-   See [Configuration Reference](docs/source/configuration.md) for full details on each option.
+   The `config-file-examples/` directory also contains pre-made configurations for specific data hubs (COVID-19, FluSight, RSV) that you can use as starting points. See [Configuration Reference](docs/source/configuration.md) for full details on each option, or run Option 0 in the build script to browse the HTML documentation.
 
 7. **(Optional)** Make the build script executable:
 
@@ -69,18 +69,17 @@ Built with **Next.js** (React) for the frontend and **Python** for data processi
 
    The interactive menu offers the following options:
 
-   | Option | Description |
-   |--------|-------------|
-   | **0** | Build and view the full documentation |
-   | **1** | Full build with evaluations (WIS, MAPE, Coverage) |
-   | **2** | Build without evaluations (disables Evaluations page) |
-   | **3** | Development mode build with evaluations |
-   | **4** | Development mode build without evaluations |
-   | **5** | Data update -- production mode (incremental) |
-   | **6** | Data update -- development mode (incremental) |
+   | Option | Description                                           |
+   | ------ | ----------------------------------------------------- |
+   | **0**  | Build and view the full documentation                 |
+   | **1**  | Full build with evaluations (WIS, MAPE, Coverage)     |
+   | **2**  | Build without evaluations (disables Evaluations page) |
+   | **3**  | Development mode build with evaluations               |
+   | **4**  | Development mode build without evaluations            |
+   | **5**  | Data update -- production mode (incremental)          |
+   | **6**  | Data update -- development mode (incremental)         |
 
 9. **Start the dashboard.** After processing completes, the script prompts you to launch a server:
-
    - **Development server:** `npm run dev` -- hot reload, `http://localhost:3000`
    - **Production build:** `npm run build && npm run start`
 
@@ -173,6 +172,7 @@ Below are common issues you may encounter when running `build_dashboard.sh` and 
 **Cause:** Python dependencies are not installed, or your virtual environment is not activated.
 
 **Solution:**
+
 ```bash
 source .venv/bin/activate   # Activate your virtual environment first
 pip install -r requirements.txt
@@ -183,8 +183,9 @@ pip install -r requirements.txt
 **Cause:** You have not created a `config.yaml` file yet.
 
 **Solution:**
+
 ```bash
-cp config.yaml.example config.yaml
+cp config-file-examples/config.yaml.example config.yaml
 # Then edit config.yaml with your settings
 ```
 
@@ -192,7 +193,7 @@ cp config.yaml.example config.yaml
 
 **Cause:** Your `config.yaml` has invalid or missing fields. The Pydantic validator provides detailed error messages indicating which field failed and why.
 
-**Solution:** Read the error messages carefully. They indicate the field path (e.g., `forecast_periods -> 0 -> end_date`) and the specific issue. Cross-reference with the comments in `config.yaml.example` or the [Configuration Reference](docs/source/configuration.md).
+**Solution:** Read the error messages carefully. They indicate the field path (e.g., `forecast_periods -> 0 -> end_date`) and the specific issue. Cross-reference with the [Configuration Reference](docs/source/configuration.md) or the HTML documentation (Option 0 in the build menu).
 
 ### `ERROR: Data update run requires existing artifacts`
 
@@ -211,6 +212,7 @@ cp config.yaml.example config.yaml
 **Cause:** Node.js dependencies are not installed.
 
 **Solution:**
+
 ```bash
 npm install
 ```
@@ -220,6 +222,7 @@ npm install
 **Cause:** Another process (possibly a previous dashboard instance) is using port 3000.
 
 **Solution:** Kill the existing process or use a different port:
+
 ```bash
 # Find and kill the process
 lsof -i :3000
@@ -229,7 +232,27 @@ kill -9 <PID>
 PORT=3001 npm run dev
 ```
 
-*(This section will be expanded over time.)*
+---
+
+## Warnings and Recommendations
+
+### Use the Latest Python Version
+
+While the minimum requirement is Python 3.9, we strongly recommend using the **latest stable Python release** (3.14+ as of this writing). Newer versions include performance improvements, better error messages, and security patches that benefit the data processing pipeline. You can check your version with `python3 --version`.
+
+### Switching Data Hubs (Complete Configuration Overhaul)
+
+If you are switching the data hub your dashboard is pointed at (e.g., from COVID-19 Forecast Hub to FluSight Hub), this effectively means an entirely different dataset, different model names, different targets, and a completely different `config.yaml`. **We strongly recommend starting clean** rather than trying to incrementally adjust an existing setup:
+
+1. **Delete all data input directories** (`target-data/`, `model-output/`, `auxiliary-data/`, and `development-mode-root/` if present).
+2. **Delete all processed output** (`public/data/`, `public/test-data-output/`).
+3. **Delete intermediates** (`intermediates/`, `development-mode-root/intermediates/`).
+
+Alternatively, consider **cloning the repository template fresh** into a new directory entirely. This avoids any risk of stale cached data or manifest state contaminating the new build. The incremental update system relies on manifests and intermediates that are tied to a specific data hub's schema -- mixing data from different hubs in the same intermediates will cause errors or incorrect output.
+
+### Do Not Mix Data Hub Artifacts
+
+The manifest (`manifest.json`), intermediate parquet caches, and processed JSON output are all tightly coupled to the configuration they were built with. If you change `config.yaml` significantly (new targets, different column mappings, different models), always run a **full from-scratch build** (Options 1--4) rather than a data-update run (Options 5--6). The data-update mode assumes the schema and configuration are consistent with the previous build.
 
 ---
 

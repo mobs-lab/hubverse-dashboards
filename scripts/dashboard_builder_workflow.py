@@ -182,7 +182,8 @@ class DashboardBuilder:
         except FileNotFoundError:
             logger.error(f"Configuration file not found: {self.config_path}")
             logger.error("Please create a config.yaml file in the project root.")
-            logger.error("You can copy config.yaml.example and customize it for your data.")
+            logger.error("You can copy an example from config-file-examples/ and customize it:"
+                         "\n  cp config-file-examples/config.yaml.example config.yaml")
             return False
 
         except ValueError as e:

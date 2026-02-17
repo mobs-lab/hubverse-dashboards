@@ -2,14 +2,14 @@
 
 This page documents the full configuration schema for `config.yaml`. All configuration is validated at build time using [Pydantic v2](https://docs.pydantic.dev/) models defined in `scripts/yaml_config_processor_pydantic.py`.
 
-To get started, copy the example configuration:
+To get started, copy the example configuration from `config-file-examples/`:
 
 ```bash
-cp config.yaml.example config.yaml
+cp config-file-examples/config.yaml.example config.yaml
 ```
 
 ```{tip}
-The `config-file-examples/` directory contains example configurations for different use cases (COVID-19, Flu, RSV).
+The `config-file-examples/` directory also contains pre-made configurations for specific data hubs (COVID-19, FluSight, RSV) that you can use as starting points.
 ```
 
 ---

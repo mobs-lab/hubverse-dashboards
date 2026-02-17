@@ -17,7 +17,7 @@
 #==============================================================================
 # DATA SOURCE CONFIGURATION
 #==============================================================================
-# [CONDITIONAL] You must provide EITHER a local path OR a remote link.
+# [CONDITIONAL] You must provide EITHER local data OR a remote link.
 #
 # Option 1: Local Data (recommended for development)
 #   - Place your data in directories named `target-data/`, `model-output/`, and `auxiliary-data/`
@@ -28,10 +28,10 @@
 #   - Provide a URL to a valid Hubverse-compatible GitHub repository containing your data.
 #------------------------------------------------------------------------------
 
-link_to_hubverse_compatible_data: https://github.com/CDCgov/covid19-forecast-hub.git
+link_to_hubverse_compatible_data: "https://github.com/CDCgov/covid19-forecast-hub.git"
 
 # Example remote configuration:
-# link_to_hubverse_compatible_data: "https://github.com/hubverse-org/covid-19-forecast-hub-data/"
+# link_to_hubverse_compatible_data: https://github.com/CDCgov/covid19-forecast-hub.git
 
 #==============================================================================
 # FORECAST PERIODS DEFINITIONS
@@ -326,7 +326,16 @@ baseline_model_for_relative_WIS: "CovidHub-baseline"
 #    (95% requires 0.025 and 0.975 quantiles).
 #
 # If omitted, defaults to [50, 95].
-evaluation_coverage_levels: [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98]
+evaluation_coverage_levels: [10, 20, 30, 40, 50, 60, 70, 80, 90, 98]
+
+# [OPTIONAL] Define a single coverage level (in percentage) to be used specifically for Location map visualization (computing location averages for map coloring)
+#
+# This value can overlap with evaluation_coverage_levels or be different.
+# If different, the system will calculate this coverage level in addition to the main list,
+# but it will only be used for location map aggregates (not the Coverage chart).
+#
+# If omitted, defaults to 95.
+evaluation_coverage_level_for_location_map: 95
 
 #==============================================================================
 # DASHBOARD DISPLAY SETTINGS
